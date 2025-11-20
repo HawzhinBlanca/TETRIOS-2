@@ -1,0 +1,5 @@
+{
+  "name": "TETRIOS",
+  "description": "A next-generation, high-fidelity Tetris clone featuring neon aesthetics, fluid mechanics, and a robust React-based game engine.",
+  "requestFramePermissions": []
+}
