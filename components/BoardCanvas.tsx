@@ -4,14 +4,13 @@ import { MoveScore } from '../types';
 import { COLORS, STAGE_WIDTH, STAGE_HEIGHT, TETROMINOS } from '../constants';
 import { rotateMatrix } from '../utils/gameUtils';
 import { audioManager } from '../utils/audioManager';
+import { GameCore } from '../utils/GameCore';
 
 interface Props {
-  engine: React.MutableRefObject<any>; // Using any to avoid circular dep types
+  engine: React.MutableRefObject<GameCore>;
   aiHint: MoveScore | null;
   showAi: boolean;
   cellSize?: number; 
-  
-  // Ghost Config
   ghostStyle?: 'neon' | 'dashed' | 'solid';
   ghostOpacity?: number;
   ghostOutlineThickness?: number;
@@ -20,9 +19,8 @@ interface Props {
   lockWarningEnabled?: boolean;
 }
 
-// --- UTILS & HELPERS ---
+// --- RENDER HELPERS ---
 
-// Memoize color parsing to avoid thousands of regex calls per frame
 const RGB_CACHE: Record<string, string> = {};
 const getRgbString = (color: string): string => {
     if (RGB_CACHE[color]) return RGB_CACHE[color];
@@ -47,16 +45,12 @@ const drawRoundedRect = (ctx: CanvasRenderingContext2D, x: number, y: number, w:
 const calculateGhostY = (stage: any[][], player: any): number => {
     let ghostY = player.pos.y;
     const shape = player.tetromino.shape;
-    
-    // Safety: Check if shape has blocks
     const hasBlocks = shape.some((row: any[]) => row.some((cell: any) => cell !== 0));
     if (!hasBlocks) return ghostY;
 
-    // Loop bound by stage height to prevent infinite loops
     for (let i = 0; i < STAGE_HEIGHT + 2; i++) {
        let collision = false;
        const nextY = ghostY + 1;
-       
        for(let r=0; r<shape.length; r++) {
            for(let c=0; c<shape[r].length; c++) {
                if(shape[r][c] !== 0) {
@@ -74,6 +68,114 @@ const calculateGhostY = (stage: any[][], player: any): number => {
     return ghostY;
 };
 
+// --- SPECIALIZED DRAW FUNCTIONS ---
+
+const drawGhostPiece = (
+    ctx: CanvasRenderingContext2D, 
+    player: any, 
+    ghostY: number,
+    cellSize: number,
+    gap: number,
+    size: number, 
+    radius: number, 
+    config: { style: string, opacity: number, thickness: number, glow: number, shadow?: string }
+) => {
+    const { style, opacity, thickness, glow, shadow } = config;
+    const rgb = getRgbString(player.tetromino.color);
+    const pulseFactor = (Math.sin(Date.now() / 300) + 1) / 2;
+
+    ctx.save();
+    ctx.globalAlpha = opacity;
+
+    // Apply styles once for the whole piece to optimize performance
+    if (style === 'dashed') {
+        ctx.strokeStyle = `rgba(${rgb}, 0.6)`;
+        ctx.lineWidth = Math.max(1, thickness);
+        ctx.setLineDash([size * 0.25, size * 0.15]); 
+        ctx.fillStyle = `rgba(${rgb}, 0.05)`;
+    } else if (style === 'solid') {
+        ctx.fillStyle = `rgba(${rgb}, 0.5)`; 
+        if (thickness > 0) {
+            ctx.strokeStyle = `rgba(${rgb}, 0.8)`;
+            ctx.lineWidth = thickness;
+        }
+    } else { 
+        // Neon (Default)
+        ctx.shadowColor = shadow || `rgba(${rgb}, 1)`; 
+        const baseBlur = size * 0.4 * glow;
+        const pulseBlur = size * 0.2 * glow * pulseFactor;
+        ctx.shadowBlur = baseBlur + pulseBlur;
+        ctx.strokeStyle = `rgba(${rgb}, 0.9)`;
+        ctx.lineWidth = Math.max(1, thickness);
+        ctx.fillStyle = `rgba(${rgb}, 0.15)`;
+    }
+
+    player.tetromino.shape.forEach((row: any, y: number) => {
+        row.forEach((value: any, x: number) => {
+            if (value !== 0) {
+                const px = (x + player.pos.x) * cellSize + gap;
+                const py = (y + ghostY) * cellSize + gap;
+                
+                drawRoundedRect(ctx, px, py, size, size, radius);
+                
+                if (style === 'dashed') {
+                    if (thickness > 0) ctx.stroke();
+                    ctx.fill();
+                } else if (style === 'solid') {
+                    ctx.fill();
+                    if (thickness > 0) ctx.stroke();
+                } else { // Neon
+                    if (thickness > 0) ctx.stroke();
+                    ctx.fill();
+                }
+            }
+        });
+    });
+
+    ctx.restore();
+};
+
+const drawActiveCell = (ctx: CanvasRenderingContext2D, px: number, py: number, size: number, radius: number, rgb: string, lockData: any) => {
+    const { isLocking, progress } = lockData;
+    const pulse = isLocking ? (Math.sin(Date.now() / (60 - (progress * 40))) + 1) / 2 : 0;
+
+    if (isLocking) {
+        ctx.shadowColor = `rgba(255, 255, 255, ${0.6 + (pulse * 0.4) + (progress * 0.4)})`;
+        ctx.shadowBlur = size * 0.6 + (pulse * size * 0.3) + (progress * size * 0.5);
+        ctx.fillStyle = `rgba(${rgb}, 0.9)`;
+    } else {
+        ctx.fillStyle = `rgba(${rgb}, 0.9)`;
+        ctx.shadowColor = `rgba(${rgb}, 0.8)`;
+        ctx.shadowBlur = size * 0.5;
+    }
+
+    drawRoundedRect(ctx, px, py, size, size, radius / 1.5);
+    ctx.fill();
+    
+    if (isLocking) {
+        const overlayOpacity = 0.1 + (progress * 0.4) + (pulse * 0.1);
+        ctx.fillStyle = `rgba(255, 255, 255, ${overlayOpacity})`;
+        ctx.beginPath();
+        drawRoundedRect(ctx, px, py, size, size, radius / 1.5);
+        ctx.fill();
+        ctx.strokeStyle = `rgba(255, 255, 255, ${0.8 + (progress * 0.2)})`;
+        ctx.lineWidth = Math.max(1, size * 0.06);
+    } else {
+        ctx.strokeStyle = `rgba(${rgb}, 1)`;
+        ctx.lineWidth = Math.max(1, size * 0.03);
+    }
+
+    // Inner highlight
+    ctx.fillStyle = 'rgba(255,255,255,0.2)';
+    ctx.beginPath();
+    ctx.rect(px, py, size, size/2);
+    ctx.fill();
+    
+    ctx.stroke();
+};
+
+// --- MAIN COMPONENT ---
+
 const BoardCanvas: React.FC<Props> = ({ 
   engine,
   aiHint, 
@@ -88,135 +190,20 @@ const BoardCanvas: React.FC<Props> = ({
 }) => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
 
-  // --- DRAWING LOGIC ---
-  const drawCell = (ctx: CanvasRenderingContext2D, x: number, y: number, color: string, isGhost = false, isAi = false, isLocking = false, lockProgress = 0) => {
-     const px = x * cellSize;
-     const py = y * cellSize;
-     
-     // Responsive dimensions
-     const gap = cellSize * 0.05; 
-     const size = cellSize - (gap * 2); 
-     const radius = cellSize * 0.12; 
-     
-     ctx.save();
-     const rgb = getRgbString(color);
-
-     if (isGhost) {
-        ctx.globalAlpha = ghostOpacity;
-        const lw = ghostOutlineThickness; // User preference, usually absolute pixels
-
-        if (ghostStyle === 'dashed') {
-            ctx.strokeStyle = `rgba(${rgb}, 0.8)`;
-            ctx.lineWidth = lw;
-            ctx.setLineDash([cellSize * 0.25, cellSize * 0.12]); 
-            ctx.fillStyle = 'transparent';
-            drawRoundedRect(ctx, px + gap, py + gap, size, size, radius);
-            if (lw > 0) ctx.stroke();
-        } else if (ghostStyle === 'solid') {
-            ctx.fillStyle = `rgba(${rgb}, 0.5)`; 
-            drawRoundedRect(ctx, px + gap, py + gap, size, size, radius / 2);
-            ctx.fill();
-            if (lw > 0) {
-                ctx.strokeStyle = `rgba(${rgb}, 0.8)`;
-                ctx.lineWidth = lw;
-                ctx.stroke();
-            }
-        } else {
-            // Neon
-            ctx.strokeStyle = `rgba(${rgb}, 0.8)`;
-            ctx.lineWidth = lw;
-            ctx.fillStyle = `rgba(${rgb}, 0.1)`;
-            const pulse = (Math.sin(Date.now() / 200) + 1) / 2; 
-            
-            if (ghostShadow) {
-                ctx.shadowColor = ghostShadow; 
-                // Apply ghostGlowIntensity to the shadow blur
-                ctx.shadowBlur = (cellSize * 0.3 + pulse * cellSize * 0.25) * ghostGlowIntensity;
-            } else {
-                // Apply ghostGlowIntensity to the shadow blur
-                ctx.shadowBlur = (cellSize * 0.15 + pulse * cellSize * 0.3) * ghostGlowIntensity;
-                ctx.shadowColor = `rgba(${rgb}, 0.8)`;
-            }
-            
-            drawRoundedRect(ctx, px + gap, py + gap, size, size, radius);
-            if (lw > 0) ctx.stroke();
-            ctx.fill();
-        }
-        
-     } else if (isAi) {
-         // AI Hint
-         const pulse = (Math.sin(Date.now() / 300) + 1) / 2; 
-         const alpha = 0.4 + pulse * 0.4;
-         
-         ctx.strokeStyle = `rgba(255, 215, 0, ${alpha})`; 
-         ctx.setLineDash([cellSize * 0.2, cellSize * 0.15]);
-         ctx.lineWidth = Math.max(1, cellSize * 0.06);
-         ctx.fillStyle = `rgba(255, 215, 0, 0.1)`; 
-         
-         drawRoundedRect(ctx, px + gap, py + gap, size, size, radius);
-         ctx.fill();
-         ctx.stroke();
-     } else {
-         // Active/Locked Block
-         // If locking, pulse gets faster and more intense based on progress
-         const pulse = isLocking ? (Math.sin(Date.now() / (60 - (lockProgress * 40))) + 1) / 2 : 0;
-
-         if (isLocking) {
-             ctx.shadowColor = `rgba(255, 255, 255, ${0.6 + (pulse * 0.4) + (lockProgress * 0.4)})`;
-             ctx.shadowBlur = cellSize * 0.6 + (pulse * cellSize * 0.3) + (lockProgress * cellSize * 0.5);
-             ctx.fillStyle = `rgba(${rgb}, 0.9)`;
-         } else {
-             ctx.fillStyle = `rgba(${rgb}, 0.9)`;
-             ctx.shadowColor = `rgba(${rgb}, 0.8)`;
-             ctx.shadowBlur = cellSize * 0.5;
-         }
-
-         drawRoundedRect(ctx, px + gap, py + gap, size, size, radius / 1.5);
-         ctx.fill();
-         
-         // Locking Overlay
-         if (isLocking) {
-             // White overlay opacity increases as we get closer to lock
-             const overlayOpacity = 0.1 + (lockProgress * 0.4) + (pulse * 0.1);
-             ctx.fillStyle = `rgba(255, 255, 255, ${overlayOpacity})`;
-             ctx.beginPath();
-             drawRoundedRect(ctx, px + gap, py + gap, size, size, radius / 1.5);
-             ctx.fill();
-             
-             ctx.strokeStyle = `rgba(255, 255, 255, ${0.8 + (lockProgress * 0.2)})`;
-             ctx.lineWidth = Math.max(1, cellSize * 0.06);
-         } else {
-             ctx.strokeStyle = `rgba(${rgb}, 1)`;
-             ctx.lineWidth = Math.max(1, cellSize * 0.03);
-         }
-
-         // Inner highlight
-         ctx.fillStyle = 'rgba(255,255,255,0.2)';
-         ctx.beginPath();
-         ctx.rect(px + gap, py + gap, size, size/2);
-         ctx.fill();
-         
-         ctx.stroke();
-     }
-     ctx.restore();
-  };
-
   const render = () => {
     const canvas = canvasRef.current;
     const ctx = canvas?.getContext('2d');
     if (!canvas || !ctx || !engine.current) return;
 
     const e = engine.current;
-    const { stage, player, comboCount, dropCounter, dropTime, floatingTexts } = e;
-
-    // --- GHOST CALC ---
-    const ghostY = calculateGhostY(stage, player);
+    const { stage, player, floatingTexts } = e;
     const hasBlocks = player.tetromino.shape.some((row: any[]) => row.some((cell: any) => cell !== 0));
+    const ghostY = calculateGhostY(stage, player);
 
+    // Setup Canvas
     const dpr = window.devicePixelRatio || 1;
     const logicWidth = STAGE_WIDTH * cellSize;
     const logicHeight = STAGE_HEIGHT * cellSize;
-    
     if (canvas.width !== logicWidth * dpr || canvas.height !== logicHeight * dpr) {
         canvas.width = logicWidth * dpr;
         canvas.height = logicHeight * dpr;
@@ -224,20 +211,21 @@ const BoardCanvas: React.FC<Props> = ({
         canvas.style.height = `${logicHeight}px`;
         ctx.scale(dpr, dpr);
     }
-
     ctx.clearRect(0, 0, logicWidth, logicHeight);
 
-    // --- GRID (Audio Reactive) ---
+    // Cell Config
+    const gap = cellSize * 0.05; 
+    const size = cellSize - (gap * 2); 
+    const radius = cellSize * 0.12; 
+
+    // Draw Grid
     let gridAlpha = 0.05;
     const audioData = audioManager.getFrequencyData();
     if (audioData) {
-        // Calculate bass energy (approx 40-250Hz)
         let bassEnergy = 0;
         for(let i=2; i<12; i++) bassEnergy += audioData[i];
-        const normalizedBass = bassEnergy / (10 * 255); 
-        gridAlpha = 0.05 + (normalizedBass * 0.25);
+        gridAlpha = 0.05 + (bassEnergy / (10 * 255)) * 0.25;
     }
-
     ctx.strokeStyle = `rgba(6, 182, 212, ${gridAlpha})`; 
     ctx.lineWidth = Math.max(0.5, cellSize * 0.03);
     ctx.beginPath();
@@ -251,29 +239,32 @@ const BoardCanvas: React.FC<Props> = ({
     }
     ctx.stroke();
 
-    // --- LOCKED BLOCKS ---
+    // Draw Static Blocks
     stage.forEach((row: any, y: number) => {
       row.forEach((cell: any, x: number) => {
         if (cell[1] !== 'clear') {
            const type = cell[0];
            const color = COLORS[type] || 'rgb(255,255,255)';
-           drawCell(ctx, x, y, color);
+           const rgb = getRgbString(color);
+           ctx.save();
+           drawActiveCell(ctx, x * cellSize + gap, y * cellSize + gap, size, radius, rgb, { isLocking: false, progress: 0 });
+           ctx.restore();
         }
       });
     });
 
-    // --- GHOST PIECE ---
+    // Draw Ghost Piece
     if (hasBlocks) {
-       player.tetromino.shape.forEach((row: any, y: number) => {
-         row.forEach((value: any, x: number) => {
-           if (value !== 0) {
-             drawCell(ctx, x + player.pos.x, y + ghostY, player.tetromino.color, true);
-           }
-         });
+       drawGhostPiece(ctx, player, ghostY, cellSize, gap, size, radius, {
+           style: ghostStyle || 'neon',
+           opacity: ghostOpacity || 0.6,
+           thickness: ghostOutlineThickness ?? 2,
+           glow: ghostGlowIntensity || 1.0,
+           shadow: ghostShadow
        });
     }
 
-    // --- AI HINT ---
+    // Draw AI Hint
     if (showAi && aiHint && aiHint.y !== undefined) {
         const type = e.player.tetromino.type;
         if (type && TETROMINOS[type]) {
@@ -283,37 +274,49 @@ const BoardCanvas: React.FC<Props> = ({
              aiShape.forEach((row: any[], dy: number) => {
                  row.forEach((cell: any, dx: number) => {
                      if (cell !== 0) {
-                         drawCell(ctx, aiHint.x + dx, aiHint.y! + dy, 'rgb(255, 215, 0)', false, true); 
+                         ctx.save();
+                         const pulse = (Math.sin(Date.now() / 300) + 1) / 2; 
+                         const alpha = 0.4 + pulse * 0.4;
+                         ctx.strokeStyle = `rgba(255, 215, 0, ${alpha})`; 
+                         ctx.setLineDash([cellSize * 0.2, cellSize * 0.15]);
+                         ctx.lineWidth = Math.max(1, cellSize * 0.06);
+                         ctx.fillStyle = `rgba(255, 215, 0, 0.1)`; 
+                         drawRoundedRect(ctx, (aiHint.x + dx) * cellSize + gap, (aiHint.y! + dy) * cellSize + gap, size, size, radius);
+                         ctx.fill();
+                         ctx.stroke();
+                         ctx.restore();
                      }
                  })
              });
         }
     }
 
-    // --- ACTIVE PIECE ---
+    // Draw Active Piece
     if (hasBlocks) {
-       const offsetY = Math.min(1, dropCounter / dropTime);
+       const dropTime = e.dropTime || 1000; // fallback safety
+       const offsetY = Math.min(1, e.dropCounter / dropTime);
        const visualY = player.pos.y + offsetY;
        
-       // Lock Delay Visuals
+       // Lock Logic
        const isLocking = lockWarningEnabled && (e.lockTimer !== null);
        let lockProgress = 0;
        if (isLocking && e.lockStartTime) {
-           // Calculate progress (0.0 to 1.0) based on elapsed time vs lock delay
            const elapsed = Date.now() - e.lockStartTime;
-           const duration = e.lockDelayDuration || 500; 
-           lockProgress = Math.min(1, Math.max(0, elapsed / duration));
+           lockProgress = Math.min(1, Math.max(0, elapsed / (e.lockDelayDuration || 500)));
        }
 
        player.tetromino.shape.forEach((row: any, y: number) => {
          row.forEach((value: any, x: number) => {
            if (value !== 0) {
-              drawCell(ctx, x + player.pos.x, y + visualY, player.tetromino.color, false, false, isLocking, lockProgress);
+              const rgb = getRgbString(player.tetromino.color);
+              ctx.save();
+              drawActiveCell(ctx, (x + player.pos.x) * cellSize + gap, (y + visualY) * cellSize + gap, size, radius, rgb, { isLocking, progress: lockProgress });
+              ctx.restore();
            }
          });
        });
        
-       // Lock Reset Flash
+       // Lock Reset Flash Overlay
        if (e.lockResetFlash > 0.01) {
             ctx.save();
             ctx.globalAlpha = e.lockResetFlash;
@@ -321,10 +324,7 @@ const BoardCanvas: React.FC<Props> = ({
             player.tetromino.shape.forEach((row: any, y: number) => {
                 row.forEach((value: any, x: number) => {
                     if (value !== 0) {
-                        const px = (x + player.pos.x) * cellSize;
-                        const py = (y + visualY) * cellSize;
-                        const size = cellSize * 0.9;
-                        drawRoundedRect(ctx, px + (cellSize * 0.05), py + (cellSize * 0.05), size, size, cellSize * 0.15);
+                        drawRoundedRect(ctx, ((x + player.pos.x) * cellSize) + (cellSize * 0.05), ((y + visualY) * cellSize) + (cellSize * 0.05), size, size, cellSize * 0.15);
                         ctx.fill();
                     }
                 });
@@ -336,9 +336,7 @@ const BoardCanvas: React.FC<Props> = ({
        }
     }
 
-    // --- OVERLAYS ---
-    
-    // T-Spin Flash
+    // T-Spin Flash Overlay
     if (e.tSpinFlash && e.tSpinFlash > 0.01) {
         ctx.save();
         ctx.globalCompositeOperation = 'screen';
@@ -347,23 +345,6 @@ const BoardCanvas: React.FC<Props> = ({
         ctx.fillRect(0, 0, logicWidth, logicHeight);
         ctx.restore();
         e.tSpinFlash *= 0.9;
-    } else {
-        e.tSpinFlash = 0;
-    }
-
-    // Combo Meter
-    if (comboCount > 0) {
-        ctx.save();
-        ctx.textAlign = 'center';
-        ctx.shadowColor = 'rgba(255, 255, 255, 0.8)';
-        ctx.shadowBlur = cellSize * 0.6;
-        ctx.fillStyle = '#fff';
-        ctx.font = `bold ${cellSize * 0.8}px Rajdhani`; 
-        const scale = 1 + Math.sin(Date.now() / 100) * 0.1;
-        ctx.translate(logicWidth / 2, cellSize * 3);
-        ctx.scale(scale, scale);
-        ctx.fillText(`${comboCount}x COMBO`, 0, 0);
-        ctx.restore();
     }
 
     // Floating Texts
@@ -375,10 +356,8 @@ const BoardCanvas: React.FC<Props> = ({
         ctx.shadowColor = ft.color;
         ctx.shadowBlur = cellSize * 0.3;
         ctx.textAlign = 'center';
-        
         const fx = ft.x * cellSize + (cellSize * 2); 
         const fy = ft.y * cellSize;
-        
         ctx.translate(fx, fy);
         ctx.scale(ft.scale + 1, ft.scale + 1);
         ctx.fillText(ft.text, 0, 0);

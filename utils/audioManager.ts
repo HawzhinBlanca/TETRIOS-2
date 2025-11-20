@@ -247,6 +247,13 @@ class AudioManager {
     this.playTone(200, 'square', 0.05, 0, 0.2);
   }
 
+  playTSpin() {
+      // Magical high-pitched chime
+      this.playTone(880, 'sine', 0.3, 0, 0.3);
+      this.playTone(1320, 'sine', 0.4, 0.05, 0.2);
+      this.playTone(1760, 'triangle', 0.5, 0.1, 0.1);
+  }
+
   playClear(lines: number) {
     const base = 440;
     const notes = [base, base * 1.25, base * 1.5, base * 2];

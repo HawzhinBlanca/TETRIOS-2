@@ -158,8 +158,16 @@ const App = () => {
                      } else {
                         particlesRef.current?.spawnExplosion(rowsToExplode, visualEffect.payload.color);
                      }
+                 } else if (visualEffect.payload.isBurst) {
+                     // Radial explosion for T-Spin / Events
+                     particlesRef.current.spawnBurst(
+                         visualEffect.payload.x, 
+                         visualEffect.payload.y, 
+                         visualEffect.payload.color,
+                         visualEffect.payload.amount || 30
+                     );
                  } else {
-                     // x,y from payload are grid coordinates
+                     // Standard fountain
                      particlesRef.current.spawn(
                          visualEffect.payload.x, 
                          visualEffect.payload.y, 

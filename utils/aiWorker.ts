@@ -1,14 +1,14 @@
 
 import { Board, TetrominoType, MoveScore } from '../types';
 
-// We define the worker script as a string to avoid bundler issues with external worker files.
-// This makes the app portable and robust.
-const workerScript = `
-  // --- CONSTANTS & TYPES (Inlined for Worker Isolation) ---
+// We define the worker logic as a standard function to ensure type safety and linting support.
+// We then convert it to a string blob for the worker.
+const workerFunction = () => {
+  // --- CONSTANTS (Inlined) ---
   const STAGE_WIDTH = 10;
   const STAGE_HEIGHT = 20;
   
-  const TETROMINOS = {
+  const TETROMINOS: any = {
     I: { shape: [[0, 'I', 0, 0], [0, 'I', 0, 0], [0, 'I', 0, 0], [0, 'I', 0, 0]] },
     J: { shape: [[0, 'J', 0], [0, 'J', 0], ['J', 'J', 0]] },
     L: { shape: [[0, 'L', 0], [0, 'L', 0], [0, 'L', 'L']] },
@@ -29,17 +29,17 @@ const workerScript = `
 
   // --- HELPER FUNCTIONS ---
   
-  function rotateMatrix(matrix, dir) {
+  function rotateMatrix(matrix: any[][], dir: number) {
     const rotatedGrid = matrix.map((_, index) => matrix.map((col) => col[index]));
     if (dir > 0) return rotatedGrid.map((row) => row.reverse());
     return rotatedGrid.reverse();
   }
 
-  function cloneBoard(board) {
+  function cloneBoard(board: any[][]) {
     return board.map(row => row.map(cell => [...cell]));
   }
 
-  function lockPiece(board, shape, x, y) {
+  function lockPiece(board: any[][], shape: any[][], x: number, y: number) {
     let dy = y;
     // Hard drop simulation
     while (dy < STAGE_HEIGHT) {
@@ -74,7 +74,7 @@ const workerScript = `
     return { board, droppedY: dy };
   }
 
-  function evaluateBoard(board, droppedY, shapeHeight) {
+  function evaluateBoard(board: any[][], droppedY: number, shapeHeight: number) {
     let landingHeight = STAGE_HEIGHT - droppedY - (shapeHeight / 2);
     let rowsCleared = 0;
     let rowTransitions = 0;
@@ -123,7 +123,7 @@ const workerScript = `
   }
 
   // --- MAIN LISTENER ---
-  self.onmessage = function(e) {
+  self.onmessage = function(e: MessageEvent) {
     const { stage, type } = e.data;
     if (!TETROMINOS[type]) return;
 
@@ -174,9 +174,16 @@ const workerScript = `
 
     self.postMessage(bestMove);
   };
-`;
+};
+
+// Convert the function to a string logic blob
+const buildWorkerScript = () => {
+  const code = `(${workerFunction.toString()})()`;
+  return code;
+};
 
 export const createAiWorker = () => {
-  const blob = new Blob([workerScript], { type: 'application/javascript' });
+  const script = buildWorkerScript();
+  const blob = new Blob([script], { type: 'application/javascript' });
   return new Worker(URL.createObjectURL(blob));
 };

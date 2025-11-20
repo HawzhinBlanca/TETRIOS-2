@@ -47,13 +47,6 @@ export const generateBag = (): TetrominoType[] => {
   return shapes;
 };
 
-export const randomTetromino = (bag: TetrominoType[]): { piece: any; newBag: TetrominoType[] } => {
-  if (bag.length === 0) bag = generateBag();
-  const type = bag.pop()!;
-  if (bag.length < 7) bag = [...generateBag(), ...bag];
-  return { piece: TETROMINOS[type], newBag: bag };
-};
-
 export const checkCollision = (
   player: Player,
   stage: Board,
@@ -81,29 +74,32 @@ export const rotateMatrix = (matrix: any[][], dir: number) => {
   return rotatedGrid.reverse();
 };
 
+// Lookup key format: "CurrentState->NextState"
+const KICK_TRANSITIONS: Record<string, { index: number; modifier: number }> = {
+  '0->1': { index: 0, modifier: 1 },
+  '1->0': { index: 0, modifier: -1 },
+  '1->2': { index: 1, modifier: 1 },
+  '2->1': { index: 1, modifier: -1 },
+  '2->3': { index: 2, modifier: 1 },
+  '3->2': { index: 2, modifier: -1 },
+  '3->0': { index: 3, modifier: 1 },
+  '0->3': { index: 3, modifier: -1 },
+};
+
 export const getWallKicks = (type: TetrominoType, rotationState: number, direction: number) => {
     let nextState = (rotationState + direction) % 4;
     if (nextState < 0) nextState += 4;
 
+    const transitionKey = `${rotationState}->${nextState}`;
+    const transition = KICK_TRANSITIONS[transitionKey];
+
+    if (!transition) return [[0, 0]];
+
     const kickKey = type === 'I' ? 'I' : 'JLSTZ';
-    const kickData = KICKS[kickKey];
-    
-    let kickIndex = -1;
-    let modifier = 1;
+    const kickData = KICKS[kickKey][transition.index];
 
-    if (rotationState === 0 && nextState === 1) kickIndex = 0;
-    else if (rotationState === 1 && nextState === 0) { kickIndex = 0; modifier = -1; }
-    else if (rotationState === 1 && nextState === 2) kickIndex = 1;
-    else if (rotationState === 2 && nextState === 1) { kickIndex = 1; modifier = -1; }
-    else if (rotationState === 2 && nextState === 3) kickIndex = 2;
-    else if (rotationState === 3 && nextState === 2) { kickIndex = 2; modifier = -1; }
-    else if (rotationState === 3 && nextState === 0) kickIndex = 3;
-    else if (rotationState === 0 && nextState === 3) { kickIndex = 3; modifier = -1; }
-
-    if (kickIndex === -1) return [[0,0]];
-
-    const rawKicks = kickData[kickIndex];
-    return rawKicks.map(k => [k[0] * modifier, k[1] * modifier]);
+    // Apply modifier (inverse kick for reverse rotations)
+    return kickData.map(k => [k[0] * transition.modifier, k[1] * transition.modifier]);
 };
 
 // T-Spin Detection (3-corner rule)
@@ -111,10 +107,9 @@ export const isTSpin = (player: Player, stage: Board): boolean => {
     if (player.tetromino.type !== 'T') return false;
 
     const { x, y } = player.pos;
+    
     // Check 4 corners: (0,0), (2,0), (0,2), (2,2) in local 3x3 grid
     // Global: (x,y), (x+2,y), (x,y+2), (x+2,y+2)
-    
-    let occupiedCorners = 0;
     const corners = [
         { cx: x, cy: y },         // Top Left
         { cx: x + 2, cy: y },     // Top Right
@@ -122,14 +117,15 @@ export const isTSpin = (player: Player, stage: Board): boolean => {
         { cx: x + 2, cy: y + 2 }, // Bottom Right
     ];
 
-    corners.forEach(c => {
+    let occupiedCorners = 0;
+    for (const c of corners) {
         // Bounds check: walls/floor count as occupied for T-Spin purposes
         if (c.cx < 0 || c.cx >= STAGE_WIDTH || c.cy >= STAGE_HEIGHT) {
             occupiedCorners++;
         } else if (c.cy >= 0 && stage[c.cy][c.cx][1] !== 'clear') {
             occupiedCorners++;
         }
-    });
+    }
 
     return occupiedCorners >= 3;
 };
