@@ -1,5 +1,5 @@
 
-export type TetrominoType = 'I' | 'J' | 'L' | 'O' | 'S' | 'T' | 'Z';
+export type TetrominoType = 'I' | 'J' | 'L' | 'O' | 'S' | 'T' | 'Z' | 'G'; // G for Garbage
 
 export type TetrominoShape = (string | number)[][];
 
@@ -26,7 +26,7 @@ export interface Player {
 
 export type GameState = 'MENU' | 'PLAYING' | 'PAUSED' | 'GAMEOVER' | 'VICTORY';
 
-export type GameMode = 'MARATHON' | 'TIME_ATTACK' | 'SPRINT' | 'ZEN' | 'MASTER';
+export type GameMode = 'MARATHON' | 'TIME_ATTACK' | 'SPRINT' | 'ZEN' | 'MASTER' | 'PUZZLE' | 'BATTLE';
 
 export interface GameStats {
   score: number;

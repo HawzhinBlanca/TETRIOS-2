@@ -1,8 +1,9 @@
 
 import React, { useState, useEffect } from 'react';
-import { Play, Award, Zap, HelpCircle, ChevronRight, BarChart3, User, Globe, Infinity, Timer, Sparkles, Crown } from 'lucide-react';
+import { Play, Award, Zap, HelpCircle, ChevronRight, BarChart3, User, Globe, Infinity, Timer, Sparkles, Crown, Puzzle, Swords } from 'lucide-react';
 import { audioManager } from '../utils/audioManager';
 import { GameMode } from '../types';
+import { PUZZLE_LEVELS } from '../constants';
 
 interface Props {
   onStart: (level: number, mode: GameMode) => void;
@@ -36,6 +37,8 @@ const MainMenu: React.FC<Props> = ({ onStart, highScore }) => {
       if (mode !== selectedMode) {
           audioManager.playUiClick();
           setSelectedMode(mode);
+          // Reset start level when changing modes
+          setStartLevel(0);
       }
   };
 
@@ -45,6 +48,8 @@ const MainMenu: React.FC<Props> = ({ onStart, highScore }) => {
       { id: 'MARATHON', icon: Infinity, label: 'Marathon', desc: 'Endless survival. Speed increases every 10 lines.' },
       { id: 'TIME_ATTACK', icon: Timer, label: 'Time Attack', desc: 'Score as much as possible in 3 minutes.' },
       { id: 'SPRINT', icon: Zap, label: 'Sprint 40', desc: 'Clear 40 lines as fast as you can.' },
+      { id: 'BATTLE', icon: Swords, label: 'VS CPU', desc: 'Survival Mode. Defend against incoming garbage lines.' },
+      { id: 'PUZZLE', icon: Puzzle, label: 'Puzzle', desc: 'Solve hand-crafted scenarios by clearing all blocks.' },
       { id: 'ZEN', icon: Sparkles, label: 'Zen', desc: 'No gravity. No Game Over. Pure practice.' },
       { id: 'MASTER', icon: Crown, label: 'Master', desc: '20G Gravity. Instant drop only. For experts.' },
   ];
@@ -71,7 +76,7 @@ const MainMenu: React.FC<Props> = ({ onStart, highScore }) => {
                    <div className="h-2 w-24 bg-cyan-500 shadow-[0_0_20px_cyan]"></div>
                    <p className="text-gray-500 text-xs tracking-widest uppercase mt-4 max-w-xs leading-relaxed">
                        High-Fidelity stacking simulation. <br/>
-                       V1.3.0 // Build 2024
+                       V1.4.0 // Ultimate Edition
                    </p>
                </div>
 
@@ -124,7 +129,7 @@ const MainMenu: React.FC<Props> = ({ onStart, highScore }) => {
                    
                    {/* MODE SELECTOR */}
                    <label className="text-xs text-gray-400 uppercase tracking-widest font-bold mb-4 block">Operation Mode</label>
-                   <div className="grid grid-cols-1 md:grid-cols-5 gap-3 mb-8">
+                   <div className="grid grid-cols-1 md:grid-cols-4 gap-3 mb-8">
                        {MODES.map((mode) => (
                            <button
                                key={mode.id}
@@ -146,9 +151,9 @@ const MainMenu: React.FC<Props> = ({ onStart, highScore }) => {
                    </div>
 
                    {/* LEVEL SELECTOR (Hidden for some modes) */}
-                   {(selectedMode === 'MARATHON' || selectedMode === 'MASTER') && (
+                   {(selectedMode === 'MARATHON' || selectedMode === 'MASTER' || selectedMode === 'BATTLE') && (
                        <>
-                           <label className="text-xs text-gray-400 uppercase tracking-widest font-bold mb-6 block">Entry Level</label>
+                           <label className="text-xs text-gray-400 uppercase tracking-widest font-bold mb-6 block">Start Level</label>
                            <div className="grid grid-cols-5 md:grid-cols-10 gap-2 md:gap-3 mb-8">
                                {[...Array(20)].map((_, i) => (
                                    <button
@@ -185,6 +190,34 @@ const MainMenu: React.FC<Props> = ({ onStart, highScore }) => {
                                })}
                            </div>
                        </>
+                   )}
+
+                   {/* PUZZLE SELECTOR */}
+                   {selectedMode === 'PUZZLE' && (
+                       <div className="space-y-4 mb-8">
+                           <label className="text-xs text-gray-400 uppercase tracking-widest font-bold mb-2 block">Select Puzzle Scenario</label>
+                           <div className="grid grid-cols-1 gap-3">
+                               {PUZZLE_LEVELS.map((puzzle, i) => (
+                                   <button
+                                       key={i}
+                                       onClick={() => handleLevelSelect(i)}
+                                       className={`p-4 border rounded text-left transition-all flex justify-between items-center ${
+                                           startLevel === i 
+                                           ? 'bg-cyan-950/40 border-cyan-500' 
+                                           : 'bg-gray-900/40 border-gray-800 hover:bg-gray-800'
+                                       }`}
+                                   >
+                                       <div>
+                                           <div className={`font-bold uppercase tracking-wider ${startLevel === i ? 'text-cyan-400' : 'text-white'}`}>
+                                               {puzzle.name}
+                                           </div>
+                                           <div className="text-[10px] text-gray-500 mt-1">{puzzle.description}</div>
+                                       </div>
+                                       {startLevel === i && <div className="w-2 h-2 bg-cyan-500 rounded-full animate-pulse"></div>}
+                                   </button>
+                               ))}
+                           </div>
+                       </div>
                    )}
 
                    <div className="mt-auto pt-4">

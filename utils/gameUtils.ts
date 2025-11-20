@@ -1,11 +1,42 @@
 
-import { STAGE_HEIGHT, STAGE_WIDTH, TETROMINOS, KICKS } from '../constants';
+import { STAGE_HEIGHT, STAGE_WIDTH, TETROMINOS, KICKS, PuzzleDefinition } from '../constants';
 import { Board, CellData, TetrominoType, Player } from '../types';
 
 export const createStage = (): Board =>
   Array.from(Array(STAGE_HEIGHT), () =>
     new Array(STAGE_WIDTH).fill([null, 'clear'])
   );
+
+export const createPuzzleStage = (puzzle: PuzzleDefinition): Board => {
+    const stage = createStage();
+    // Map layout from bottom up
+    const layout = [...puzzle.layout].reverse();
+    
+    layout.forEach((rowStr, yIndex) => {
+        const stageY = STAGE_HEIGHT - 1 - yIndex;
+        if (stageY >= 0) {
+            rowStr.split('').forEach((char, x) => {
+                if (char === 'X') {
+                    stage[stageY][x] = ['G', 'merged'];
+                }
+            });
+        }
+    });
+    return stage;
+};
+
+export const addGarbageLines = (stage: Board, count: number): Board => {
+    const newStage = stage.map(row => [...row]);
+    for(let i=0; i<count; i++) {
+        newStage.shift(); // Remove top row (game over check happens elsewhere usually)
+        const hole = Math.floor(Math.random() * STAGE_WIDTH);
+        const garbageRow: CellData[] = Array.from({ length: STAGE_WIDTH }, (_, x) => 
+            x === hole ? [null, 'clear'] : ['G', 'merged']
+        );
+        newStage.push(garbageRow);
+    }
+    return newStage;
+};
 
 export const generateBag = (): TetrominoType[] => {
   const shapes: TetrominoType[] = ['I', 'J', 'L', 'O', 'S', 'T', 'Z'];

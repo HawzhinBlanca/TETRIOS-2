@@ -155,11 +155,17 @@ const App = () => {
                          rowsToExplode.forEach((rowY: number) => {
                              particlesRef.current?.spawnExplosion(rowY, visualEffect.payload.color);
                          });
+                     } else {
+                        particlesRef.current?.spawnExplosion(rowsToExplode, visualEffect.payload.color);
                      }
                  } else {
-                     const px = visualEffect.payload.x * cellSize;
-                     const py = visualEffect.payload.y * cellSize;
-                     particlesRef.current.spawn(px, py, visualEffect.payload.color);
+                     // x,y from payload are grid coordinates
+                     particlesRef.current.spawn(
+                         visualEffect.payload.x, 
+                         visualEffect.payload.y, 
+                         visualEffect.payload.color,
+                         visualEffect.payload.amount || 10
+                     );
                  }
              }
           }
@@ -336,7 +342,7 @@ const App = () => {
                 </h1>
                 <div className="flex items-center justify-end gap-2 mt-2">
                     <span className="text-[10px] text-cyan-700 uppercase tracking-[0.3em] font-bold">
-                        {gameMode} // v1.3
+                        {gameMode} // v1.4
                     </span>
                     <div className="h-1.5 w-1.5 bg-green-500 rounded-full animate-pulse shadow-[0_0_5px_#22c55e]"></div>
                 </div>
@@ -440,7 +446,7 @@ const App = () => {
                 <div className="absolute -bottom-1.5 -right-1.5 w-4 h-4 border-b-2 border-r-2 border-cyan-500/50"></div>
 
                 <div className="absolute inset-0 pointer-events-none z-30 overflow-hidden rounded-sm">
-                    <Particles ref={particlesRef} />
+                    <Particles ref={particlesRef} cellSize={cellSize} />
                 </div>
 
                 <BoardCanvas 
@@ -560,6 +566,8 @@ const App = () => {
                    <ArrowLeftRight size={24} />
                 </button>
              </div>
+
+             {/* Gesture Hint / D-Pad placeholder could go here, but Gestures are invisible */}
 
              <div className="flex gap-4">
                 <button 

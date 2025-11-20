@@ -1,9 +1,9 @@
 
 import { useState, useCallback, useEffect, useRef } from 'react';
-import { createStage, checkCollision, rotateMatrix, generateBag, getWallKicks, isTSpin } from '../utils/gameUtils';
+import { createStage, createPuzzleStage, addGarbageLines, checkCollision, rotateMatrix, generateBag, getWallKicks, isTSpin } from '../utils/gameUtils';
 import { audioManager } from '../utils/audioManager';
 import { createAiWorker } from '../utils/aiWorker';
-import { STAGE_WIDTH, STAGE_HEIGHT, SCORES, TETROMINOS } from '../constants';
+import { STAGE_WIDTH, STAGE_HEIGHT, SCORES, TETROMINOS, PUZZLE_LEVELS } from '../constants';
 import { Player, Board, GameState, TetrominoType, GameStats, MoveScore, FloatingText, GameMode, KeyAction, KeyMap } from '../types';
 
 const LOCK_DELAY_MS = 500;
@@ -54,6 +54,11 @@ export class GameEngine {
     // Tuning (DAS/ARR)
     das = 133; // Delayed Auto Shift (ms)
     arr = 10;  // Auto Repeat Rate (ms)
+
+    // Battle / Puzzle Specifics
+    battleTimer = 0;
+    garbagePending = 0;
+    puzzleIndex = 0;
 
     // Visuals
     lockResetFlash = 0; // Flash intensity (0 to 1)
@@ -117,20 +122,32 @@ export const useTetrios = () => {
             // Restore controls to the new engine instance
             if (savedControls) e.keyMap = JSON.parse(savedControls);
             
+            // Safe Assign with Defaults for missing keys (migration)
             Object.assign(e, parsed);
-            // Reset flash state on load to avoid stuck visuals
+            
+            if (!e.nextQueue) e.nextQueue = generateBag();
+            if (!e.mode) e.mode = 'MARATHON';
+            
+            // Reset flash/timer state on load to avoid stuck visuals
             e.lockResetFlash = 0;
             e.tSpinFlash = 0;
             e.lockStartTime = 0;
+            e.lockTimer = null;
+
             engine.current = e;
+            
             // Sync React state
             setStats(e.stats);
             setNextQueue([...e.nextQueue]);
             setHeldPiece(e.heldPiece);
             setCanHold(e.canHold);
-            setGameMode(e.mode || 'MARATHON');
+            setGameMode(e.mode);
             setGameState('PAUSED');
-        } catch(e) { console.error("Failed to load save", e); }
+        } catch(e) { 
+            console.error("Failed to load save", e); 
+            // Fallback if save is corrupt
+            engine.current = new GameEngine();
+        }
     }
 
     aiWorker.current = createAiWorker();
@@ -139,7 +156,7 @@ export const useTetrios = () => {
   }, []);
 
   const saveState = () => {
-     if(gameState === 'PLAYING') {
+     if(gameState === 'PLAYING' || gameState === 'PAUSED') {
          localStorage.setItem('tetrios_state', JSON.stringify(engine.current));
      }
   };
@@ -164,7 +181,7 @@ export const useTetrios = () => {
 
   // --- LOGIC HELPERS ---
 
-  const addFloatingText = (text: string, color: string = '#fff') => {
+  const addFloatingText = (text: string, color: string = '#fff', scale: number = 0.5) => {
       const e = engine.current;
       e.floatingTexts.push({
           id: Date.now() + Math.random(),
@@ -173,7 +190,7 @@ export const useTetrios = () => {
           y: e.player.pos.y,
           life: 1.0,
           color,
-          scale: 0.5
+          scale
       });
   };
 
@@ -195,11 +212,31 @@ export const useTetrios = () => {
   const spawnPiece = () => {
       const e = engine.current;
       
-      // Ensure queue has buffer (Bag System)
-      while (e.nextQueue.length < 7) {
-          e.nextQueue = [...e.nextQueue, ...generateBag()];
+      // Check Puzzle Win Condition (Empty Queue)
+      if (e.mode === 'PUZZLE' && e.nextQueue.length === 0) {
+          // Check if board clear? Or is queue empty enough?
+          const isBoardClear = e.stage.every(row => row.every(cell => cell[1] === 'clear'));
+          if (isBoardClear) {
+              setGameState('VICTORY');
+              audioManager.playClear(4);
+              return;
+          } else {
+              // If pieces ran out and board not clear
+              setGameState('GAMEOVER');
+              audioManager.playGameOver();
+              return;
+          }
       }
       
+      // Ensure queue has buffer (Bag System) unless Puzzle
+      if (e.mode !== 'PUZZLE') {
+        while (e.nextQueue.length < 7) {
+            e.nextQueue = [...e.nextQueue, ...generateBag()];
+        }
+      }
+      
+      if (e.nextQueue.length === 0) return; // Safety
+
       const type = e.nextQueue.shift()!;
       
       e.player = {
@@ -211,8 +248,8 @@ export const useTetrios = () => {
       e.rotationState = 0;
       e.movesOnGround = 0;
       e.lastMoveWasRotation = false;
-      e.canHold = true;
-      setCanHold(true);
+      e.canHold = e.mode !== 'PUZZLE'; 
+      setCanHold(e.canHold);
       e.lockResetFlash = 0;
       e.tSpinFlash = 0;
       
@@ -238,34 +275,47 @@ export const useTetrios = () => {
 
   const resetGame = (mode: GameMode = 'MARATHON', startLevel = 0) => {
       const e = engine.current;
-      e.stage = createStage();
       e.mode = mode;
       setGameMode(mode);
+      
+      // Mode Initialization
+      if (mode === 'PUZZLE') {
+          // startLevel is actually puzzleIndex
+          e.puzzleIndex = startLevel;
+          e.stage = createPuzzleStage(PUZZLE_LEVELS[startLevel]);
+          e.nextQueue = [...PUZZLE_LEVELS[startLevel].bag];
+      } else {
+          e.stage = createStage();
+          e.nextQueue = generateBag();
+      }
 
       // Stats Init
       e.stats = { 
           score: 0, 
           rows: 0, 
-          level: mode === 'TIME_ATTACK' || mode === 'SPRINT' ? 0 : startLevel, 
-          time: mode === 'TIME_ATTACK' ? 180 : 0 // 3 Minutes for Time Attack, else 0
+          level: (mode === 'TIME_ATTACK' || mode === 'SPRINT' || mode === 'PUZZLE') ? 0 : startLevel, 
+          time: mode === 'TIME_ATTACK' ? 180 : 0 
       };
 
       // Gravity Init
       if (mode === 'ZEN') {
-          e.dropTime = 1000000; // Effectively no gravity
+          e.dropTime = 1000000; 
       } else if (mode === 'MASTER') {
-          e.dropTime = 0; // 20G Instant Gravity
+          e.dropTime = 0; 
+      } else if (mode === 'PUZZLE') {
+          e.dropTime = 1000000; // Puzzles usually have no gravity or manual drop
       } else {
           e.dropTime = Math.max(100, Math.pow(0.8 - ((startLevel - 1) * 0.007), startLevel) * 1000);
       }
       
-      e.nextQueue = generateBag();
       e.heldPiece = null;
       e.comboCount = -1;
       e.isBackToBack = false;
       e.floatingTexts = [];
       e.visualEffectsQueue = [];
       e.lockStartTime = 0;
+      e.battleTimer = 0;
+      e.garbagePending = 0;
       
       setStats(e.stats);
       setHeldPiece(null);
@@ -277,15 +327,16 @@ export const useTetrios = () => {
       audioManager.init();
   };
 
-  const sweepRows = (newStage: Board) => {
+  const sweepRows = (newStage: Board, isTSpin: boolean = false) => {
       const e = engine.current;
       let rowsCleared = 0;
       
       const sweepedStage = newStage.reduce((ack, row, y) => {
-          if (row.every(cell => cell[0] !== null)) {
+          // Standard clear check: if all cells are filled
+          if (row.every(cell => cell[1] !== 'clear')) {
               rowsCleared += 1;
               ack.unshift(new Array(STAGE_WIDTH).fill([null, 'clear']));
-              // Particle Effect
+              // Particle Effect - Pass relative Row Y
               e.visualEffectsQueue.push({ 
                   type: 'PARTICLE', 
                   payload: { isExplosion: true, y, color: 'white' } 
@@ -302,16 +353,40 @@ export const useTetrios = () => {
           let score = 0;
           let text = '';
           
-          const basePoints = [0, SCORES.SINGLE, SCORES.DOUBLE, SCORES.TRIPLE, SCORES.TETRIS];
-          score += basePoints[rowsCleared] * (e.stats.level + 1);
-          
-          if (rowsCleared === 4) {
-              text = 'TETRIS';
-              e.visualEffectsQueue.push({ type: 'SHAKE', payload: 'hard' });
+          if (isTSpin) {
+              // T-Spin Scoring Rules
+              const tSpinScores = [0, SCORES.TSPIN_SINGLE, SCORES.TSPIN_DOUBLE, SCORES.TSPIN_TRIPLE];
+              score = (tSpinScores[rowsCleared] || SCORES.TSPIN_TRIPLE) * (e.stats.level + 1);
+              text = rowsCleared === 3 ? 'T-SPIN TRIPLE' : rowsCleared === 2 ? 'T-SPIN DOUBLE' : 'T-SPIN SINGLE';
+              
+              // High-impact sound for T-Spin clears
               audioManager.playClear(4);
+              
+              // Back-to-Back Bonus
+              if (e.isBackToBack) {
+                  score *= SCORES.BACK_TO_BACK_MULTIPLIER;
+                  text += ' B2B';
+              }
+              e.isBackToBack = true;
           } else {
-              text = rowsCleared === 3 ? 'TRIPLE' : rowsCleared === 2 ? 'DOUBLE' : 'SINGLE';
-              audioManager.playClear(rowsCleared);
+              // Standard Scoring
+              const basePoints = [0, SCORES.SINGLE, SCORES.DOUBLE, SCORES.TRIPLE, SCORES.TETRIS];
+              score = basePoints[rowsCleared] * (e.stats.level + 1);
+              
+              if (rowsCleared === 4) {
+                  text = 'TETRIS';
+                  e.visualEffectsQueue.push({ type: 'SHAKE', payload: 'hard' });
+                  audioManager.playClear(4);
+                  if (e.isBackToBack) {
+                      score *= SCORES.BACK_TO_BACK_MULTIPLIER;
+                      text += ' B2B';
+                  }
+                  e.isBackToBack = true;
+              } else {
+                  text = rowsCleared === 3 ? 'TRIPLE' : rowsCleared === 2 ? 'DOUBLE' : 'SINGLE';
+                  audioManager.playClear(rowsCleared);
+                  e.isBackToBack = false;
+              }
           }
 
           // Combo Bonus
@@ -321,7 +396,7 @@ export const useTetrios = () => {
           }
 
           // Game Mode Scoring Adjustments
-          if (e.mode !== 'ZEN') {
+          if (e.mode !== 'ZEN' && e.mode !== 'PUZZLE') {
             e.stats.score += score;
           }
           
@@ -332,18 +407,41 @@ export const useTetrios = () => {
               e.stats.level = Math.floor(e.stats.rows / 10);
               e.dropTime = Math.max(100, 1000 * Math.pow(0.95, e.stats.level));
           } else if (e.mode === 'SPRINT') {
-              // Sprint: Check win condition
               if (e.stats.rows >= 40) {
                   setGameState('VICTORY');
-                  audioManager.playClear(4); // Victory sound placeholder
+                  audioManager.playClear(4); 
               }
+          } else if (e.mode === 'PUZZLE') {
+               // Check Victory (Empty Board)
+               if (sweepedStage.every(row => row.every(c => c[1] === 'clear'))) {
+                   setGameState('VICTORY');
+                   audioManager.playClear(4);
+               }
           }
           
           setStats({ ...e.stats });
-          addFloatingText(text);
+          addFloatingText(text, isTSpin ? '#d946ef' : '#fff', isTSpin ? 0.8 : 0.5);
           e.stage = sweepedStage;
       } else {
+          // No lines cleared
+          if (isTSpin) {
+              // T-Spin Zero
+              if (e.mode !== 'ZEN' && e.mode !== 'PUZZLE') {
+                  e.stats.score += SCORES.TSPIN * (e.stats.level + 1);
+                  setStats({ ...e.stats });
+              }
+              addFloatingText('T-SPIN', '#d946ef', 0.6);
+          }
           e.comboCount = -1;
+          e.stage = sweepedStage; 
+      }
+      
+      // Battle Mode Garbage Injection
+      if (e.garbagePending > 0) {
+          e.stage = addGarbageLines(e.stage, e.garbagePending);
+          e.garbagePending = 0;
+          e.visualEffectsQueue.push({ type: 'SHAKE', payload: 'soft' });
+          addFloatingText("WARNING!", "#ef4444");
       }
   };
 
@@ -351,12 +449,26 @@ export const useTetrios = () => {
       const e = engine.current;
       const { player, stage } = e;
       
-      // Check T-Spin
+      let tSpinDetected = false;
+
+      // Check T-Spin (Standard: 3 Corner Rule + Rotated Last)
       if (player.tetromino.type === 'T' && e.lastMoveWasRotation) {
            if (isTSpin(player, stage)) {
+               tSpinDetected = true;
                e.tSpinFlash = 1.0;
-               e.visualEffectsQueue.push({ type: 'FLASH', payload: { color: '#d946ef', duration: 150 } });
-               addFloatingText('T-SPIN', '#d946ef');
+               
+               // Trigger T-Spin Visuals (Flash & Particles)
+               e.visualEffectsQueue.push({ type: 'FLASH', payload: { color: '#d946ef', duration: 300 } });
+               e.visualEffectsQueue.push({ 
+                   type: 'PARTICLE', 
+                   payload: { 
+                       x: player.pos.x + 1, // Center of T piece
+                       y: player.pos.y + 1, 
+                       color: '#d946ef', // Magenta
+                       amount: 20 
+                   } 
+               });
+
                audioManager.playRotate(); 
            }
       }
@@ -380,8 +492,8 @@ export const useTetrios = () => {
       e.visualEffectsQueue.push({ type: 'SHAKE', payload: 'soft' });
       audioManager.playLock();
       
-      sweepRows(e.stage);
-      if(gameState === 'PLAYING') spawnPiece(); // Only spawn if we didn't just win/lose
+      sweepRows(e.stage, tSpinDetected);
+      if(gameState === 'PLAYING') spawnPiece(); 
   };
 
   // --- MOVEMENT ---
@@ -442,7 +554,7 @@ export const useTetrios = () => {
       const e = engine.current;
       if (!checkCollision(e.player, e.stage, { x: 0, y: 1 })) {
           e.player.pos.y += 1;
-          if(e.mode !== 'ZEN') e.stats.score += SCORES.SOFT_DROP;
+          if(e.mode !== 'ZEN' && e.mode !== 'PUZZLE') e.stats.score += SCORES.SOFT_DROP;
           e.lastMoveWasRotation = false;
           setStats({ ...e.stats }); 
           return true;
@@ -457,10 +569,12 @@ export const useTetrios = () => {
           e.player.pos.y += 1;
           dropped++;
       }
-      if(e.mode !== 'ZEN') e.stats.score += dropped * SCORES.HARD_DROP;
+      if(e.mode !== 'ZEN' && e.mode !== 'PUZZLE') e.stats.score += dropped * SCORES.HARD_DROP;
       e.lastMoveWasRotation = false;
       setStats({ ...e.stats });
       
+      // Spawn particle at drop location (visual cue)
+      // x, y are grid coordinates
       e.visualEffectsQueue.push({ 
         type: 'PARTICLE', 
         payload: { 
@@ -531,10 +645,19 @@ export const useTetrios = () => {
           }
       } else if (e.mode === 'SPRINT') {
           e.stats.time += deltaTime / 1000;
+      } else if (e.mode === 'BATTLE') {
+          // Simulated Opponent
+          e.battleTimer += deltaTime;
+          const interval = Math.max(2000, 8000 - (e.stats.rows * 100)); 
+          if (e.battleTimer > interval) {
+              const garbageAmount = 1 + Math.floor(Math.random() * 2); 
+              e.garbagePending += garbageAmount;
+              e.battleTimer = 0;
+          }
       }
 
-      // Gravity (Skip in ZEN unless holding down, force fast in MASTER)
-      const effectiveGravity = (e.mode === 'ZEN' && !e.keys.down) ? Infinity : e.dropTime;
+      // Gravity (Skip in ZEN/PUZZLE unless holding down, force fast in MASTER)
+      const effectiveGravity = ((e.mode === 'ZEN' || e.mode === 'PUZZLE') && !e.keys.down) ? Infinity : e.dropTime;
       
       e.dropCounter += deltaTime * e.speedMultiplier;
       if (e.dropCounter > effectiveGravity) {
@@ -574,10 +697,9 @@ export const useTetrios = () => {
           }
       }
       
-      if (e.keys.down && e.mode !== 'ZEN') {
-          softDrop(); 
-      } else if (e.keys.down && e.mode === 'ZEN') {
-          // Manual gravity in Zen
+      if (e.keys.down && (e.mode === 'ZEN' || e.mode === 'PUZZLE')) {
+          softDrop(); // Manual gravity
+      } else if (e.keys.down) {
           softDrop();
       }
 
@@ -587,7 +709,6 @@ export const useTetrios = () => {
           if (effect) setVisualEffect(effect);
       }
       
-      // Throttle React Updates for Timer
       if (Math.random() > 0.9) setStats({ ...e.stats });
 
       requestRef.current = requestAnimationFrame(update);
