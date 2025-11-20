@@ -24,12 +24,15 @@ export interface Player {
   collided: boolean;
 }
 
-export type GameState = 'MENU' | 'PLAYING' | 'PAUSED' | 'GAMEOVER';
+export type GameState = 'MENU' | 'PLAYING' | 'PAUSED' | 'GAMEOVER' | 'VICTORY';
+
+export type GameMode = 'MARATHON' | 'TIME_ATTACK' | 'SPRINT' | 'ZEN' | 'MASTER';
 
 export interface GameStats {
   score: number;
   rows: number;
   level: number;
+  time: number; // Used for elapsed time or remaining time depending on mode
 }
 
 // AI Types
@@ -49,3 +52,7 @@ export interface FloatingText {
   color: string;
   scale: number;
 }
+
+export type KeyAction = 'moveLeft' | 'moveRight' | 'softDrop' | 'hardDrop' | 'rotateCW' | 'rotateCCW' | 'hold' | 'pause';
+
+export type KeyMap = Record<KeyAction, string[]>;

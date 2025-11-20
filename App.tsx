@@ -10,16 +10,17 @@ import Settings from './components/Settings';
 import MainMenu from './components/MainMenu';
 import MusicVisualizer from './components/MusicVisualizer';
 import { audioManager } from './utils/audioManager';
-import { Settings as SettingsIcon, Volume2, VolumeX, Brain, ArrowLeftRight, ArrowLeft, ArrowRight, ArrowDown, Menu as MenuIcon, Play, PauseCircle, RefreshCw, AlertTriangle } from 'lucide-react';
+import { Settings as SettingsIcon, Volume2, VolumeX, Brain, ArrowLeftRight, ArrowLeft, ArrowRight, ArrowDown, Menu as MenuIcon, Play, PauseCircle, RefreshCw, AlertTriangle, Trophy } from 'lucide-react';
+import { GameMode } from './types';
 
 const GHOST_SHADOW = "rgba(6, 182, 212, 0.6)"; 
 
 const App = () => {
   const {
     engine, 
-    score, rows, level, nextQueue, heldPiece, canHold,
+    score, rows, level, time, nextQueue, heldPiece, canHold,
     visualEffect, lastHoldTime, setVisualEffect,
-    resetGame, setGameState, gameState,
+    resetGame, setGameState, gameState, gameMode,
     touchControls, aiHint, setGameConfig,
     inputState, controls, setKeyBinding
   } = useTetrios();
@@ -37,6 +38,8 @@ const App = () => {
       parseFloat(localStorage.getItem('tetrios_gameSpeed') || '1.0'));
   const [lockWarning, setLockWarning] = useState(() => 
       (localStorage.getItem('tetrios_lockWarning') || 'true') === 'true');
+  const [musicEnabled, setMusicEnabled] = useState(() => 
+      (localStorage.getItem('tetrios_musicEnabled') || 'true') === 'true');
       
   // Tuning State
   const [das, setDas] = useState(() => parseInt(localStorage.getItem('tetrios_das') || '133'));
@@ -77,7 +80,23 @@ const App = () => {
       localStorage.setItem('tetrios_lockWarning', lockWarning.toString());
       localStorage.setItem('tetrios_das', das.toString());
       localStorage.setItem('tetrios_arr', arr.toString());
-  }, [ghostStyle, ghostOpacity, ghostOutlineThickness, ghostGlowIntensity, gameSpeed, lockWarning, das, arr]);
+      localStorage.setItem('tetrios_musicEnabled', musicEnabled.toString());
+  }, [ghostStyle, ghostOpacity, ghostOutlineThickness, ghostGlowIntensity, gameSpeed, lockWarning, das, arr, musicEnabled]);
+
+  // Sync Music State
+  useEffect(() => {
+      audioManager.setMusicEnabled(musicEnabled);
+  }, [musicEnabled]);
+
+  // Manage Background Music Playback based on Game State
+  useEffect(() => {
+      if (gameState === 'PLAYING') {
+          audioManager.startMusic();
+      } else {
+          // Stop music when in Menu, Paused, or Game Over
+          audioManager.stopMusic();
+      }
+  }, [gameState]);
 
   // Track High Score
   useEffect(() => {
@@ -185,6 +204,14 @@ const App = () => {
   const handleUiHover = () => audioManager.playUiHover();
   const handleUiClick = () => audioManager.playUiClick();
 
+  // Format Time for Display
+  const formatTime = (seconds: number) => {
+      const mins = Math.floor(seconds / 60);
+      const secs = Math.floor(seconds % 60);
+      const ms = Math.floor((seconds % 1) * 10); // single digit ms
+      return `${mins}:${secs.toString().padStart(2, '0')}.${ms}`;
+  };
+
   return (
     <div 
        className={`h-screen w-full flex flex-col items-center justify-center text-white overflow-hidden font-sans selection:bg-cyan-500/30 ${shakeClass}`}
@@ -210,41 +237,53 @@ const App = () => {
          das={das} setDas={setDas}
          arr={arr} setArr={setArr}
          controls={controls} setKeyBinding={setKeyBinding}
+         musicEnabled={musicEnabled} setMusicEnabled={setMusicEnabled}
       />
 
       {/* Menu Overlays */}
       {gameState === 'MENU' && (
-          <MainMenu onStart={(lvl) => resetGame(lvl)} highScore={highScore} />
+          <MainMenu onStart={(lvl, mode) => resetGame(mode, lvl)} highScore={highScore} />
       )}
 
-      {/* GAME OVER MODAL */}
-      {gameState === 'GAMEOVER' && (
+      {/* GAME OVER / VICTORY MODAL */}
+      {(gameState === 'GAMEOVER' || gameState === 'VICTORY') && (
           <div className="fixed inset-0 z-50 flex flex-col items-center justify-center bg-black/80 backdrop-blur-md animate-in fade-in zoom-in duration-300">
-             <div className="relative bg-gray-900/90 border-2 border-red-500 p-8 md:p-12 rounded-lg shadow-[0_0_100px_rgba(220,38,38,0.5)] text-center max-w-lg w-[90%] overflow-hidden">
-                <div className="absolute top-0 left-0 w-full h-2 bg-[repeating-linear-gradient(45deg,red,red_10px,transparent_10px,transparent_20px)] animate-[slide_1s_linear_infinite]"></div>
+             <div className={`relative bg-gray-900/90 border-2 ${gameState === 'VICTORY' ? 'border-yellow-500' : 'border-red-500'} p-8 md:p-12 rounded-lg shadow-2xl text-center max-w-lg w-[90%] overflow-hidden`}>
+                <div className={`absolute top-0 left-0 w-full h-2 ${gameState === 'VICTORY' ? 'bg-yellow-500' : 'bg-red-500'} animate-pulse`}></div>
                 
-                <AlertTriangle size={64} className="text-red-500 mx-auto mb-6 animate-pulse" />
-                <h2 className="text-5xl md:text-6xl font-black text-white mb-2 tracking-tighter">FAILURE</h2>
-                <div className="text-red-500 text-xs uppercase tracking-[0.5em] font-bold mb-8">System Critical</div>
+                {gameState === 'VICTORY' ? (
+                    <Trophy size={64} className="text-yellow-500 mx-auto mb-6 animate-bounce" />
+                ) : (
+                    <AlertTriangle size={64} className="text-red-500 mx-auto mb-6 animate-pulse" />
+                )}
+                
+                <h2 className="text-5xl md:text-6xl font-black text-white mb-2 tracking-tighter">{gameState === 'VICTORY' ? 'VICTORY' : 'FAILURE'}</h2>
+                <div className={`${gameState === 'VICTORY' ? 'text-yellow-500' : 'text-red-500'} text-xs uppercase tracking-[0.5em] font-bold mb-8`}>
+                    {gameState === 'VICTORY' ? 'Objective Complete' : 'System Critical'}
+                </div>
                 
                 <div className="grid grid-cols-2 gap-4 md:gap-6 mb-8">
-                     <div className="bg-black/40 p-4 rounded border border-red-900/30">
-                         <div className="text-[10px] text-red-400 uppercase tracking-widest">Final Score</div>
+                     <div className="bg-black/40 p-4 rounded border border-white/10">
+                         <div className="text-[10px] text-gray-400 uppercase tracking-widest">Final Score</div>
                          <div className="text-2xl md:text-3xl font-mono font-bold text-white">{score}</div>
                      </div>
-                     <div className="bg-black/40 p-4 rounded border border-red-900/30">
-                         <div className="text-[10px] text-red-400 uppercase tracking-widest">Level Reached</div>
-                         <div className="text-2xl md:text-3xl font-mono font-bold text-white">{level}</div>
+                     <div className="bg-black/40 p-4 rounded border border-white/10">
+                         <div className="text-[10px] text-gray-400 uppercase tracking-widest">
+                            {gameMode === 'SPRINT' ? 'Time' : 'Lines'}
+                         </div>
+                         <div className="text-2xl md:text-3xl font-mono font-bold text-white">
+                             {gameMode === 'SPRINT' ? formatTime(time) : rows}
+                         </div>
                      </div>
                 </div>
 
                 <div className="space-y-3">
                     <button 
-                        onClick={() => { handleUiClick(); resetGame(0); }}
+                        onClick={() => { handleUiClick(); resetGame(gameMode, gameMode === 'MARATHON' ? level : 0); }}
                         onMouseEnter={handleUiHover}
-                        className="w-full py-4 bg-red-600 hover:bg-red-500 text-white font-bold uppercase tracking-[0.2em] rounded transition-all hover:shadow-[0_0_30px_rgba(220,38,38,0.6)] flex items-center justify-center gap-3"
+                        className={`w-full py-4 ${gameState === 'VICTORY' ? 'bg-yellow-600 hover:bg-yellow-500' : 'bg-red-600 hover:bg-red-500'} text-white font-bold uppercase tracking-[0.2em] rounded transition-all flex items-center justify-center gap-3`}
                     >
-                        <RefreshCw size={20} /> Reboot
+                        <RefreshCw size={20} /> Retry
                     </button>
                     <button 
                         onClick={() => { handleUiClick(); setGameState('MENU'); }} 
@@ -296,15 +335,36 @@ const App = () => {
                 TETRIOS
                 </h1>
                 <div className="flex items-center justify-end gap-2 mt-2">
-                    <span className="text-[10px] text-cyan-700 uppercase tracking-[0.3em] font-bold">System Online // v1.2</span>
+                    <span className="text-[10px] text-cyan-700 uppercase tracking-[0.3em] font-bold">
+                        {gameMode} // v1.3
+                    </span>
                     <div className="h-1.5 w-1.5 bg-green-500 rounded-full animate-pulse shadow-[0_0_5px_#22c55e]"></div>
                 </div>
             </div>
 
             <div className="w-full max-w-[240px]">
-                <Display label="Score Data" text={score} />
-                <Display label="Current Level" text={level} progress={levelProgress} />
-                <Display label="Lines Cleared" text={rows} />
+                {gameMode === 'ZEN' ? (
+                     <Display label="Zen Mode" text="∞" />
+                ) : (
+                     <Display label="Score Data" text={score} />
+                )}
+                
+                {/* Dynamic Mode Display */}
+                {gameMode === 'TIME_ATTACK' && (
+                     <Display label="Time Remaining" text={formatTime(time)} />
+                )}
+                {gameMode === 'SPRINT' && (
+                     <Display label="Time Elapsed" text={formatTime(time)} />
+                )}
+                {gameMode === 'MARATHON' && (
+                     <Display label="Current Level" text={level} progress={levelProgress} />
+                )}
+                {gameMode === 'SPRINT' && (
+                     <Display label="Lines Left" text={Math.max(0, 40 - rows)} progress={rows / 40} />
+                )}
+                {gameMode !== 'SPRINT' && (
+                     <Display label="Lines Cleared" text={rows} />
+                )}
             </div>
             
             {/* Action Buttons */}
@@ -478,7 +538,9 @@ const App = () => {
               <div className="text-xl font-mono font-bold text-white leading-none">{score}</div>
           </div>
           <div className="bg-black/40 backdrop-blur-md p-3 rounded border border-white/10 pointer-events-auto">
-              <div className="text-[9px] text-cyan-400 uppercase font-bold">Lvl {level}</div>
+              <div className="text-[9px] text-cyan-400 uppercase font-bold">
+                  {gameMode === 'SPRINT' ? 'Lines' : 'Lvl ' + level}
+              </div>
               <div className="flex gap-1 mt-1">
                   <div className="w-12 h-1 bg-gray-700 rounded-full overflow-hidden">
                       <div className="h-full bg-cyan-500" style={{ width: `${levelProgress * 100}%` }}></div>

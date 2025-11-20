@@ -7,12 +7,18 @@ class AudioManager {
   private masterGain: GainNode | null = null; // For Drone path
   private sfxGain: GainNode | null = null;    // For SFX path
   private uiGain: GainNode | null = null;     // For UI sounds
+  private musicGain: GainNode | null = null;  // Specific for music
+  
   private filterNode: BiquadFilterNode | null = null;
   public analyser: AnalyserNode | null = null;
   private dataArray: Uint8Array | null = null;
+  
   private enabled: boolean = true;
+  private musicEnabled: boolean = true;
+  
   private droneOsc: OscillatorNode | null = null;
   private droneGain: GainNode | null = null;
+  private droneLfo: OscillatorNode | null = null;
 
   constructor() {
     // Initialize context lazily on first interaction
@@ -30,37 +36,36 @@ class AudioManager {
         this.analyser.smoothingTimeConstant = 0.85;
         this.dataArray = new Uint8Array(this.analyser.frequencyBinCount);
 
-        // Master Gain (Drone/Music)
+        // Master Gain (Root)
         this.masterGain = this.ctx.createGain();
         this.masterGain.gain.value = 0.3;
+        this.masterGain.connect(this.ctx.destination);
 
-        // SFX Gain (Game Sounds)
-        this.sfxGain = this.ctx.createGain();
-        this.sfxGain.gain.value = 0.3;
-
-        // UI Gain (Interface Sounds)
-        this.uiGain = this.ctx.createGain();
-        this.uiGain.gain.value = 0.2;
+        // Music Gain (Child of Master)
+        this.musicGain = this.ctx.createGain();
+        this.musicGain.gain.value = 0.4;
         
-        // Filter for reactive audio (Drone only)
+        // Filter for reactive audio (Music only)
         this.filterNode = this.ctx.createBiquadFilter();
         this.filterNode.type = 'lowpass';
         this.filterNode.frequency.value = 20000; // Start open
         this.filterNode.Q.value = 1;
 
-        // Connect Graph 1: Drone -> MasterGain -> Filter -> Destination & Analyser
-        this.masterGain.connect(this.filterNode);
-        this.filterNode.connect(this.ctx.destination);
+        // Connect Music Graph: MusicGain -> Filter -> Master -> Analyser
+        this.musicGain.connect(this.filterNode);
+        this.filterNode.connect(this.masterGain);
         this.filterNode.connect(this.analyser);
 
-        // Connect Graph 2: SFX -> SfxGain -> Destination & Analyser
-        this.sfxGain.connect(this.ctx.destination);
+        // SFX Gain (Child of Master)
+        this.sfxGain = this.ctx.createGain();
+        this.sfxGain.gain.value = 0.4;
+        this.sfxGain.connect(this.masterGain);
         this.sfxGain.connect(this.analyser);
 
-        // Connect Graph 3: UI -> UiGain -> Destination
-        this.uiGain.connect(this.ctx.destination);
-
-        this.startDrone();
+        // UI Gain (Child of Master)
+        this.uiGain = this.ctx.createGain();
+        this.uiGain.gain.value = 0.3;
+        this.uiGain.connect(this.masterGain);
       }
     }
     if (this.ctx && this.ctx.state === 'suspended') {
@@ -76,19 +81,78 @@ class AudioManager {
       return null;
   }
 
-  startDrone() {
-      if(!this.ctx || !this.masterGain) return;
-      // Background ambience
+  setMusicEnabled(enabled: boolean) {
+      this.musicEnabled = enabled;
+      if (!enabled) {
+          this.stopMusic();
+      } else {
+          // If we enable music, we don't necessarily start it immediately unless logic elsewhere calls startMusic
+          // But if we are currently "supposed" to be playing (managed by app state), the app should call startMusic again
+      }
+  }
+
+  startMusic() {
+      if(!this.ctx || !this.musicGain || !this.musicEnabled || this.droneOsc) return;
+      
+      const now = this.ctx.currentTime;
+      
+      // --- Ambient Drone (The "Music") ---
+      // Osc 1: Low Bass
       this.droneOsc = this.ctx.createOscillator();
       this.droneOsc.type = 'sawtooth';
-      this.droneOsc.frequency.value = 50; // Low bass
+      this.droneOsc.frequency.value = 55; // A1
+      
+      // LFO for subtle movement
+      this.droneLfo = this.ctx.createOscillator();
+      this.droneLfo.type = 'sine';
+      this.droneLfo.frequency.value = 0.1; // Slow modulation
+      
+      const lfoGain = this.ctx.createGain();
+      lfoGain.gain.value = 500; // Filter cutoff modulation depth
       
       this.droneGain = this.ctx.createGain();
-      this.droneGain.gain.value = 0.05;
+      this.droneGain.gain.value = 0; // Start silent for fade in
       
+      // Connections
       this.droneOsc.connect(this.droneGain);
-      this.droneGain.connect(this.masterGain); // Connect to master chain
+      this.droneGain.connect(this.musicGain);
+      
+      // LFO -> Filter Freq (Subtle movement)
+      if(this.filterNode) {
+        this.droneLfo.connect(lfoGain);
+        lfoGain.connect(this.filterNode.frequency);
+      }
+
       this.droneOsc.start();
+      this.droneLfo.start();
+      
+      // Fade In
+      this.droneGain.gain.linearRampToValueAtTime(0.15, now + 2.0);
+  }
+  
+  stopMusic() {
+      if (!this.ctx || !this.droneOsc || !this.droneGain) return;
+      
+      const now = this.ctx.currentTime;
+      
+      // Fade Out
+      this.droneGain.gain.cancelScheduledValues(now);
+      this.droneGain.gain.setValueAtTime(this.droneGain.gain.value, now);
+      this.droneGain.gain.linearRampToValueAtTime(0, now + 1.5);
+      
+      const osc = this.droneOsc;
+      const lfo = this.droneLfo;
+      
+      osc.stop(now + 1.5);
+      if (lfo) lfo.stop(now + 1.5);
+      
+      setTimeout(() => {
+          if (this.droneOsc === osc) { // Ensure we don't nullify a new drone if started quickly
+              this.droneOsc = null;
+              this.droneLfo = null;
+              this.droneGain = null;
+          }
+      }, 1500);
   }
 
   setFilterFreq(normalizedHeight: number) {
@@ -96,18 +160,21 @@ class AudioManager {
       if(!this.filterNode || !this.ctx) return;
       
       const minFreq = 200;
-      const maxFreq = 8000;
+      const maxFreq = 10000;
       // Exponential ramp
       const target = minFreq + (maxFreq - minFreq) * Math.pow(normalizedHeight, 2);
       
+      // We use setTargetAtTime, but also need to respect LFO modulation
+      // This acts as a base value modification
       this.filterNode.frequency.setTargetAtTime(target, this.ctx.currentTime, 0.5);
   }
 
   toggleMute() {
     this.enabled = !this.enabled;
-    if (this.masterGain) this.masterGain.gain.value = this.enabled ? 0.3 : 0;
-    if (this.sfxGain) this.sfxGain.gain.value = this.enabled ? 0.3 : 0;
-    if (this.uiGain) this.uiGain.gain.value = this.enabled ? 0.2 : 0;
+    if (this.masterGain) {
+        const val = this.enabled ? 0.3 : 0;
+        this.masterGain.gain.setTargetAtTime(val, this.ctx!.currentTime, 0.1);
+    }
     return this.enabled;
   }
 
@@ -122,7 +189,8 @@ class AudioManager {
     osc.type = type;
     osc.frequency.setValueAtTime(freq, this.ctx.currentTime + startTime);
 
-    gain.gain.setValueAtTime(vol, this.ctx.currentTime + startTime);
+    gain.gain.setValueAtTime(0, this.ctx.currentTime + startTime);
+    gain.gain.linearRampToValueAtTime(vol, this.ctx.currentTime + startTime + 0.01);
     gain.gain.exponentialRampToValueAtTime(0.01, this.ctx.currentTime + startTime + duration);
 
     osc.connect(gain);
@@ -134,24 +202,20 @@ class AudioManager {
 
   // --- UI SOUNDS ---
   playUiHover() {
-      // Short, high-pitch blip
       this.playTone(800, 'sine', 0.05, 0, 0.05, this.uiGain);
   }
 
   playUiClick() {
-      // "Mechanical" click
       this.playTone(1200, 'square', 0.05, 0, 0.05, this.uiGain);
       this.playTone(600, 'sawtooth', 0.05, 0.01, 0.05, this.uiGain);
   }
 
   playUiSelect() {
-      // Positive confirmation
       this.playTone(440, 'sine', 0.1, 0, 0.1, this.uiGain);
       this.playTone(880, 'sine', 0.2, 0.05, 0.1, this.uiGain);
   }
 
   playUiBack() {
-      // Cancel sound
       this.playTone(400, 'triangle', 0.1, 0, 0.1, this.uiGain);
       this.playTone(300, 'triangle', 0.1, 0.05, 0.1, this.uiGain);
   }
@@ -174,7 +238,7 @@ class AudioManager {
     gain.gain.setValueAtTime(0.5, this.ctx.currentTime); // boost volume
     gain.gain.exponentialRampToValueAtTime(0.01, this.ctx.currentTime + 0.15);
     osc.connect(gain);
-    gain.connect(this.sfxGain); // Route to SFX bus
+    gain.connect(this.sfxGain); 
     osc.start();
     osc.stop(this.ctx.currentTime + 0.15);
   }
@@ -203,6 +267,7 @@ class AudioManager {
      if(this.filterNode && this.ctx) {
          this.filterNode.frequency.setTargetAtTime(100, this.ctx.currentTime, 2);
      }
+     this.stopMusic();
   }
 }
 

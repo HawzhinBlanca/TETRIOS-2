@@ -33,11 +33,11 @@ const Cell: React.FC<Props> = ({
   
   // --- GHOST RENDER LOGIC ---
   if (isGhost && color) {
-    const rgb = color.match(/\d+/g)?.join(',');
+    const rgb = color.match(/\d+/g)?.join(',') || '255,255,255';
     
     // Warning Overrides (Red/Gold alarm state)
     const isWarning = isGhostWarning;
-    // If warning, we use a hardcoded urgent color base, but the animation handles the pulsing
+    // Use standard color unless warning
     const displayRgb = isWarning ? '255, 69, 0' : rgb; 
 
     // Base Styles based on Configuration
@@ -46,29 +46,31 @@ const Cell: React.FC<Props> = ({
     let boxShadow = 'none';
 
     if (isWarning) {
-      // Warning style (Static fallback, animation overrides this)
-      background = `rgba(${displayRgb}, 0.2)`;
-      border = `${ghostOutline} solid rgba(${displayRgb}, 0.8)`;
-      boxShadow = `0 0 10px rgba(${displayRgb}, 0.6)`;
+      // Warning style - High intensity Red/Orange
+      background = `rgba(${displayRgb}, 0.25)`;
+      border = `${ghostOutline} solid rgba(${displayRgb}, 1)`;
+      // Stronger glow for warning
+      boxShadow = `0 0 15px rgba(${displayRgb}, 0.9), inset 0 0 8px rgba(${displayRgb}, 0.5)`;
     } else {
       switch (ghostStyle) {
         case 'dashed':
-          // Classic styling: Dashed border, very faint fill, no glow
+          // Classic styling: Dashed border, very faint fill
           background = `rgba(${displayRgb}, 0.1)`;
           border = `${ghostOutline} dashed rgba(${displayRgb}, 0.6)`;
           boxShadow = 'none';
           break;
         case 'solid':
           // Modern flat: No border, strong semi-transparent fill
-          background = `rgba(${displayRgb}, 0.3)`;
+          background = `rgba(${displayRgb}, 0.4)`;
           border = `0px solid transparent`; 
           boxShadow = 'none';
           break;
         case 'neon':
         default:
-          // Sci-Fi/Neon: Solid glowing border, faint fill, specific shadow
+          // Sci-Fi/Neon: Solid glowing border, faint fill, custom shadow
           background = `rgba(${displayRgb}, 0.1)`;
-          border = `${ghostOutline} solid rgba(${displayRgb}, 0.5)`;
+          border = `${ghostOutline} solid rgba(${displayRgb}, 0.6)`;
+          // Use prop ghostShadow if available, else default calculation
           boxShadow = ghostShadow || `0 0 8px rgba(${displayRgb}, 0.6), inset 0 0 4px rgba(${displayRgb}, 0.4)`;
           break;
       }
@@ -81,11 +83,11 @@ const Cell: React.FC<Props> = ({
           background,
           border,
           boxShadow,
-          // If warning, use the urgent 'ghost-warning' animation at fixed 1s speed
-          // Otherwise use the user-configured pulse
+          // Warning animation is faster and more aggressive
           animation: isWarning 
-            ? 'ghost-warning 0.8s infinite ease-in-out' 
+            ? 'ghost-warning 0.5s infinite ease-in-out alternate' 
             : `ghost-pulse ${ghostAnimationDuration} infinite ease-in-out`,
+          // Opacity: Warning is always visible (1), otherwise use prop
           opacity: isWarning ? 1 : ghostOpacity,
         }}
       />

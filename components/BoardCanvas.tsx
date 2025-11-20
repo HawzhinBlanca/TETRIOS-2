@@ -89,7 +89,7 @@ const BoardCanvas: React.FC<Props> = ({
   const canvasRef = useRef<HTMLCanvasElement>(null);
 
   // --- DRAWING LOGIC ---
-  const drawCell = (ctx: CanvasRenderingContext2D, x: number, y: number, color: string, isGhost = false, isAi = false, isLocking = false) => {
+  const drawCell = (ctx: CanvasRenderingContext2D, x: number, y: number, color: string, isGhost = false, isAi = false, isLocking = false, lockProgress = 0) => {
      const px = x * cellSize;
      const py = y * cellSize;
      
@@ -130,8 +130,10 @@ const BoardCanvas: React.FC<Props> = ({
             
             if (ghostShadow) {
                 ctx.shadowColor = ghostShadow; 
+                // Apply ghostGlowIntensity to the shadow blur
                 ctx.shadowBlur = (cellSize * 0.3 + pulse * cellSize * 0.25) * ghostGlowIntensity;
             } else {
+                // Apply ghostGlowIntensity to the shadow blur
                 ctx.shadowBlur = (cellSize * 0.15 + pulse * cellSize * 0.3) * ghostGlowIntensity;
                 ctx.shadowColor = `rgba(${rgb}, 0.8)`;
             }
@@ -156,11 +158,12 @@ const BoardCanvas: React.FC<Props> = ({
          ctx.stroke();
      } else {
          // Active/Locked Block
-         const pulse = isLocking ? (Math.sin(Date.now() / 60) + 1) / 2 : 0;
+         // If locking, pulse gets faster and more intense based on progress
+         const pulse = isLocking ? (Math.sin(Date.now() / (60 - (lockProgress * 40))) + 1) / 2 : 0;
 
          if (isLocking) {
-             ctx.shadowColor = `rgba(255, 255, 255, ${0.6 + pulse * 0.4})`;
-             ctx.shadowBlur = cellSize * 0.6 + (pulse * cellSize * 0.3);
+             ctx.shadowColor = `rgba(255, 255, 255, ${0.6 + (pulse * 0.4) + (lockProgress * 0.4)})`;
+             ctx.shadowBlur = cellSize * 0.6 + (pulse * cellSize * 0.3) + (lockProgress * cellSize * 0.5);
              ctx.fillStyle = `rgba(${rgb}, 0.9)`;
          } else {
              ctx.fillStyle = `rgba(${rgb}, 0.9)`;
@@ -173,12 +176,14 @@ const BoardCanvas: React.FC<Props> = ({
          
          // Locking Overlay
          if (isLocking) {
-             ctx.fillStyle = `rgba(255, 255, 255, ${0.15 + pulse * 0.2})`;
+             // White overlay opacity increases as we get closer to lock
+             const overlayOpacity = 0.1 + (lockProgress * 0.4) + (pulse * 0.1);
+             ctx.fillStyle = `rgba(255, 255, 255, ${overlayOpacity})`;
              ctx.beginPath();
              drawRoundedRect(ctx, px + gap, py + gap, size, size, radius / 1.5);
              ctx.fill();
              
-             ctx.strokeStyle = `rgba(255, 255, 255, 0.9)`;
+             ctx.strokeStyle = `rgba(255, 255, 255, ${0.8 + (lockProgress * 0.2)})`;
              ctx.lineWidth = Math.max(1, cellSize * 0.06);
          } else {
              ctx.strokeStyle = `rgba(${rgb}, 1)`;
@@ -289,12 +294,21 @@ const BoardCanvas: React.FC<Props> = ({
     if (hasBlocks) {
        const offsetY = Math.min(1, dropCounter / dropTime);
        const visualY = player.pos.y + offsetY;
+       
+       // Lock Delay Visuals
        const isLocking = lockWarningEnabled && (e.lockTimer !== null);
+       let lockProgress = 0;
+       if (isLocking && e.lockStartTime) {
+           // Calculate progress (0.0 to 1.0) based on elapsed time vs lock delay
+           const elapsed = Date.now() - e.lockStartTime;
+           const duration = e.lockDelayDuration || 500; 
+           lockProgress = Math.min(1, Math.max(0, elapsed / duration));
+       }
 
        player.tetromino.shape.forEach((row: any, y: number) => {
          row.forEach((value: any, x: number) => {
            if (value !== 0) {
-              drawCell(ctx, x + player.pos.x, y + visualY, player.tetromino.color, false, false, isLocking);
+              drawCell(ctx, x + player.pos.x, y + visualY, player.tetromino.color, false, false, isLocking, lockProgress);
            }
          });
        });

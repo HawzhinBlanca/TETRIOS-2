@@ -1,7 +1,7 @@
 
 import React, { useState, useEffect } from 'react';
-import { X, Gamepad2, Eye, Keyboard, Check, RefreshCcw, Monitor } from 'lucide-react';
-import { KeyMap, KeyAction } from '../hooks/useTetrios';
+import { X, Gamepad2, Eye, Keyboard, Check, RefreshCcw, Monitor, Volume2, Music } from 'lucide-react';
+import { KeyMap, KeyAction } from '../types';
 import { audioManager } from '../utils/audioManager';
 
 interface Props {
@@ -27,9 +27,12 @@ interface Props {
   // Controls
   controls: KeyMap;
   setKeyBinding: (action: KeyAction, key: string) => void;
+  // Audio
+  musicEnabled: boolean;
+  setMusicEnabled: (b: boolean) => void;
 }
 
-type Tab = 'GAMEPLAY' | 'CONTROLS' | 'VISUALS';
+type Tab = 'GAMEPLAY' | 'CONTROLS' | 'VISUALS' | 'AUDIO';
 
 const GhostPreview = ({ style, opacity, thickness, glow }: any) => {
     return (
@@ -93,7 +96,8 @@ const Settings: React.FC<Props> = ({
   gameSpeed, setGameSpeed,
   lockWarning, setLockWarning,
   das, setDas, arr, setArr,
-  controls, setKeyBinding
+  controls, setKeyBinding,
+  musicEnabled, setMusicEnabled
 }) => {
   const [activeTab, setActiveTab] = useState<Tab>('GAMEPLAY');
   const [listeningFor, setListeningFor] = useState<KeyAction | null>(null);
@@ -152,7 +156,7 @@ const Settings: React.FC<Props> = ({
                type="range" min={min} max={max} step={step} 
                value={value} 
                onChange={(e) => onChange(parseFloat(e.target.value))}
-               onInput={() => audioManager.playUiHover()} // Subtle feedback on slide
+               onInput={() => audioManager.playUiHover()} 
                className="w-full h-2 bg-gray-800 rounded-full appearance-none cursor-pointer z-10 relative opacity-0"
              />
              {/* Custom Track */}
@@ -199,6 +203,7 @@ const Settings: React.FC<Props> = ({
             <TabButton id="GAMEPLAY" icon={Gamepad2} label="Gameplay" />
             <TabButton id="CONTROLS" icon={Keyboard} label="Controls" />
             <TabButton id="VISUALS" icon={Eye} label="Visuals" />
+            <TabButton id="AUDIO" icon={Volume2} label="Audio" />
         </div>
 
         {/* Content Area */}
@@ -324,11 +329,41 @@ const Settings: React.FC<Props> = ({
                   </div>
               </div>
           )}
+
+          {activeTab === 'AUDIO' && (
+              <div className="animate-in slide-in-from-right-4 duration-300">
+                  <div className="bg-gray-900/50 p-8 rounded border border-gray-800/50 max-w-2xl mx-auto">
+                       <div className="absolute top-0 right-0 p-2 opacity-10"><Volume2 size={64} /></div>
+                       <h3 className="text-white text-xs font-bold uppercase tracking-widest mb-8 border-b border-gray-800 pb-4 flex items-center gap-2">
+                           <span className="w-2 h-2 bg-cyan-500 rounded-full"></span> Audio Configuration
+                       </h3>
+
+                       <div className="space-y-8">
+                           {/* Music Toggle */}
+                           <div className="flex items-center justify-between p-6 bg-black/30 border border-gray-800 rounded hover:border-gray-600 transition-colors cursor-pointer" onClick={() => setMusicEnabled(!musicEnabled)}>
+                                <div className="flex items-center gap-4">
+                                    <div className={`w-12 h-12 rounded flex items-center justify-center transition-colors ${musicEnabled ? 'bg-cyan-900/30 text-cyan-400' : 'bg-gray-800 text-gray-600'}`}>
+                                        <Music size={24} />
+                                    </div>
+                                    <div>
+                                        <h4 className="text-sm font-bold text-white uppercase tracking-wide">Background Music</h4>
+                                        <p className="text-[11px] text-gray-500 mt-1">Procedural ambient drone track during gameplay</p>
+                                    </div>
+                                </div>
+                                <div className={`w-14 h-7 rounded-full p-1 transition-colors duration-300 ${musicEnabled ? 'bg-cyan-600' : 'bg-gray-700'}`}>
+                                    <div className={`w-5 h-5 bg-white rounded-full shadow-md transform transition-transform duration-300 ${musicEnabled ? 'translate-x-7' : 'translate-x-0'}`} />
+                                </div>
+                           </div>
+                       </div>
+                  </div>
+              </div>
+          )}
+
         </div>
 
         {/* Footer */}
         <div className="p-6 border-t border-gray-800 bg-[#080c1a] flex justify-between items-center">
-            <button onClick={() => {setGhostStyle('neon'); setDas(133); setArr(10); setGameSpeed(1);}} className="flex items-center gap-2 text-[10px] text-gray-500 hover:text-white uppercase tracking-wider font-bold transition-colors">
+            <button onClick={() => {setGhostStyle('neon'); setDas(133); setArr(10); setGameSpeed(1); setMusicEnabled(true);}} className="flex items-center gap-2 text-[10px] text-gray-500 hover:text-white uppercase tracking-wider font-bold transition-colors">
                 <RefreshCcw size={12} /> Reset Defaults
             </button>
             <button onClick={handleClose} className="px-8 py-3 bg-cyan-600 hover:bg-cyan-500 text-white text-xs font-bold uppercase tracking-[0.2em] transition-all shadow-[0_0_20px_rgba(6,182,212,0.3)] hover:shadow-[0_0_30px_rgba(6,182,212,0.5)] rounded-sm">

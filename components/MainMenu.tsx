@@ -1,27 +1,28 @@
 
 import React, { useState, useEffect } from 'react';
-import { Play, Award, Zap, HelpCircle, ChevronRight, BarChart3, User, Globe } from 'lucide-react';
+import { Play, Award, Zap, HelpCircle, ChevronRight, BarChart3, User, Globe, Infinity, Timer, Sparkles, Crown } from 'lucide-react';
 import { audioManager } from '../utils/audioManager';
+import { GameMode } from '../types';
 
 interface Props {
-  onStart: (level: number) => void;
+  onStart: (level: number, mode: GameMode) => void;
   highScore: number;
 }
 
 // Mock curve for speed visualization
 const getSpeedHeight = (level: number) => {
-    // Gravity curve approximation
     return Math.min(100, 10 + Math.pow(level, 1.5) * 0.8);
 }
 
 const MainMenu: React.FC<Props> = ({ onStart, highScore }) => {
   const [startLevel, setStartLevel] = useState(0);
+  const [selectedMode, setSelectedMode] = useState<GameMode>('MARATHON');
   const [showHelp, setShowHelp] = useState(false);
 
   // Audio triggers
   const handleStart = () => {
       audioManager.playUiSelect();
-      onStart(startLevel);
+      onStart(startLevel, selectedMode);
   };
   
   const handleLevelSelect = (lvl: number) => {
@@ -31,7 +32,22 @@ const MainMenu: React.FC<Props> = ({ onStart, highScore }) => {
       }
   };
 
+  const handleModeSelect = (mode: GameMode) => {
+      if (mode !== selectedMode) {
+          audioManager.playUiClick();
+          setSelectedMode(mode);
+      }
+  };
+
   const handleHover = () => audioManager.playUiHover();
+
+  const MODES = [
+      { id: 'MARATHON', icon: Infinity, label: 'Marathon', desc: 'Endless survival. Speed increases every 10 lines.' },
+      { id: 'TIME_ATTACK', icon: Timer, label: 'Time Attack', desc: 'Score as much as possible in 3 minutes.' },
+      { id: 'SPRINT', icon: Zap, label: 'Sprint 40', desc: 'Clear 40 lines as fast as you can.' },
+      { id: 'ZEN', icon: Sparkles, label: 'Zen', desc: 'No gravity. No Game Over. Pure practice.' },
+      { id: 'MASTER', icon: Crown, label: 'Master', desc: '20G Gravity. Instant drop only. For experts.' },
+  ];
 
   return (
     <div className="absolute inset-0 z-50 flex flex-col items-center justify-center bg-[#030508] font-sans overflow-hidden">
@@ -55,7 +71,7 @@ const MainMenu: React.FC<Props> = ({ onStart, highScore }) => {
                    <div className="h-2 w-24 bg-cyan-500 shadow-[0_0_20px_cyan]"></div>
                    <p className="text-gray-500 text-xs tracking-widest uppercase mt-4 max-w-xs leading-relaxed">
                        High-Fidelity stacking simulation. <br/>
-                       V1.2.0 // Build 2024
+                       V1.3.0 // Build 2024
                    </p>
                </div>
 
@@ -86,7 +102,7 @@ const MainMenu: React.FC<Props> = ({ onStart, highScore }) => {
            </div>
 
            {/* RIGHT COLUMN: COMMAND CENTER */}
-           <div className="w-full lg:w-2/3 flex flex-col bg-gray-900/30 border border-gray-800 rounded-xl backdrop-blur-xl overflow-hidden relative shadow-2xl min-h-[500px]">
+           <div className="w-full lg:w-2/3 flex flex-col bg-gray-900/30 border border-gray-800 rounded-xl backdrop-blur-xl overflow-hidden relative shadow-2xl min-h-[600px]">
                <div className="absolute top-0 right-0 p-4 opacity-20 pointer-events-none">
                    <BarChart3 size={128} />
                </div>
@@ -96,55 +112,80 @@ const MainMenu: React.FC<Props> = ({ onStart, highScore }) => {
                        <h2 className="text-lg md:text-xl font-bold text-white uppercase tracking-widest flex items-center gap-3">
                            <Zap size={20} className="text-cyan-500" /> Mission Config
                        </h2>
-                       <p className="text-xs text-gray-500 mt-1">Select starting parameters</p>
+                       <p className="text-xs text-gray-500 mt-1">Select mode and starting parameters</p>
                    </div>
                    <div className="text-right">
-                       <div className="text-[10px] uppercase tracking-widest text-cyan-500 font-bold">Est. Speed</div>
-                       <div className="text-2xl font-mono font-bold text-white">{(100 + startLevel * 10)}%</div>
+                       <div className="text-[10px] uppercase tracking-widest text-cyan-500 font-bold">Mode</div>
+                       <div className="text-xl font-mono font-bold text-white">{selectedMode.replace('_', ' ')}</div>
                    </div>
                </div>
 
                <div className="flex-1 p-6 md:p-8 flex flex-col overflow-y-auto">
-                   <label className="text-xs text-gray-400 uppercase tracking-widest font-bold mb-6 block">Entry Level</label>
                    
-                   {/* Level Grid */}
-                   <div className="grid grid-cols-5 md:grid-cols-10 gap-2 md:gap-3 mb-8">
-                       {[...Array(20)].map((_, i) => (
+                   {/* MODE SELECTOR */}
+                   <label className="text-xs text-gray-400 uppercase tracking-widest font-bold mb-4 block">Operation Mode</label>
+                   <div className="grid grid-cols-1 md:grid-cols-5 gap-3 mb-8">
+                       {MODES.map((mode) => (
                            <button
-                               key={i}
-                               onClick={() => handleLevelSelect(i)}
+                               key={mode.id}
+                               onClick={() => handleModeSelect(mode.id as GameMode)}
                                onMouseEnter={handleHover}
-                               className={`aspect-square flex items-center justify-center text-sm font-mono font-bold transition-all duration-200 relative group ${
-                                   startLevel === i 
-                                   ? 'bg-cyan-600 text-white shadow-[0_0_20px_cyan] scale-110 z-10 rounded' 
-                                   : 'bg-gray-800/50 text-gray-500 hover:bg-gray-700 hover:text-white rounded-sm'
+                               className={`p-3 flex flex-col items-center gap-2 rounded border transition-all ${
+                                   selectedMode === mode.id 
+                                   ? 'bg-cyan-950/50 border-cyan-500 text-white shadow-[0_0_15px_rgba(6,182,212,0.3)]' 
+                                   : 'bg-gray-900/50 border-gray-800 text-gray-500 hover:bg-gray-800 hover:text-gray-300'
                                }`}
                            >
-                               {i}
-                               {/* Graph Bar Visual */}
-                               <div 
-                                 className={`absolute bottom-0 left-0 w-full bg-white/20 transition-all duration-300 ${startLevel === i ? 'opacity-0' : 'opacity-100 group-hover:opacity-0'}`}
-                                 style={{ height: `${getSpeedHeight(i)}%` }}
-                               ></div>
+                               <mode.icon size={24} className={selectedMode === mode.id ? 'text-cyan-400' : 'text-gray-600'} />
+                               <span className="text-[9px] uppercase font-bold tracking-wider">{mode.label}</span>
                            </button>
                        ))}
                    </div>
-
-                   {/* Visual Graph Area */}
-                   <div className="flex-1 min-h-[100px] bg-gray-950/50 border border-gray-800 rounded mb-8 relative overflow-hidden flex items-end px-4 pb-0 gap-1">
-                       <div className="absolute top-4 left-4 text-[10px] text-gray-600 uppercase tracking-widest">Gravity Curve Projection</div>
-                       {[...Array(40)].map((_, i) => {
-                           const h = Math.min(100, 5 + Math.pow(i / 2, 1.6));
-                           const isActive = i / 2 <= startLevel;
-                           return (
-                               <div 
-                                key={i} 
-                                className={`flex-1 rounded-t-sm transition-all duration-500 ${isActive ? 'bg-cyan-500 shadow-[0_0_10px_cyan]' : 'bg-gray-800'}`}
-                                style={{ height: `${h}%`, opacity: isActive ? 0.8 : 0.2 }}
-                               ></div>
-                           )
-                       })}
+                   <div className="p-3 bg-blue-900/20 border-l-2 border-blue-500 text-xs text-blue-300 mb-8 font-mono">
+                       {MODES.find(m => m.id === selectedMode)?.desc}
                    </div>
+
+                   {/* LEVEL SELECTOR (Hidden for some modes) */}
+                   {(selectedMode === 'MARATHON' || selectedMode === 'MASTER') && (
+                       <>
+                           <label className="text-xs text-gray-400 uppercase tracking-widest font-bold mb-6 block">Entry Level</label>
+                           <div className="grid grid-cols-5 md:grid-cols-10 gap-2 md:gap-3 mb-8">
+                               {[...Array(20)].map((_, i) => (
+                                   <button
+                                       key={i}
+                                       onClick={() => handleLevelSelect(i)}
+                                       onMouseEnter={handleHover}
+                                       className={`aspect-square flex items-center justify-center text-sm font-mono font-bold transition-all duration-200 relative group ${
+                                           startLevel === i 
+                                           ? 'bg-cyan-600 text-white shadow-[0_0_20px_cyan] scale-110 z-10 rounded' 
+                                           : 'bg-gray-800/50 text-gray-500 hover:bg-gray-700 hover:text-white rounded-sm'
+                                       }`}
+                                   >
+                                       {i}
+                                       <div 
+                                         className={`absolute bottom-0 left-0 w-full bg-white/20 transition-all duration-300 ${startLevel === i ? 'opacity-0' : 'opacity-100 group-hover:opacity-0'}`}
+                                         style={{ height: `${getSpeedHeight(i)}%` }}
+                                       ></div>
+                                   </button>
+                               ))}
+                           </div>
+
+                           <div className="flex-1 min-h-[100px] bg-gray-950/50 border border-gray-800 rounded mb-8 relative overflow-hidden flex items-end px-4 pb-0 gap-1">
+                               <div className="absolute top-4 left-4 text-[10px] text-gray-600 uppercase tracking-widest">Gravity Curve Projection</div>
+                               {[...Array(40)].map((_, i) => {
+                                   const h = Math.min(100, 5 + Math.pow(i / 2, 1.6));
+                                   const isActive = i / 2 <= startLevel;
+                                   return (
+                                       <div 
+                                        key={i} 
+                                        className={`flex-1 rounded-t-sm transition-all duration-500 ${isActive ? 'bg-cyan-500 shadow-[0_0_10px_cyan]' : 'bg-gray-800'}`}
+                                        style={{ height: `${h}%`, opacity: isActive ? 0.8 : 0.2 }}
+                                       ></div>
+                                   )
+                               })}
+                           </div>
+                       </>
+                   )}
 
                    <div className="mt-auto pt-4">
                        <button 

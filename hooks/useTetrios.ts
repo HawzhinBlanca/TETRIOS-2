@@ -4,15 +4,12 @@ import { createStage, checkCollision, rotateMatrix, generateBag, getWallKicks, i
 import { audioManager } from '../utils/audioManager';
 import { createAiWorker } from '../utils/aiWorker';
 import { STAGE_WIDTH, STAGE_HEIGHT, SCORES, TETROMINOS } from '../constants';
-import { Player, Board, GameState, TetrominoType, GameStats, MoveScore, FloatingText } from '../types';
+import { Player, Board, GameState, TetrominoType, GameStats, MoveScore, FloatingText, GameMode, KeyAction, KeyMap } from '../types';
 
 const LOCK_DELAY_MS = 500;
 const MAX_MOVES_BEFORE_LOCK = 15;
 
 // Default Controls
-export type KeyAction = 'moveLeft' | 'moveRight' | 'softDrop' | 'hardDrop' | 'rotateCW' | 'rotateCCW' | 'hold' | 'pause';
-export type KeyMap = Record<KeyAction, string[]>;
-
 const DEFAULT_CONTROLS: KeyMap = {
     moveLeft: ['ArrowLeft'],
     moveRight: ['ArrowRight'],
@@ -32,7 +29,8 @@ export class GameEngine {
         tetromino: { shape: [[0]], color: '0,0,0', type: 'I' },
         collided: false,
     };
-    stats: GameStats = { score: 0, rows: 0, level: 0 };
+    stats: GameStats = { score: 0, rows: 0, level: 0, time: 0 };
+    mode: GameMode = 'MARATHON';
     
     // Queue System
     nextQueue: TetrominoType[] = [];
@@ -41,6 +39,8 @@ export class GameEngine {
     canHold = true;
     rotationState = 0;
     lockTimer: any = null;
+    lockStartTime = 0; // Track when lock delay started
+    lockDelayDuration = LOCK_DELAY_MS;
     movesOnGround = 0;
     lastMoveWasRotation = false;
     comboCount = -1;
@@ -78,7 +78,7 @@ export const useTetrios = () => {
   const aiWorker = useRef<Worker | null>(null);
   
   // Reactive State (Only for UI HUD, not for game loop)
-  const [stats, setStats] = useState<GameStats>({ score: 0, rows: 0, level: 0 });
+  const [stats, setStats] = useState<GameStats>({ score: 0, rows: 0, level: 0, time: 0 });
   const [gameState, setGameState] = useState<GameState>('MENU');
   const [nextQueue, setNextQueue] = useState<TetrominoType[]>([]);
   const [heldPiece, setHeldPiece] = useState<TetrominoType | null>(null);
@@ -86,6 +86,7 @@ export const useTetrios = () => {
   const [aiHint, setAiHint] = useState<MoveScore | null>(null);
   const [inputState, setInputState] = useState<{ moveStack: string[], isDown: boolean }>({ moveStack: [], isDown: false });
   const [controls, setControlsState] = useState<KeyMap>(DEFAULT_CONTROLS);
+  const [gameMode, setGameMode] = useState<GameMode>('MARATHON');
   
   // Effect Triggers
   const [visualEffect, setVisualEffect] = useState<{ type: 'SHAKE' | 'PARTICLE' | 'FLASH', payload?: any } | null>(null);
@@ -120,12 +121,14 @@ export const useTetrios = () => {
             // Reset flash state on load to avoid stuck visuals
             e.lockResetFlash = 0;
             e.tSpinFlash = 0;
+            e.lockStartTime = 0;
             engine.current = e;
             // Sync React state
             setStats(e.stats);
             setNextQueue([...e.nextQueue]);
             setHeldPiece(e.heldPiece);
             setCanHold(e.canHold);
+            setGameMode(e.mode || 'MARATHON');
             setGameState('PAUSED');
         } catch(e) { console.error("Failed to load save", e); }
     }
@@ -214,28 +217,55 @@ export const useTetrios = () => {
       e.tSpinFlash = 0;
       
       if (e.lockTimer) { clearTimeout(e.lockTimer); e.lockTimer = null; }
+      e.lockStartTime = 0;
       
       if (checkCollision(e.player, e.stage, { x: 0, y: 0 })) {
-          setGameState('GAMEOVER');
-          localStorage.removeItem('tetrios_state');
-          audioManager.playGameOver();
+          if (e.mode === 'ZEN') {
+              // Zen Mode: Clear board instead of Game Over
+              e.stage = createStage();
+              audioManager.playClear(4);
+              addFloatingText('ZEN RESET', '#06b6d4');
+          } else {
+              setGameState('GAMEOVER');
+              localStorage.removeItem('tetrios_state');
+              audioManager.playGameOver();
+          }
       } else {
           setNextQueue([...e.nextQueue]);
           triggerAi();
       }
   };
 
-  const resetGame = (startLevel = 0) => {
+  const resetGame = (mode: GameMode = 'MARATHON', startLevel = 0) => {
       const e = engine.current;
       e.stage = createStage();
-      e.stats = { score: 0, rows: 0, level: startLevel };
-      e.dropTime = Math.max(100, Math.pow(0.8 - ((startLevel - 1) * 0.007), startLevel) * 1000);
+      e.mode = mode;
+      setGameMode(mode);
+
+      // Stats Init
+      e.stats = { 
+          score: 0, 
+          rows: 0, 
+          level: mode === 'TIME_ATTACK' || mode === 'SPRINT' ? 0 : startLevel, 
+          time: mode === 'TIME_ATTACK' ? 180 : 0 // 3 Minutes for Time Attack, else 0
+      };
+
+      // Gravity Init
+      if (mode === 'ZEN') {
+          e.dropTime = 1000000; // Effectively no gravity
+      } else if (mode === 'MASTER') {
+          e.dropTime = 0; // 20G Instant Gravity
+      } else {
+          e.dropTime = Math.max(100, Math.pow(0.8 - ((startLevel - 1) * 0.007), startLevel) * 1000);
+      }
+      
       e.nextQueue = generateBag();
       e.heldPiece = null;
       e.comboCount = -1;
       e.isBackToBack = false;
       e.floatingTexts = [];
       e.visualEffectsQueue = [];
+      e.lockStartTime = 0;
       
       setStats(e.stats);
       setHeldPiece(null);
@@ -272,11 +302,6 @@ export const useTetrios = () => {
           let score = 0;
           let text = '';
           
-          // T-Spin Check (if last move was rotation)
-          // We check t-spin from the state BEFORE sweep, but since player already locked,
-          // we rely on the flag `lastMoveWasRotation` and `isTSpin` check performed during lock.
-          // NOTE: This simplified version assumes standard scoring
-          
           const basePoints = [0, SCORES.SINGLE, SCORES.DOUBLE, SCORES.TRIPLE, SCORES.TETRIS];
           score += basePoints[rowsCleared] * (e.stats.level + 1);
           
@@ -295,12 +320,24 @@ export const useTetrios = () => {
               text += ` +${e.comboCount} COMBO`;
           }
 
-          e.stats.score += score;
-          e.stats.rows += rowsCleared;
-          e.stats.level = Math.floor(e.stats.rows / 10);
+          // Game Mode Scoring Adjustments
+          if (e.mode !== 'ZEN') {
+            e.stats.score += score;
+          }
           
-          // Speed Curve
-          e.dropTime = Math.max(100, 1000 * Math.pow(0.95, e.stats.level)); // Simplified curve
+          e.stats.rows += rowsCleared;
+          
+          // Level Up Logic
+          if (e.mode === 'MARATHON') {
+              e.stats.level = Math.floor(e.stats.rows / 10);
+              e.dropTime = Math.max(100, 1000 * Math.pow(0.95, e.stats.level));
+          } else if (e.mode === 'SPRINT') {
+              // Sprint: Check win condition
+              if (e.stats.rows >= 40) {
+                  setGameState('VICTORY');
+                  audioManager.playClear(4); // Victory sound placeholder
+              }
+          }
           
           setStats({ ...e.stats });
           addFloatingText(text);
@@ -318,8 +355,9 @@ export const useTetrios = () => {
       if (player.tetromino.type === 'T' && e.lastMoveWasRotation) {
            if (isTSpin(player, stage)) {
                e.tSpinFlash = 1.0;
+               e.visualEffectsQueue.push({ type: 'FLASH', payload: { color: '#d946ef', duration: 150 } });
                addFloatingText('T-SPIN', '#d946ef');
-               audioManager.playRotate(); // T-Spin sound placeholder
+               audioManager.playRotate(); 
            }
       }
 
@@ -343,7 +381,7 @@ export const useTetrios = () => {
       audioManager.playLock();
       
       sweepRows(e.stage);
-      spawnPiece();
+      if(gameState === 'PLAYING') spawnPiece(); // Only spawn if we didn't just win/lose
   };
 
   // --- MOVEMENT ---
@@ -358,6 +396,7 @@ export const useTetrios = () => {
               if(e.movesOnGround < MAX_MOVES_BEFORE_LOCK) {
                  clearTimeout(e.lockTimer);
                  e.lockTimer = null;
+                 e.lockStartTime = 0;
                  e.lockResetFlash = 0.5;
               }
           }
@@ -388,6 +427,7 @@ export const useTetrios = () => {
                   if(e.movesOnGround < MAX_MOVES_BEFORE_LOCK) {
                       clearTimeout(e.lockTimer);
                       e.lockTimer = null;
+                      e.lockStartTime = 0;
                       e.lockResetFlash = 0.5;
                   }
               }
@@ -402,9 +442,9 @@ export const useTetrios = () => {
       const e = engine.current;
       if (!checkCollision(e.player, e.stage, { x: 0, y: 1 })) {
           e.player.pos.y += 1;
-          e.stats.score += SCORES.SOFT_DROP;
+          if(e.mode !== 'ZEN') e.stats.score += SCORES.SOFT_DROP;
           e.lastMoveWasRotation = false;
-          setStats({ ...e.stats }); // Throttle this in real app
+          setStats({ ...e.stats }); 
           return true;
       }
       return false;
@@ -417,14 +457,14 @@ export const useTetrios = () => {
           e.player.pos.y += 1;
           dropped++;
       }
-      e.stats.score += dropped * SCORES.HARD_DROP;
+      if(e.mode !== 'ZEN') e.stats.score += dropped * SCORES.HARD_DROP;
       e.lastMoveWasRotation = false;
       setStats({ ...e.stats });
       
       e.visualEffectsQueue.push({ 
         type: 'PARTICLE', 
         payload: { 
-            x: e.player.pos.x, // approx center
+            x: e.player.pos.x, 
             y: e.player.pos.y, 
             color: e.player.tetromino.color,
             isExplosion: false 
@@ -445,25 +485,10 @@ export const useTetrios = () => {
           e.heldPiece = currentType;
       } else {
           e.heldPiece = currentType;
-          spawnPiece(); // will overwrite player, so we need logic to NOT spawn new from queue if just swapping...
-          // Actually standard Tetris: hold puts current in hold, pulls from queue. If hold empty, pull from queue.
-          // If hold has piece, swap.
-          
-          // Re-correcting logic:
-          // If hold empty: current -> hold, spawn new.
-          // If hold full: current -> hold, hold -> current.
+          spawnPiece(); 
       }
       
-      // Actually spawnPiece logic above draws from queue.
-      // We need a clean swap logic.
-      
-      // Correction:
-      if (e.heldPiece === currentType) {
-          // already swapped logic in if-else above is flawed because spawnPiece resets everything
-      }
-      
-      // Let's re-do swap properly
-      if (heldPiece === null) { // React state heldPiece matches engine
+      if (heldPiece === null) { 
            e.heldPiece = currentType;
            spawnPiece(); 
       } else {
@@ -476,6 +501,7 @@ export const useTetrios = () => {
            };
            e.rotationState = 0;
            e.lockTimer = null;
+           e.lockStartTime = 0;
       }
       
       e.canHold = false;
@@ -495,9 +521,23 @@ export const useTetrios = () => {
       const deltaTime = time - lastTimeRef.current;
       lastTimeRef.current = time;
 
-      // Gravity
+      // --- Mode Logic ---
+      if (e.mode === 'TIME_ATTACK') {
+          e.stats.time -= deltaTime / 1000;
+          if (e.stats.time <= 0) {
+              e.stats.time = 0;
+              setGameState('GAMEOVER');
+              audioManager.playGameOver();
+          }
+      } else if (e.mode === 'SPRINT') {
+          e.stats.time += deltaTime / 1000;
+      }
+
+      // Gravity (Skip in ZEN unless holding down, force fast in MASTER)
+      const effectiveGravity = (e.mode === 'ZEN' && !e.keys.down) ? Infinity : e.dropTime;
+      
       e.dropCounter += deltaTime * e.speedMultiplier;
-      if (e.dropCounter > e.dropTime) {
+      if (e.dropCounter > effectiveGravity) {
           if (!checkCollision(e.player, e.stage, { x: 0, y: 1 })) {
               e.player.pos.y += 1;
               e.lastMoveWasRotation = false;
@@ -505,11 +545,11 @@ export const useTetrios = () => {
               // Lock Delay
               if (!e.lockTimer) {
                   e.lockTimer = setTimeout(() => {
-                      // Double check collision after delay
                       if (checkCollision(e.player, e.stage, { x: 0, y: 1 })) {
                           lockPiece();
                       }
                   }, LOCK_DELAY_MS);
+                  e.lockStartTime = Date.now();
               }
           }
           e.dropCounter = 0;
@@ -534,9 +574,11 @@ export const useTetrios = () => {
           }
       }
       
-      // Soft Drop Processing
-      if (e.keys.down) {
-          softDrop(); // Speed depends on frame rate (60hz soft drop is fast)
+      if (e.keys.down && e.mode !== 'ZEN') {
+          softDrop(); 
+      } else if (e.keys.down && e.mode === 'ZEN') {
+          // Manual gravity in Zen
+          softDrop();
       }
 
       // Process Visual Queue
@@ -544,6 +586,9 @@ export const useTetrios = () => {
           const effect = e.visualEffectsQueue.shift();
           if (effect) setVisualEffect(effect);
       }
+      
+      // Throttle React Updates for Timer
+      if (Math.random() > 0.9) setStats({ ...e.stats });
 
       requestRef.current = requestAnimationFrame(update);
   };
@@ -564,7 +609,6 @@ export const useTetrios = () => {
       const e = engine.current;
       const map = e.keyMap;
       
-      // Helper to check mapping
       const isAction = (act: KeyAction) => map[act].includes(key);
 
       if (isAction('moveLeft')) {
@@ -654,6 +698,7 @@ export const useTetrios = () => {
       score: stats.score,
       rows: stats.rows,
       level: stats.level,
+      time: stats.time,
       nextQueue,
       heldPiece,
       canHold,
@@ -663,6 +708,7 @@ export const useTetrios = () => {
       resetGame,
       setGameState,
       gameState,
+      gameMode,
       touchControls,
       aiHint,
       setGameConfig,
