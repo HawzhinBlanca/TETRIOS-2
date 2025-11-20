@@ -6,71 +6,115 @@ import { rotateMatrix } from '../utils/gameUtils';
 import { audioManager } from '../utils/audioManager';
 
 interface Props {
-  engine: React.MutableRefObject<any>; // Using any to avoid circular dep types for now, usually GameEngine
+  engine: React.MutableRefObject<any>; // Using any to avoid circular dep types
   aiHint: MoveScore | null;
   showAi: boolean;
+  cellSize?: number; 
   
   // Ghost Config
   ghostStyle?: 'neon' | 'dashed' | 'solid';
   ghostOpacity?: number;
   ghostOutlineThickness?: number;
+  ghostGlowIntensity?: number;
   ghostShadow?: string;
   lockWarningEnabled?: boolean;
 }
 
-const CELL_SIZE = 30; 
+// --- UTILS & HELPERS ---
+
+// Memoize color parsing to avoid thousands of regex calls per frame
+const RGB_CACHE: Record<string, string> = {};
+const getRgbString = (color: string): string => {
+    if (RGB_CACHE[color]) return RGB_CACHE[color];
+    const matches = color.match(/\d+/g);
+    const res = matches ? matches.join(',') : '255,255,255';
+    RGB_CACHE[color] = res;
+    return res;
+};
+
+const drawRoundedRect = (ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, r: number) => {
+  ctx.beginPath();
+  ctx.moveTo(x + r, y);
+  ctx.lineTo(x + w - r, y);
+  ctx.quadraticCurveTo(x + w, y, x + w, y + r);
+  ctx.lineTo(x + w, y + h - r);
+  ctx.quadraticCurveTo(x + w, y + h, x + w - r, y + h);
+  ctx.lineTo(x + r, y + h);
+  ctx.quadraticCurveTo(x, y, x + r, y);
+  ctx.closePath();
+};
+
+const calculateGhostY = (stage: any[][], player: any): number => {
+    let ghostY = player.pos.y;
+    const shape = player.tetromino.shape;
+    
+    // Safety: Check if shape has blocks
+    const hasBlocks = shape.some((row: any[]) => row.some((cell: any) => cell !== 0));
+    if (!hasBlocks) return ghostY;
+
+    // Loop bound by stage height to prevent infinite loops
+    for (let i = 0; i < STAGE_HEIGHT + 2; i++) {
+       let collision = false;
+       const nextY = ghostY + 1;
+       
+       for(let r=0; r<shape.length; r++) {
+           for(let c=0; c<shape[r].length; c++) {
+               if(shape[r][c] !== 0) {
+                   const ny = nextY + r;
+                   const nx = player.pos.x + c;
+                   if(ny >= STAGE_HEIGHT || (ny >= 0 && stage[ny][nx][1] !== 'clear')) {
+                       collision = true;
+                   }
+               }
+           }
+       }
+       if(collision) break;
+       ghostY++;
+    }
+    return ghostY;
+};
 
 const BoardCanvas: React.FC<Props> = ({ 
   engine,
   aiHint, 
   showAi, 
+  cellSize = 30, 
   ghostStyle = 'neon',
   ghostOpacity = 0.6,
   ghostOutlineThickness = 2,
+  ghostGlowIntensity = 1.0,
   ghostShadow,
   lockWarningEnabled = true
 }) => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
 
-  const drawRoundedRect = (ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, r: number) => {
-    ctx.beginPath();
-    ctx.moveTo(x + r, y);
-    ctx.lineTo(x + w - r, y);
-    ctx.quadraticCurveTo(x + w, y, x + w, y + r);
-    ctx.lineTo(x + w, y + h - r);
-    ctx.quadraticCurveTo(x + w, y + h, x + w - r, y + h);
-    ctx.lineTo(x + r, y + h);
-    ctx.quadraticCurveTo(x, y, x + r, y);
-    ctx.closePath();
-  };
-
+  // --- DRAWING LOGIC ---
   const drawCell = (ctx: CanvasRenderingContext2D, x: number, y: number, color: string, isGhost = false, isAi = false, isLocking = false) => {
-     const px = x * CELL_SIZE;
-     const py = y * CELL_SIZE;
-     const size = CELL_SIZE - 2; 
-     const gap = 1;
-
-     ctx.save();
+     const px = x * cellSize;
+     const py = y * cellSize;
      
-     // Robust parsing for RGB strings (e.g., "rgb(255, 0, 0)")
-     const matches = color ? color.match(/\d+/g) : null;
-     const rgb = matches ? matches.join(',') : '255,255,255';
+     // Responsive dimensions
+     const gap = cellSize * 0.05; 
+     const size = cellSize - (gap * 2); 
+     const radius = cellSize * 0.12; 
+     
+     ctx.save();
+     const rgb = getRgbString(color);
 
      if (isGhost) {
         ctx.globalAlpha = ghostOpacity;
-        
-        const lw = ghostOutlineThickness;
+        const lw = ghostOutlineThickness; // User preference, usually absolute pixels
 
         if (ghostStyle === 'dashed') {
             ctx.strokeStyle = `rgba(${rgb}, 0.8)`;
             ctx.lineWidth = lw;
-            ctx.setLineDash([8, 4]); 
+            ctx.setLineDash([cellSize * 0.25, cellSize * 0.12]); 
             ctx.fillStyle = 'transparent';
-            drawRoundedRect(ctx, px + gap, py + gap, size, size, 4);
+            drawRoundedRect(ctx, px + gap, py + gap, size, size, radius);
             if (lw > 0) ctx.stroke();
         } else if (ghostStyle === 'solid') {
             ctx.fillStyle = `rgba(${rgb}, 0.5)`; 
-            drawRoundedRect(ctx, px + gap, py + gap, size, size, 2);
+            drawRoundedRect(ctx, px + gap, py + gap, size, size, radius / 2);
             ctx.fill();
             if (lw > 0) {
                 ctx.strokeStyle = `rgba(${rgb}, 0.8)`;
@@ -86,62 +130,62 @@ const BoardCanvas: React.FC<Props> = ({
             
             if (ghostShadow) {
                 ctx.shadowColor = ghostShadow; 
-                ctx.shadowBlur = 10 + pulse * 8;
+                ctx.shadowBlur = (cellSize * 0.3 + pulse * cellSize * 0.25) * ghostGlowIntensity;
             } else {
-                ctx.shadowBlur = 5 + pulse * 10;
+                ctx.shadowBlur = (cellSize * 0.15 + pulse * cellSize * 0.3) * ghostGlowIntensity;
                 ctx.shadowColor = `rgba(${rgb}, 0.8)`;
             }
             
-            drawRoundedRect(ctx, px + gap, py + gap, size, size, 4);
+            drawRoundedRect(ctx, px + gap, py + gap, size, size, radius);
             if (lw > 0) ctx.stroke();
             ctx.fill();
         }
         
      } else if (isAi) {
-         // Gold pulsating dashed outline for AI suggestion
-         const pulse = (Math.sin(Date.now() / 300) + 1) / 2; // Gentle pulse
+         // AI Hint
+         const pulse = (Math.sin(Date.now() / 300) + 1) / 2; 
          const alpha = 0.4 + pulse * 0.4;
          
          ctx.strokeStyle = `rgba(255, 215, 0, ${alpha})`; 
-         ctx.setLineDash([6, 4]);
-         ctx.lineWidth = 2;
-         ctx.fillStyle = `rgba(255, 215, 0, 0.1)`; // Faint gold fill
+         ctx.setLineDash([cellSize * 0.2, cellSize * 0.15]);
+         ctx.lineWidth = Math.max(1, cellSize * 0.06);
+         ctx.fillStyle = `rgba(255, 215, 0, 0.1)`; 
          
-         drawRoundedRect(ctx, px + gap, py + gap, size, size, 3);
+         drawRoundedRect(ctx, px + gap, py + gap, size, size, radius);
          ctx.fill();
          ctx.stroke();
      } else {
-         // Active (Standard or Locking)
+         // Active/Locked Block
+         const pulse = isLocking ? (Math.sin(Date.now() / 60) + 1) / 2 : 0;
+
          if (isLocking) {
-             const pulse = (Math.sin(Date.now() / 60) + 1) / 2; // Fast oscillation ~370ms period
              ctx.shadowColor = `rgba(255, 255, 255, ${0.6 + pulse * 0.4})`;
-             ctx.shadowBlur = 20 + pulse * 10;
+             ctx.shadowBlur = cellSize * 0.6 + (pulse * cellSize * 0.3);
              ctx.fillStyle = `rgba(${rgb}, 0.9)`;
          } else {
              ctx.fillStyle = `rgba(${rgb}, 0.9)`;
              ctx.shadowColor = `rgba(${rgb}, 0.8)`;
-             ctx.shadowBlur = 15;
+             ctx.shadowBlur = cellSize * 0.5;
          }
 
-         drawRoundedRect(ctx, px + gap, py + gap, size, size, 2);
+         drawRoundedRect(ctx, px + gap, py + gap, size, size, radius / 1.5);
          ctx.fill();
          
-         // Locking Overlay (White flash)
+         // Locking Overlay
          if (isLocking) {
-             const pulse = (Math.sin(Date.now() / 60) + 1) / 2;
              ctx.fillStyle = `rgba(255, 255, 255, ${0.15 + pulse * 0.2})`;
              ctx.beginPath();
-             drawRoundedRect(ctx, px + gap, py + gap, size, size, 2);
+             drawRoundedRect(ctx, px + gap, py + gap, size, size, radius / 1.5);
              ctx.fill();
              
              ctx.strokeStyle = `rgba(255, 255, 255, 0.9)`;
-             ctx.lineWidth = 2;
+             ctx.lineWidth = Math.max(1, cellSize * 0.06);
          } else {
              ctx.strokeStyle = `rgba(${rgb}, 1)`;
-             ctx.lineWidth = 1;
+             ctx.lineWidth = Math.max(1, cellSize * 0.03);
          }
 
-         // Inner highlight (Common)
+         // Inner highlight
          ctx.fillStyle = 'rgba(255,255,255,0.2)';
          ctx.beginPath();
          ctx.rect(px + gap, py + gap, size, size/2);
@@ -160,38 +204,13 @@ const BoardCanvas: React.FC<Props> = ({
     const e = engine.current;
     const { stage, player, comboCount, dropCounter, dropTime, floatingTexts } = e;
 
-    // --- GHOST CALC (Performed inside render to ensure sync) ---
-    let ghostY = player.pos.y;
-    const shape = player.tetromino.shape;
-    
-    // Safety check: If shape is dummy (all zeros) or empty, skip ghost calc to prevent infinite loop
-    const hasBlocks = shape.some((row: any[]) => row.some((cell: any) => cell !== 0));
-
-    if (hasBlocks) {
-        // Use a for loop with max iterations (stage height) instead of while(true) to prevent crashes
-        for (let i = 0; i < STAGE_HEIGHT + 2; i++) {
-           let collision = false;
-           const nextY = ghostY + 1;
-           
-           for(let r=0; r<shape.length; r++) {
-               for(let c=0; c<shape[r].length; c++) {
-                   if(shape[r][c] !== 0) {
-                       const ny = nextY + r;
-                       const nx = player.pos.x + c;
-                       if(ny >= STAGE_HEIGHT || (ny >= 0 && stage[ny][nx][1] !== 'clear')) {
-                           collision = true;
-                       }
-                   }
-               }
-           }
-           if(collision) break;
-           ghostY++;
-        }
-    }
+    // --- GHOST CALC ---
+    const ghostY = calculateGhostY(stage, player);
+    const hasBlocks = player.tetromino.shape.some((row: any[]) => row.some((cell: any) => cell !== 0));
 
     const dpr = window.devicePixelRatio || 1;
-    const logicWidth = STAGE_WIDTH * CELL_SIZE;
-    const logicHeight = STAGE_HEIGHT * CELL_SIZE;
+    const logicWidth = STAGE_WIDTH * cellSize;
+    const logicHeight = STAGE_HEIGHT * cellSize;
     
     if (canvas.width !== logicWidth * dpr || canvas.height !== logicHeight * dpr) {
         canvas.width = logicWidth * dpr;
@@ -203,31 +222,31 @@ const BoardCanvas: React.FC<Props> = ({
 
     ctx.clearRect(0, 0, logicWidth, logicHeight);
 
-    // Grid (Audio Reactive)
+    // --- GRID (Audio Reactive) ---
     let gridAlpha = 0.05;
     const audioData = audioManager.getFrequencyData();
     if (audioData) {
-        // Calculate bass energy for pulse (bins 2-12 roughly 40-250Hz)
+        // Calculate bass energy (approx 40-250Hz)
         let bassEnergy = 0;
         for(let i=2; i<12; i++) bassEnergy += audioData[i];
-        const normalizedBass = bassEnergy / (10 * 255); // 0 to 1
+        const normalizedBass = bassEnergy / (10 * 255); 
         gridAlpha = 0.05 + (normalizedBass * 0.25);
     }
 
-    ctx.strokeStyle = `rgba(6, 182, 212, ${gridAlpha})`; // Cyan-500 with dynamic alpha
-    ctx.lineWidth = 1;
+    ctx.strokeStyle = `rgba(6, 182, 212, ${gridAlpha})`; 
+    ctx.lineWidth = Math.max(0.5, cellSize * 0.03);
     ctx.beginPath();
     for (let x = 0; x <= STAGE_WIDTH; x++) {
-      ctx.moveTo(x * CELL_SIZE, 0);
-      ctx.lineTo(x * CELL_SIZE, logicHeight);
+      ctx.moveTo(x * cellSize, 0);
+      ctx.lineTo(x * cellSize, logicHeight);
     }
     for (let y = 0; y <= STAGE_HEIGHT; y++) {
-      ctx.moveTo(0, y * CELL_SIZE);
-      ctx.lineTo(logicWidth, y * CELL_SIZE);
+      ctx.moveTo(0, y * cellSize);
+      ctx.lineTo(logicWidth, y * cellSize);
     }
     ctx.stroke();
 
-    // Locked Blocks
+    // --- LOCKED BLOCKS ---
     stage.forEach((row: any, y: number) => {
       row.forEach((cell: any, x: number) => {
         if (cell[1] !== 'clear') {
@@ -238,32 +257,27 @@ const BoardCanvas: React.FC<Props> = ({
       });
     });
 
-    // Ghost Piece
+    // --- GHOST PIECE ---
     if (hasBlocks) {
        player.tetromino.shape.forEach((row: any, y: number) => {
          row.forEach((value: any, x: number) => {
            if (value !== 0) {
-             const color = player.tetromino.color;
-             drawCell(ctx, x + player.pos.x, y + ghostY, color, true);
+             drawCell(ctx, x + player.pos.x, y + ghostY, player.tetromino.color, true);
            }
          });
        });
     }
 
-    // AI Hint - Visualized as specific ghost piece
+    // --- AI HINT ---
     if (showAi && aiHint && aiHint.y !== undefined) {
         const type = e.player.tetromino.type;
         if (type && TETROMINOS[type]) {
              let aiShape = TETROMINOS[type].shape;
-             // Rotate shape to match AI suggestion
-             for (let i = 0; i < aiHint.r; i++) {
-                 aiShape = rotateMatrix(aiShape, 1);
-             }
+             for (let i = 0; i < aiHint.r; i++) aiShape = rotateMatrix(aiShape, 1);
              
              aiShape.forEach((row: any[], dy: number) => {
                  row.forEach((cell: any, dx: number) => {
                      if (cell !== 0) {
-                         // Use 'gold' dummy color, overridden by isAi=true flag styles
                          drawCell(ctx, aiHint.x + dx, aiHint.y! + dy, 'rgb(255, 215, 0)', false, true); 
                      }
                  })
@@ -271,46 +285,56 @@ const BoardCanvas: React.FC<Props> = ({
         }
     }
 
-    // Active Piece (Interpolated)
+    // --- ACTIVE PIECE ---
     if (hasBlocks) {
-       // Interpolation: visualY = y + (time / dropTime)
        const offsetY = Math.min(1, dropCounter / dropTime);
        const visualY = player.pos.y + offsetY;
-
        const isLocking = lockWarningEnabled && (e.lockTimer !== null);
 
        player.tetromino.shape.forEach((row: any, y: number) => {
          row.forEach((value: any, x: number) => {
            if (value !== 0) {
-              const color = player.tetromino.color;
-              drawCell(ctx, x + player.pos.x, y + visualY, color, false, false, isLocking);
+              drawCell(ctx, x + player.pos.x, y + visualY, player.tetromino.color, false, false, isLocking);
            }
          });
        });
        
-       // Lock Reset Flash Visual (One-shot)
+       // Lock Reset Flash
        if (e.lockResetFlash > 0.01) {
             ctx.save();
             ctx.globalAlpha = e.lockResetFlash;
             ctx.fillStyle = 'white';
-            
             player.tetromino.shape.forEach((row: any, y: number) => {
                 row.forEach((value: any, x: number) => {
                     if (value !== 0) {
-                        const px = (x + player.pos.x) * CELL_SIZE;
-                        const py = (y + visualY) * CELL_SIZE;
-                        const size = CELL_SIZE - 2; 
-                        drawRoundedRect(ctx, px + 1, py + 1, size, size, 2);
+                        const px = (x + player.pos.x) * cellSize;
+                        const py = (y + visualY) * cellSize;
+                        const size = cellSize * 0.9;
+                        drawRoundedRect(ctx, px + (cellSize * 0.05), py + (cellSize * 0.05), size, size, cellSize * 0.15);
                         ctx.fill();
                     }
                 });
             });
             ctx.restore();
-            
-            e.lockResetFlash *= 0.85; // Decay
+            e.lockResetFlash *= 0.85;
        } else {
            e.lockResetFlash = 0;
        }
+    }
+
+    // --- OVERLAYS ---
+    
+    // T-Spin Flash
+    if (e.tSpinFlash && e.tSpinFlash > 0.01) {
+        ctx.save();
+        ctx.globalCompositeOperation = 'screen';
+        ctx.globalAlpha = e.tSpinFlash;
+        ctx.fillStyle = 'rgba(217, 70, 239, 0.4)';
+        ctx.fillRect(0, 0, logicWidth, logicHeight);
+        ctx.restore();
+        e.tSpinFlash *= 0.9;
+    } else {
+        e.tSpinFlash = 0;
     }
 
     // Combo Meter
@@ -318,11 +342,11 @@ const BoardCanvas: React.FC<Props> = ({
         ctx.save();
         ctx.textAlign = 'center';
         ctx.shadowColor = 'rgba(255, 255, 255, 0.8)';
-        ctx.shadowBlur = 20;
+        ctx.shadowBlur = cellSize * 0.6;
         ctx.fillStyle = '#fff';
-        ctx.font = 'bold 24px Rajdhani';
+        ctx.font = `bold ${cellSize * 0.8}px Rajdhani`; 
         const scale = 1 + Math.sin(Date.now() / 100) * 0.1;
-        ctx.translate(logicWidth / 2, 80);
+        ctx.translate(logicWidth / 2, cellSize * 3);
         ctx.scale(scale, scale);
         ctx.fillText(`${comboCount}x COMBO`, 0, 0);
         ctx.restore();
@@ -333,21 +357,19 @@ const BoardCanvas: React.FC<Props> = ({
         ctx.save();
         ctx.globalAlpha = ft.life;
         ctx.fillStyle = ft.color;
-        ctx.font = 'bold 20px Rajdhani';
+        ctx.font = `bold ${cellSize * 0.7}px Rajdhani`;
         ctx.shadowColor = ft.color;
-        ctx.shadowBlur = 10;
+        ctx.shadowBlur = cellSize * 0.3;
         ctx.textAlign = 'center';
         
-        // Convert grid pos to pixel
-        const fx = ft.x * CELL_SIZE + (CELL_SIZE * 2); 
-        const fy = ft.y * CELL_SIZE;
+        const fx = ft.x * cellSize + (cellSize * 2); 
+        const fy = ft.y * cellSize;
         
         ctx.translate(fx, fy);
         ctx.scale(ft.scale + 1, ft.scale + 1);
         ctx.fillText(ft.text, 0, 0);
         ctx.restore();
     });
-
   };
 
   useEffect(() => {
@@ -358,7 +380,7 @@ const BoardCanvas: React.FC<Props> = ({
     };
     loop();
     return () => cancelAnimationFrame(animationFrameId);
-  }, [ghostStyle, ghostOpacity, ghostOutlineThickness, ghostShadow, showAi, aiHint, lockWarningEnabled]); 
+  }, [ghostStyle, ghostOpacity, ghostOutlineThickness, ghostGlowIntensity, ghostShadow, showAi, aiHint, lockWarningEnabled, cellSize]); 
 
   return (
     <div className="relative flex justify-center items-center bg-gray-900 rounded border-4 border-gray-800 shadow-[0_0_50px_-10px_rgba(6,182,212,0.3)]">

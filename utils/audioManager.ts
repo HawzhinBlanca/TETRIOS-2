@@ -6,6 +6,7 @@ class AudioManager {
   private ctx: AudioContext | null = null;
   private masterGain: GainNode | null = null; // For Drone path
   private sfxGain: GainNode | null = null;    // For SFX path
+  private uiGain: GainNode | null = null;     // For UI sounds
   private filterNode: BiquadFilterNode | null = null;
   public analyser: AnalyserNode | null = null;
   private dataArray: Uint8Array | null = null;
@@ -33,9 +34,13 @@ class AudioManager {
         this.masterGain = this.ctx.createGain();
         this.masterGain.gain.value = 0.3;
 
-        // SFX Gain (Sound Effects)
+        // SFX Gain (Game Sounds)
         this.sfxGain = this.ctx.createGain();
         this.sfxGain.gain.value = 0.3;
+
+        // UI Gain (Interface Sounds)
+        this.uiGain = this.ctx.createGain();
+        this.uiGain.gain.value = 0.2;
         
         // Filter for reactive audio (Drone only)
         this.filterNode = this.ctx.createBiquadFilter();
@@ -49,9 +54,11 @@ class AudioManager {
         this.filterNode.connect(this.analyser);
 
         // Connect Graph 2: SFX -> SfxGain -> Destination & Analyser
-        // SFX bypass the filter to stay crisp, but are still visualized
         this.sfxGain.connect(this.ctx.destination);
         this.sfxGain.connect(this.analyser);
+
+        // Connect Graph 3: UI -> UiGain -> Destination
+        this.uiGain.connect(this.ctx.destination);
 
         this.startDrone();
       }
@@ -100,11 +107,14 @@ class AudioManager {
     this.enabled = !this.enabled;
     if (this.masterGain) this.masterGain.gain.value = this.enabled ? 0.3 : 0;
     if (this.sfxGain) this.sfxGain.gain.value = this.enabled ? 0.3 : 0;
+    if (this.uiGain) this.uiGain.gain.value = this.enabled ? 0.2 : 0;
     return this.enabled;
   }
 
-  playTone(freq: number, type: OscillatorType, duration: number, startTime: number = 0, vol: number = 1) {
-    if (!this.enabled || !this.ctx || !this.sfxGain) return;
+  playTone(freq: number, type: OscillatorType, duration: number, startTime: number = 0, vol: number = 1, output: GainNode | null = null) {
+    if (!this.enabled || !this.ctx) return;
+    const targetNode = output || this.sfxGain;
+    if (!targetNode) return;
 
     const osc = this.ctx.createOscillator();
     const gain = this.ctx.createGain();
@@ -116,13 +126,37 @@ class AudioManager {
     gain.gain.exponentialRampToValueAtTime(0.01, this.ctx.currentTime + startTime + duration);
 
     osc.connect(gain);
-    gain.connect(this.sfxGain); // Route to SFX bus
+    gain.connect(targetNode);
 
     osc.start(this.ctx.currentTime + startTime);
     osc.stop(this.ctx.currentTime + startTime + duration);
   }
 
-  // SFX Definitions
+  // --- UI SOUNDS ---
+  playUiHover() {
+      // Short, high-pitch blip
+      this.playTone(800, 'sine', 0.05, 0, 0.05, this.uiGain);
+  }
+
+  playUiClick() {
+      // "Mechanical" click
+      this.playTone(1200, 'square', 0.05, 0, 0.05, this.uiGain);
+      this.playTone(600, 'sawtooth', 0.05, 0.01, 0.05, this.uiGain);
+  }
+
+  playUiSelect() {
+      // Positive confirmation
+      this.playTone(440, 'sine', 0.1, 0, 0.1, this.uiGain);
+      this.playTone(880, 'sine', 0.2, 0.05, 0.1, this.uiGain);
+  }
+
+  playUiBack() {
+      // Cancel sound
+      this.playTone(400, 'triangle', 0.1, 0, 0.1, this.uiGain);
+      this.playTone(300, 'triangle', 0.1, 0.05, 0.1, this.uiGain);
+  }
+
+  // --- GAME SOUNDS ---
   playMove() {
     this.playTone(300, 'triangle', 0.05, 0, 0.1);
   }
