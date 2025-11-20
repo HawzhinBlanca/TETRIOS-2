@@ -1,4 +1,3 @@
-
 import { STAGE_HEIGHT, STAGE_WIDTH, TETROMINOS, KICKS, PuzzleDefinition } from '../constants';
 import { Board, CellData, TetrominoType, Player } from '../types';
 

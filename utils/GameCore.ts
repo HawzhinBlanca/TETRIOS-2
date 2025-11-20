@@ -1,4 +1,3 @@
-
 import { createStage, createPuzzleStage, addGarbageLines, checkCollision, rotateMatrix, generateBag, getWallKicks, isTSpin } from './gameUtils';
 import { calculateScore } from './scoreRules';
 import { audioManager } from './audioManager';
@@ -57,7 +56,9 @@ export class GameCore {
     floatingTexts: FloatingText[] = [];
     visualEffectsQueue: { type: 'SHAKE' | 'PARTICLE' | 'FLASH', payload?: any }[] = [];
 
+    // Input State
     moveStack: string[] = [];
+    inputQueue: KeyAction[] = []; 
     keyTimers: Record<string, number> = { left: 0, right: 0, down: 0 };
     keys: Record<string, boolean> = { down: false, left: false, right: false };
     keyMap: KeyMap;
@@ -141,6 +142,10 @@ export class GameCore {
         this.lockStartTime = 0;
         this.battleTimer = 0;
         this.garbagePending = 0;
+        
+        this.moveStack = [];
+        this.inputQueue = [];
+        this.keys = { down: false, left: false, right: false };
         
         this.callbacks.onHoldChange(null, true);
         this.spawnPiece();
@@ -284,6 +289,7 @@ export class GameCore {
         const { player, stage } = this;
         let tSpinDetected = false;
 
+        // Check T-Spin condition BEFORE locking
         if (player.tetromino.type === 'T' && this.lastMoveWasRotation) {
              if (isTSpin(player, stage)) {
                  tSpinDetected = true;
@@ -325,18 +331,17 @@ export class GameCore {
          audioManager.playTSpin();
     }
 
+    // --- INPUT HANDLING ---
+
     handleInput(action: KeyAction, isPressed: boolean) {
-        // Movement Actions (Left/Right)
         if (action === 'moveLeft' || action === 'moveRight') {
             const dir = action === 'moveLeft' ? 'left' : 'right';
-            const delta = action === 'moveLeft' ? -1 : 1;
-
+            
             if (isPressed) {
                 if (!this.keys[dir]) {
                     this.keys[dir] = true;
                     this.moveStack.push(dir);
-                    this.keyTimers[dir] = 0;
-                    this.move(delta); // Initial Move
+                    this.keyTimers[dir] = 0; 
                 }
             } else {
                 this.keys[dir] = false;
@@ -351,14 +356,63 @@ export class GameCore {
             return;
         }
 
-        // Discrete Actions (On Press only)
         if (isPressed) {
-             switch (action) {
+            if (['rotateCW', 'rotateCCW', 'hold', 'hardDrop'].includes(action)) {
+                this.inputQueue.push(action);
+            }
+        }
+    }
+
+    private processInputs(deltaTime: number) {
+        // 1. Process Discrete Action Queue
+        while (this.inputQueue.length > 0) {
+            const action = this.inputQueue.shift();
+            switch (action) {
                 case 'rotateCW': this.rotate(1); break;
                 case 'rotateCCW': this.rotate(-1); break;
                 case 'hold': this.hold(); break;
                 case 'hardDrop': this.hardDrop(); break;
             }
+        }
+
+        // 2. Process Continuous Movement (DAS / ARR)
+        const activeDir = this.moveStack[this.moveStack.length - 1];
+        if (activeDir) {
+            const delta = activeDir === 'left' ? -1 : 1;
+            
+            if (this.keyTimers[activeDir] === 0) {
+                // Initial Move (Instant)
+                this.move(delta);
+            }
+            
+            const previousTime = this.keyTimers[activeDir];
+            this.keyTimers[activeDir] += deltaTime;
+
+            if (this.keyTimers[activeDir] > this.das) {
+                const arrSpeed = this.arr;
+                if (arrSpeed === 0) {
+                    while(this.move(delta)) {}
+                } else {
+                    // Robust ARR Accumulator Logic (Tick-Based)
+                    // Ensures exact number of movements regardless of frame duration
+                    const timePastDasPrev = Math.max(0, previousTime - this.das);
+                    const timePastDasNow = this.keyTimers[activeDir] - this.das;
+                    
+                    const ticksPrev = Math.floor(timePastDasPrev / arrSpeed);
+                    const ticksNow = Math.floor(timePastDasNow / arrSpeed);
+                    
+                    const movesToExecute = ticksNow - ticksPrev;
+                    
+                    for(let i=0; i<movesToExecute; i++) {
+                        this.move(delta);
+                    }
+                }
+            }
+        }
+
+        // 3. Process Soft Drop
+        if (this.keys.down) {
+            this.softDrop();
         }
     }
 
@@ -420,7 +474,6 @@ export class GameCore {
             this.callbacks.onStatsChange(this.stats);
         }
         
-        // Important: Hard Drop resets rotation status ONLY if we moved vertically
         if (dropped > 0) {
             this.lastMoveWasRotation = false;
         }
@@ -491,9 +544,8 @@ export class GameCore {
     update(deltaTime: number) {
         this.updateModeLogic(deltaTime);
         this.updateGravity(deltaTime);
-        this.updateInputRepeat(deltaTime);
+        this.processInputs(deltaTime);
         
-        // Tick floating text life
         for (let i = this.floatingTexts.length - 1; i >= 0; i--) {
             this.floatingTexts[i].life -= deltaTime * 0.002;
             this.floatingTexts[i].y -= deltaTime * 0.001;
@@ -544,29 +596,6 @@ export class GameCore {
                 }
             }
             this.dropCounter = 0;
-        }
-    }
-
-    private updateInputRepeat(deltaTime: number) {
-        const activeKey = this.moveStack[this.moveStack.length - 1];
-        if (activeKey && (activeKey === 'left' || activeKey === 'right')) {
-            if (this.keyTimers[activeKey] === undefined) {
-                 this.keyTimers[activeKey] = 0; 
-            }
-            this.keyTimers[activeKey] += deltaTime;
-            
-            if (this.keyTimers[activeKey] > this.das) {
-                 const arrSpeed = this.arr;
-                 if (arrSpeed === 0) {
-                     while(this.move(activeKey === 'left' ? -1 : 1)) {}
-                 } else if ((this.keyTimers[activeKey] - this.das) % arrSpeed < deltaTime) {
-                     this.move(activeKey === 'left' ? -1 : 1);
-                 }
-            }
-        }
-        
-        if (this.keys.down) {
-            this.softDrop();
         }
     }
 

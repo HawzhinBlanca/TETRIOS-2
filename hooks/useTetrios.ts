@@ -1,4 +1,3 @@
-
 import { useState, useCallback, useEffect, useRef } from 'react';
 import { GameCore } from '../utils/GameCore';
 import { createAiWorker } from '../utils/aiWorker';
@@ -136,29 +135,37 @@ export const useTetrios = () => {
       return () => cancelAnimationFrame(requestRef.current);
   }, [gameState]);
 
+  // --- INPUT HANDLERS ---
+
   const handleKeyDown = useCallback((event: KeyboardEvent) => {
       if (gameState !== 'PLAYING') return;
+      
       const { key } = event;
       const map = engine.current.keyMap;
-      const isAction = (act: KeyAction) => map[act].includes(key);
-
       let action: KeyAction | null = null;
-      if (isAction('moveLeft')) action = 'moveLeft';
-      else if (isAction('moveRight')) action = 'moveRight';
-      else if (isAction('softDrop')) action = 'softDrop';
-      else if (isAction('hardDrop')) action = 'hardDrop';
-      else if (isAction('rotateCW')) action = 'rotateCW';
-      else if (isAction('rotateCCW')) action = 'rotateCCW';
-      else if (isAction('hold')) action = 'hold';
-      else if (isAction('pause')) { setGameState('PAUSED'); return; }
+
+      // Map key to action
+      for (const [act, keys] of Object.entries(map)) {
+          if (keys.includes(key)) {
+              action = act as KeyAction;
+              break;
+          }
+      }
 
       if (action) {
-          // Repeat handling is now done in GameCore, so we just pass down
-          if (event.repeat) {
-              if (['moveLeft', 'moveRight', 'softDrop', 'rotateCW', 'rotateCCW', 'hardDrop', 'hold'].includes(action)) return;
+          // Prevent default for game controls to stop page scrolling
+          if (['moveLeft', 'moveRight', 'softDrop', 'rotateCW', 'rotateCCW', 'hardDrop', 'hold', 'pause'].includes(action)) {
+              event.preventDefault();
           }
           
-          event.preventDefault(); // Prevent scrolling
+          if (action === 'pause') {
+              setGameState('PAUSED');
+              return;
+          }
+          
+          // Browser repeat handling is ignored because GameCore handles DAS/ARR internally
+          if (event.repeat && ['moveLeft', 'moveRight', 'softDrop'].includes(action)) return;
+
           engine.current.handleInput(action, true);
           setInputState({ moveStack: [...engine.current.moveStack], isDown: engine.current.keys.down });
       }
@@ -167,12 +174,14 @@ export const useTetrios = () => {
   const handleKeyUp = useCallback((event: KeyboardEvent) => {
       const { key } = event;
       const map = engine.current.keyMap;
-      const isAction = (act: KeyAction) => map[act].includes(key);
-
       let action: KeyAction | null = null;
-      if (isAction('moveLeft')) action = 'moveLeft';
-      else if (isAction('moveRight')) action = 'moveRight';
-      else if (isAction('softDrop')) action = 'softDrop';
+
+      for (const [act, keys] of Object.entries(map)) {
+          if (keys.includes(key)) {
+              action = act as KeyAction;
+              break;
+          }
+      }
 
       if (action) {
           engine.current.handleInput(action, false);
@@ -190,9 +199,20 @@ export const useTetrios = () => {
   }, [handleKeyDown, handleKeyUp]);
 
   const touchControls = {
-      move: (dir: number) => engine.current.handleInput(dir === -1 ? 'moveLeft' : 'moveRight', true), // Simplified for gesture swipes
-      rotate: (dir: number) => engine.current.handleInput(dir === 1 ? 'rotateCW' : 'rotateCCW', true),
-      softDrop: () => engine.current.handleInput('softDrop', true),
+      move: (dir: number) => {
+          const act = dir === -1 ? 'moveLeft' : 'moveRight';
+          engine.current.handleInput(act, true);
+          // Touch inputs are discrete events in current implementation, so we simulate release shortly after
+          setTimeout(() => engine.current.handleInput(act, false), 100);
+      },
+      rotate: (dir: number) => {
+          engine.current.handleInput(dir === 1 ? 'rotateCW' : 'rotateCCW', true);
+          setTimeout(() => engine.current.handleInput(dir === 1 ? 'rotateCW' : 'rotateCCW', false), 50);
+      },
+      softDrop: () => {
+           engine.current.handleInput('softDrop', true);
+           setTimeout(() => engine.current.handleInput('softDrop', false), 100);
+      },
       hardDrop: () => engine.current.handleInput('hardDrop', true),
       hold: () => engine.current.handleInput('hold', true)
   };

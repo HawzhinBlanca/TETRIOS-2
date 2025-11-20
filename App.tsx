@@ -1,17 +1,15 @@
-
 import React, { useEffect, useRef, useMemo, useState } from 'react';
 import { useTetrios } from './hooks/useTetrios';
 import { useGestures } from './hooks/useGestures';
 import BoardCanvas from './components/BoardCanvas';
-import Display from './components/Display';
 import Preview from './components/Preview';
 import Particles, { ParticlesHandle } from './components/Particles';
 import Settings from './components/Settings';
 import MainMenu from './components/MainMenu';
 import MusicVisualizer from './components/MusicVisualizer';
+import StatsPanel from './components/StatsPanel';
 import { audioManager } from './utils/audioManager';
 import { Settings as SettingsIcon, Volume2, VolumeX, Brain, ArrowLeftRight, ArrowLeft, ArrowRight, ArrowDown, Menu as MenuIcon, Play, PauseCircle, RefreshCw, AlertTriangle, Trophy } from 'lucide-react';
-import { GameMode } from './types';
 
 const GHOST_SHADOW = "rgba(6, 182, 212, 0.6)"; 
 
@@ -378,30 +376,14 @@ const App = () => {
                 </div>
             </div>
 
-            <div className="w-full max-w-[240px]">
-                {gameMode === 'ZEN' ? (
-                     <Display label="Zen Mode" text="∞" />
-                ) : (
-                     <Display label="Score Data" text={score} />
-                )}
-                
-                {/* Dynamic Mode Display */}
-                {gameMode === 'TIME_ATTACK' && (
-                     <Display label="Time Remaining" text={formatTime(time)} />
-                )}
-                {gameMode === 'SPRINT' && (
-                     <Display label="Time Elapsed" text={formatTime(time)} />
-                )}
-                {gameMode === 'MARATHON' && (
-                     <Display label="Current Level" text={level} progress={levelProgress} />
-                )}
-                {gameMode === 'SPRINT' && (
-                     <Display label="Lines Left" text={Math.max(0, 40 - rows)} progress={rows / 40} />
-                )}
-                {gameMode !== 'SPRINT' && (
-                     <Display label="Lines Cleared" text={rows} />
-                )}
-            </div>
+            {/* NEW STATS PANEL */}
+            <StatsPanel 
+                score={score} 
+                rows={rows} 
+                level={level} 
+                time={time} 
+                gameMode={gameMode} 
+            />
             
             {/* Action Buttons */}
             <div className="grid grid-cols-3 gap-2 w-full max-w-[240px] mt-auto">
