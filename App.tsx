@@ -103,32 +103,54 @@ const App = () => {
       if (score > highScore) setHighScore(score);
   }, [score, highScore]);
 
-  // Responsive Cell Size Logic
+  // --- PREMIUM RESPONSIVE LOGIC ---
   useEffect(() => {
       const handleResize = () => {
           const vh = window.innerHeight;
           const vw = window.innerWidth;
           
-          // Desktop Calculation: Height dominant, with padding for header/footer areas
-          // We reserve about 100px vertical space for UI breathing room
-          const availableHeight = vh - 80;
-          const heightBased = availableHeight / 20;
+          // Vertical Calculation:
+          // Stage Height: 20 blocks
+          // Safe Zones: Header (100px) + Footer/MobileControls (100px) + Padding (40px)
+          const verticalPadding = 140; 
+          const maxVerticalSize = Math.floor((vh - verticalPadding) / 20);
+
+          // Horizontal Calculation:
+          // Stage Width: 10 blocks
+          let maxHorizontalSize = 40; // default max
           
-          // Mobile Calculation: Width dominant usually
-          const isMobile = vw < 1024;
-          const widthFactor = isMobile ? 12 : 26; // 10 cols + UI space
-          const widthBased = (vw * 0.9) / widthFactor;
+          if (vw >= 1024) { // Desktop (3 Column Layout)
+              // Board is center column. We need space for HUDs (Left ~260px, Right ~220px) + Gaps
+              const availableCenterWidth = vw - 500;
+              // Restrict board to 50% of viewport max to keep HUDs visible
+              const targetWidth = Math.min(availableCenterWidth, vw * 0.4);
+              maxHorizontalSize = Math.floor(targetWidth / 10);
+          } else { // Mobile / Tablet (Vertical Stack)
+              // Board takes most of width with padding
+              const horizontalPadding = 32;
+              maxHorizontalSize = Math.floor((vw - horizontalPadding) / 10);
+          }
+
+          // Compute ideal size
+          const idealSize = Math.min(maxVerticalSize, maxHorizontalSize);
+
+          // Clamp values for usability
+          // Min: 18px (Small mobile)
+          // Max: 45px (Large 4k screens, keeps it looking tight)
+          const clampedSize = Math.max(18, Math.min(45, idealSize));
           
-          // Clamp values for sanity
-          const calculated = Math.min(heightBased, widthBased);
-          const minSize = isMobile ? 20 : 24;
-          const maxSize = isMobile ? 35 : 45;
-          
-          setCellSize(Math.floor(Math.max(minSize, Math.min(maxSize, calculated))));
+          setCellSize(clampedSize);
       };
-      window.addEventListener('resize', handleResize);
+      
+      const resizeObserver = new ResizeObserver(() => {
+          // Wrap in rAF for smoothness
+          requestAnimationFrame(handleResize);
+      });
+      
+      resizeObserver.observe(document.body);
       handleResize(); 
-      return () => window.removeEventListener('resize', handleResize);
+      
+      return () => resizeObserver.disconnect();
   }, []);
 
   // Gesture Hook
@@ -340,10 +362,10 @@ const App = () => {
       )}
 
       {/* --- MAIN LAYOUT GRID --- */}
-      <main className="w-full h-full max-w-7xl mx-auto flex flex-col lg:flex-row items-center justify-between p-4 relative z-10 gap-4 lg:gap-8">
+      <main className="w-full h-full max-w-7xl mx-auto flex flex-col lg:flex-row items-center justify-between p-4 relative z-10 gap-4 lg:gap-8 transition-all duration-500 ease-out">
 
         {/* LEFT COLUMN (HUD) */}
-        <div className="hidden lg:flex flex-col flex-1 h-full justify-center items-end space-y-6 py-8">
+        <div className="hidden lg:flex flex-col flex-1 h-full justify-center items-end space-y-6 py-8 animate-slide-in delay-100 opacity-0" style={{ animationFillMode: 'forwards' }}>
             <div className="mb-8 text-right select-none">
                 <h1 className="text-5xl xl:text-6xl font-black text-transparent bg-clip-text bg-gradient-to-br from-cyan-400 to-purple-600 italic tracking-tighter drop-shadow-[0_0_15px_rgba(6,182,212,0.4)]">
                 TETRIOS
@@ -442,38 +464,40 @@ const App = () => {
         </div>
 
         {/* CENTER STAGE (GAME BOARD) */}
-        <div className="flex-shrink-0 relative z-20">
+        <div className="flex-shrink-0 relative z-20 transition-transform duration-500 ease-out">
             <div 
-                className="relative p-1 bg-gray-900/40 rounded-sm shadow-[0_0_60px_-15px_rgba(6,182,212,0.2)] border border-gray-700/50 backdrop-blur-sm transition-transform duration-300 hover:scale-[1.01]" 
+                className="relative p-0 bg-gray-900/40 rounded-[4px] backdrop-blur-sm transition-all duration-500 ease-out hover:transform hover:-translate-y-1 hover:shadow-[0_10px_40px_-5px_rgba(6,182,212,0.4)] border border-gray-700/30 hover:border-cyan-500/50 group" 
                 ref={boardContainerRef}
             >
-                {/* Decoration Borders */}
-                <div className="absolute -top-1.5 -left-1.5 w-4 h-4 border-t-2 border-l-2 border-cyan-500/50"></div>
-                <div className="absolute -top-1.5 -right-1.5 w-4 h-4 border-t-2 border-r-2 border-cyan-500/50"></div>
-                <div className="absolute -bottom-1.5 -left-1.5 w-4 h-4 border-b-2 border-l-2 border-cyan-500/50"></div>
-                <div className="absolute -bottom-1.5 -right-1.5 w-4 h-4 border-b-2 border-r-2 border-cyan-500/50"></div>
+                {/* Decoration Borders - Dynamic Opacity on Hover */}
+                <div className="absolute -top-2 -left-2 w-6 h-6 border-t-2 border-l-2 border-cyan-500/30 group-hover:border-cyan-400 transition-colors duration-300 rounded-tl-sm"></div>
+                <div className="absolute -top-2 -right-2 w-6 h-6 border-t-2 border-r-2 border-cyan-500/30 group-hover:border-cyan-400 transition-colors duration-300 rounded-tr-sm"></div>
+                <div className="absolute -bottom-2 -left-2 w-6 h-6 border-b-2 border-l-2 border-cyan-500/30 group-hover:border-cyan-400 transition-colors duration-300 rounded-bl-sm"></div>
+                <div className="absolute -bottom-2 -right-2 w-6 h-6 border-b-2 border-r-2 border-cyan-500/30 group-hover:border-cyan-400 transition-colors duration-300 rounded-br-sm"></div>
 
+                {/* Particles Layer */}
                 <div className="absolute inset-0 pointer-events-none z-30 overflow-hidden rounded-sm">
                     <Particles ref={particlesRef} cellSize={cellSize} />
                 </div>
 
                 <BoardCanvas 
-                engine={engine}
-                aiHint={aiHint} 
-                showAi={showAi}
-                cellSize={cellSize}
-                ghostStyle={ghostStyle}
-                ghostOpacity={ghostOpacity}
-                ghostOutlineThickness={ghostOutlineThickness}
-                ghostGlowIntensity={ghostGlowIntensity}
-                ghostShadow={GHOST_SHADOW}
-                lockWarningEnabled={lockWarning}
+                    engine={engine}
+                    aiHint={aiHint} 
+                    showAi={showAi}
+                    cellSize={cellSize}
+                    ghostStyle={ghostStyle}
+                    ghostOpacity={ghostOpacity}
+                    ghostOutlineThickness={ghostOutlineThickness}
+                    ghostGlowIntensity={ghostGlowIntensity}
+                    ghostShadow={GHOST_SHADOW}
+                    lockWarningEnabled={lockWarning}
+                    className="shadow-inner"
                 />
             </div>
         </div>
 
         {/* RIGHT COLUMN (QUEUE & INFO) */}
-        <div className="hidden lg:flex flex-col flex-1 h-full justify-center items-start space-y-8 py-8 pl-4">
+        <div className="hidden lg:flex flex-col flex-1 h-full justify-center items-start space-y-8 py-8 pl-4 animate-slide-in delay-200 opacity-0" style={{ animationFillMode: 'forwards' }}>
             <div className="w-full max-w-[200px]">
                 <div className="mb-6 transform scale-105 origin-top-left">
                     <div className="text-[10px] text-cyan-500 uppercase tracking-widest font-bold mb-2 flex items-center gap-2">
@@ -482,10 +506,10 @@ const App = () => {
                     <Preview title="" type={nextQueue[0]} />
                 </div>
                 
-                <div className="space-y-3 pl-4 border-l border-gray-800">
+                <div className="space-y-3 pl-4 border-l border-gray-800 transition-colors hover:border-gray-700">
                     <div className="text-[9px] text-gray-600 uppercase tracking-widest mb-1">In Queue</div>
                     {nextQueue.slice(1, 5).map((type, i) => (
-                        <div key={i} className="scale-75 origin-left opacity-60 mix-blend-screen">
+                        <div key={i} className="scale-75 origin-left opacity-60 mix-blend-screen hover:opacity-100 transition-opacity">
                             <Preview title="" type={type} />
                         </div>
                     ))}
@@ -495,10 +519,10 @@ const App = () => {
             <div className="w-full max-w-[200px]">
                 <div 
                     onClick={() => canHold && touchControls.hold()} 
-                    className={`cursor-pointer transition-all relative group p-4 border border-dashed border-gray-700 rounded-lg ${canHold ? 'hover:border-cyan-500 hover:bg-cyan-950/20' : 'opacity-50 border-red-900/30 bg-red-950/10'}`}
+                    className={`cursor-pointer transition-all duration-300 relative group p-4 border border-dashed border-gray-700 rounded-lg ${canHold ? 'hover:border-cyan-500 hover:bg-cyan-950/20 hover:shadow-[0_0_20px_-5px_cyan]' : 'opacity-50 border-red-900/30 bg-red-950/10'}`}
                 >
                     <div className="text-[10px] text-gray-500 uppercase tracking-widest font-bold mb-2">Hold Buffer (C)</div>
-                    <div className="flex justify-center">
+                    <div className="flex justify-center transition-transform group-hover:scale-105">
                          <Preview title="" type={heldPiece} lastUpdate={lastHoldTime} />
                     </div>
                     {!canHold && (
@@ -510,7 +534,7 @@ const App = () => {
             </div>
 
             {showAi && (
-                 <div className="w-full max-w-[240px] p-4 bg-gray-900/40 border border-cyan-900/30 rounded-sm backdrop-blur-sm relative overflow-hidden">
+                 <div className="w-full max-w-[240px] p-4 bg-gray-900/40 border border-cyan-900/30 rounded-sm backdrop-blur-sm relative overflow-hidden hover:border-cyan-500/40 transition-colors">
                      <div className="absolute top-0 right-0 p-1">
                          <div className={`w-1.5 h-1.5 rounded-full ${aiHint ? 'bg-cyan-500 animate-pulse shadow-[0_0_8px_cyan]' : 'bg-gray-600'}`}></div>
                      </div>

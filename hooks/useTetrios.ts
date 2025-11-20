@@ -5,7 +5,6 @@ import { createAiWorker } from '../utils/aiWorker';
 import { GameState, GameStats, MoveScore, GameMode, KeyAction, KeyMap, TetrominoType } from '../types';
 import { STAGE_WIDTH } from '../constants';
 
-// Default Controls
 const DEFAULT_CONTROLS: KeyMap = {
     moveLeft: ['ArrowLeft'],
     moveRight: ['ArrowRight'],
@@ -18,7 +17,6 @@ const DEFAULT_CONTROLS: KeyMap = {
 };
 
 export const useTetrios = () => {
-  // State
   const [stats, setStats] = useState<GameStats>({ score: 0, rows: 0, level: 0, time: 0 });
   const [gameState, setGameState] = useState<GameState>('MENU');
   const [nextQueue, setNextQueue] = useState<TetrominoType[]>([]);
@@ -35,10 +33,8 @@ export const useTetrios = () => {
   const requestRef = useRef<number>(0);
   const lastTimeRef = useRef<number>(0);
 
-  // Engine Instantiation
   const engine = useRef<GameCore>(null!);
 
-  // Initialize Engine once
   if (!engine.current) {
       engine.current = new GameCore({
           onStatsChange: (s) => setStats({...s}),
@@ -50,7 +46,6 @@ export const useTetrios = () => {
       }, DEFAULT_CONTROLS);
   }
 
-  // AI Trigger Helper
   const triggerAi = () => {
       if(aiWorker.current && engine.current.player.tetromino.type) {
           aiWorker.current.postMessage({
@@ -60,7 +55,6 @@ export const useTetrios = () => {
       }
   };
 
-  // Initialization Effect
   useEffect(() => {
     const saved = localStorage.getItem('tetrios_state');
     const savedControls = localStorage.getItem('tetrios_controls');
@@ -76,11 +70,9 @@ export const useTetrios = () => {
     if (saved) {
         try {
             const parsed = JSON.parse(saved);
-            // Manually hydrate properties since GameCore is a class now
             if (parsed.stats) engine.current.stats = parsed.stats;
             if (parsed.stage) engine.current.stage = parsed.stage;
             if (parsed.mode) engine.current.mode = parsed.mode;
-            // Add other critical fields if needed or implement a hydrate method in GameCore
             
             setStats(engine.current.stats);
             setGameMode(engine.current.mode);
@@ -97,7 +89,6 @@ export const useTetrios = () => {
 
   const saveState = () => {
      if(gameState === 'PLAYING' || gameState === 'PAUSED') {
-         // Simple serialization of the engine object
          localStorage.setItem('tetrios_state', JSON.stringify(engine.current));
      }
   };
@@ -125,7 +116,6 @@ export const useTetrios = () => {
       localStorage.setItem('tetrios_controls', JSON.stringify(newControls));
   };
 
-  // Game Loop
   const update = (time: number) => {
       if (gameState !== 'PLAYING') return;
       const deltaTime = time - lastTimeRef.current;
@@ -133,7 +123,6 @@ export const useTetrios = () => {
 
       engine.current.update(deltaTime);
       
-      // Sync random updates (optional, mostly handled by callbacks)
       if (Math.random() > 0.95) setStats({...engine.current.stats}); 
 
       requestRef.current = requestAnimationFrame(update);
@@ -147,14 +136,12 @@ export const useTetrios = () => {
       return () => cancelAnimationFrame(requestRef.current);
   }, [gameState]);
 
-  // Input Handlers
   const handleKeyDown = useCallback((event: KeyboardEvent) => {
       if (gameState !== 'PLAYING') return;
       const { key } = event;
       const map = engine.current.keyMap;
       const isAction = (act: KeyAction) => map[act].includes(key);
 
-      // Identify action
       let action: KeyAction | null = null;
       if (isAction('moveLeft')) action = 'moveLeft';
       else if (isAction('moveRight')) action = 'moveRight';
@@ -166,14 +153,13 @@ export const useTetrios = () => {
       else if (isAction('pause')) { setGameState('PAUSED'); return; }
 
       if (action) {
-          // OS Repeat Handling: We ignore repeat events for discrete actions and movement 
-          // (since movement is handled by our own DAS/ARR in GameCore)
+          // Repeat handling is now done in GameCore, so we just pass down
           if (event.repeat) {
               if (['moveLeft', 'moveRight', 'softDrop', 'rotateCW', 'rotateCCW', 'hardDrop', 'hold'].includes(action)) return;
           }
-
+          
+          event.preventDefault(); // Prevent scrolling
           engine.current.handleInput(action, true);
-          // Sync UI State
           setInputState({ moveStack: [...engine.current.moveStack], isDown: engine.current.keys.down });
       }
   }, [gameState]);
@@ -190,7 +176,6 @@ export const useTetrios = () => {
 
       if (action) {
           engine.current.handleInput(action, false);
-          // Sync UI State
           setInputState({ moveStack: [...engine.current.moveStack], isDown: engine.current.keys.down });
       }
   }, []);
@@ -205,11 +190,11 @@ export const useTetrios = () => {
   }, [handleKeyDown, handleKeyUp]);
 
   const touchControls = {
-      move: (dir: number) => engine.current.move(dir),
-      rotate: (dir: number) => engine.current.rotate(dir),
-      softDrop: () => engine.current.softDrop(),
-      hardDrop: () => engine.current.hardDrop(),
-      hold: () => engine.current.hold()
+      move: (dir: number) => engine.current.handleInput(dir === -1 ? 'moveLeft' : 'moveRight', true), // Simplified for gesture swipes
+      rotate: (dir: number) => engine.current.handleInput(dir === 1 ? 'rotateCW' : 'rotateCCW', true),
+      softDrop: () => engine.current.handleInput('softDrop', true),
+      hardDrop: () => engine.current.handleInput('hardDrop', true),
+      hold: () => engine.current.handleInput('hold', true)
   };
 
   return {

@@ -1,13 +1,13 @@
 
 import { Board, TetrominoType, MoveScore } from '../types';
 
-// We define the worker logic as a standard function to ensure type safety and linting support.
-// We then convert it to a string blob for the worker.
+// We define the function body here to be stringified. 
+// This avoids import issues in a blob worker while keeping IDE syntax highlighting (mostly).
 const workerFunction = () => {
-  // --- CONSTANTS (Inlined) ---
   const STAGE_WIDTH = 10;
   const STAGE_HEIGHT = 20;
   
+  // Redefined for worker scope
   const TETROMINOS: any = {
     I: { shape: [[0, 'I', 0, 0], [0, 'I', 0, 0], [0, 'I', 0, 0], [0, 'I', 0, 0]] },
     J: { shape: [[0, 'J', 0], [0, 'J', 0], ['J', 'J', 0]] },
@@ -19,15 +19,13 @@ const workerFunction = () => {
   };
 
   const WEIGHTS = {
-    landingHeight: -4.50,
-    rowsCleared: 3.41,
-    rowTransitions: -3.21,
-    colTransitions: -9.34,
-    holes: -7.89,
-    wellSums: -3.38,
+    landingHeight: -4.500158825082766,
+    rowsCleared: 3.4181268101392694,
+    rowTransitions: -3.2178882868487753,
+    colTransitions: -9.348695305445199,
+    holes: -7.899265427351652,
+    wellSums: -3.3855972247263626,
   };
-
-  // --- HELPER FUNCTIONS ---
   
   function rotateMatrix(matrix: any[][], dir: number) {
     const rotatedGrid = matrix.map((_, index) => matrix.map((col) => col[index]));
@@ -41,7 +39,6 @@ const workerFunction = () => {
 
   function lockPiece(board: any[][], shape: any[][], x: number, y: number) {
     let dy = y;
-    // Hard drop simulation
     while (dy < STAGE_HEIGHT) {
       let collision = false;
       for(let r=0; r<shape.length; r++) {
@@ -59,7 +56,6 @@ const workerFunction = () => {
       dy++;
     }
 
-    // Place
     for(let r=0; r<shape.length; r++) {
       for(let c=0; c<shape[r].length; c++) {
         if(shape[r][c] !== 0) {
@@ -83,7 +79,7 @@ const workerFunction = () => {
     let wellSums = 0;
 
     for(let y=0; y<STAGE_HEIGHT; y++) {
-      if(board[y].every(cell => cell[1] !== 'clear')) rowsCleared++;
+      if(board[y].every((cell: any) => cell[1] !== 'clear')) rowsCleared++;
     }
 
     for(let y=0; y<STAGE_HEIGHT; y++) {
@@ -122,7 +118,6 @@ const workerFunction = () => {
     );
   }
 
-  // --- MAIN LISTENER ---
   self.onmessage = function(e: MessageEvent) {
     const { stage, type } = e.data;
     if (!TETROMINOS[type]) return;
@@ -131,14 +126,11 @@ const workerFunction = () => {
     let bestMove = null;
     const baseShape = TETROMINOS[type].shape;
 
-    // 4 Rotations
     for(let r=0; r<4; r++) {
       let shape = baseShape;
       for(let i=0; i<r; i++) shape = rotateMatrix(shape, 1);
 
-      // All columns
       for(let x=-2; x<STAGE_WIDTH; x++) {
-        // Basic validity check
         let validX = true;
         for(let row=0; row<shape.length; row++) {
            for(let col=0; col<shape[row].length; col++) {
@@ -149,9 +141,7 @@ const workerFunction = () => {
         }
         if(!validX) continue;
 
-        // Simulation
         const simBoard = cloneBoard(stage);
-        // Simple collision check at top
         let canFit = true;
         for(let row=0; row<shape.length; row++) {
            for(let col=0; col<shape[row].length; col++) {
@@ -176,7 +166,6 @@ const workerFunction = () => {
   };
 };
 
-// Convert the function to a string logic blob
 const buildWorkerScript = () => {
   const code = `(${workerFunction.toString()})()`;
   return code;

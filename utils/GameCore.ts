@@ -27,45 +27,36 @@ export class GameCore {
     stats: GameStats = { score: 0, rows: 0, level: 0, time: 0 };
     mode: GameMode = 'MARATHON';
     
-    // Queue System
     nextQueue: TetrominoType[] = [];
-    
     heldPiece: TetrominoType | null = null;
     canHold = true;
     rotationState = 0;
     
-    // Lock Logic
     lockTimer: any = null;
     lockStartTime = 0;
     lockDelayDuration = LOCK_DELAY_MS;
     movesOnGround = 0;
     lastMoveWasRotation = false;
     
-    // Scoring State
     comboCount = -1;
     isBackToBack = false;
     
-    // Interpolation Data
     dropCounter = 0;
     dropTime = 1000;
     speedMultiplier = 1;
     
-    // Tuning
     das = 133; 
     arr = 10;
 
-    // Battle / Puzzle
     battleTimer = 0;
     garbagePending = 0;
     puzzleIndex = 0;
 
-    // Visuals
     lockResetFlash = 0;
     tSpinFlash = 0;
     floatingTexts: FloatingText[] = [];
     visualEffectsQueue: { type: 'SHAKE' | 'PARTICLE' | 'FLASH', payload?: any }[] = [];
 
-    // Input
     moveStack: string[] = [];
     keyTimers: Record<string, number> = { left: 0, right: 0, down: 0 };
     keys: Record<string, boolean> = { down: false, left: false, right: false };
@@ -85,10 +76,7 @@ export class GameCore {
         if (config.arr !== undefined) this.arr = config.arr;
     }
 
-    // --- GAME STATE MANAGEMENT ---
-
     spawnPiece() {
-        // Check Victory Condition for Puzzle
         if (this.mode === 'PUZZLE' && this.nextQueue.length === 0) {
             if (this.isBoardEmpty()) {
                 this.triggerGameOver('VICTORY', 4);
@@ -187,7 +175,6 @@ export class GameCore {
         } else if (this.mode === 'MASTER') {
             this.dropTime = 0; 
         } else {
-            // Standard Tetris curve approx
             this.dropTime = Math.max(100, Math.pow(0.8 - ((startLevel - 1) * 0.007), startLevel) * 1000);
         }
     }
@@ -211,10 +198,7 @@ export class GameCore {
         }
     }
 
-    // --- SCORING & MECHANICS ---
-
     sweepRows(newStage: Board, isTSpin: boolean = false) {
-        // 1. Identify full rows
         const fullRowIndices: number[] = [];
         newStage.forEach((row, y) => {
             if (row.every(cell => cell[1] !== 'clear')) {
@@ -225,30 +209,26 @@ export class GameCore {
         const rowsCleared = fullRowIndices.length;
 
         if (rowsCleared === 0) {
-             // Handle T-Spin Zero
             if (isTSpin) {
                 this.applyScore({ score: SCORES.TSPIN });
                 this.addFloatingText('T-SPIN', '#d946ef', 0.7);
             }
-            this.comboCount = -1; // Reset combo on no clear
+            this.comboCount = -1;
             this.stage = newStage;
             return;
         }
 
-        // 2. Construct new board (Remove full rows, add empty at top)
         const sweepedStage = newStage.filter((_, index) => !fullRowIndices.includes(index));
         while (sweepedStage.length < STAGE_HEIGHT) {
             sweepedStage.unshift(new Array(STAGE_WIDTH).fill([null, 'clear']));
         }
         
-        // 3. Update Game State using Score Utils
         this.comboCount += 1;
         const result = calculateScore(rowsCleared, this.stats.level, isTSpin, this.isBackToBack, this.comboCount);
         
         this.isBackToBack = result.isBackToBack;
         this.applyScore(result);
         
-        // 4. Visuals
         fullRowIndices.forEach(y => {
              this.callbacks.onVisualEffect('PARTICLE', { isExplosion: true, y, color: 'white' });
         });
@@ -256,13 +236,9 @@ export class GameCore {
         if (result.text) this.addFloatingText(result.text, isTSpin ? '#d946ef' : '#fff', isTSpin ? 0.9 : 0.5);
         
         audioManager.playClear(rowsCleared);
-
-        // 5. Leveling & Mode Specifics
         this.handleLevelProgression(rowsCleared, sweepedStage);
-
         this.stage = sweepedStage;
         
-        // 6. Garbage Interaction
         if (this.garbagePending > 0) {
             this.applyGarbage();
         }
@@ -308,7 +284,6 @@ export class GameCore {
         const { player, stage } = this;
         let tSpinDetected = false;
 
-        // T-Spin detection logic before merging
         if (player.tetromino.type === 'T' && this.lastMoveWasRotation) {
              if (isTSpin(player, stage)) {
                  tSpinDetected = true;
@@ -316,7 +291,6 @@ export class GameCore {
              }
         }
 
-        // Merge piece to stage
         const newStage = stage.map(row => [...row]);
         player.tetromino.shape.forEach((row, y) => {
             row.forEach((value, x) => {
@@ -350,8 +324,6 @@ export class GameCore {
          });
          audioManager.playTSpin();
     }
-
-    // --- INPUT & MOVEMENT ---
 
     handleInput(action: KeyAction, isPressed: boolean) {
         // Movement Actions (Left/Right)
@@ -448,6 +420,7 @@ export class GameCore {
             this.callbacks.onStatsChange(this.stats);
         }
         
+        // Important: Hard Drop resets rotation status ONLY if we moved vertically
         if (dropped > 0) {
             this.lastMoveWasRotation = false;
         }
@@ -475,7 +448,6 @@ export class GameCore {
             this.spawnPiece(); 
         }
         
-        // If piece didn't change (e.g. spawn logic weirdness), don't reset
         if (this.player.tetromino.type !== currentType || !this.heldPiece) { 
              this.player.pos = { x: STAGE_WIDTH / 2 - 2, y: 0 };
              this.rotationState = 0;
@@ -487,8 +459,6 @@ export class GameCore {
         audioManager.playUiSelect();
         this.callbacks.onAiTrigger();
     }
-
-    // --- TIMERS & LOOPS ---
 
     private updateLockTimerOnMove() {
         if (this.lockTimer) {
@@ -522,6 +492,16 @@ export class GameCore {
         this.updateModeLogic(deltaTime);
         this.updateGravity(deltaTime);
         this.updateInputRepeat(deltaTime);
+        
+        // Tick floating text life
+        for (let i = this.floatingTexts.length - 1; i >= 0; i--) {
+            this.floatingTexts[i].life -= deltaTime * 0.002;
+            this.floatingTexts[i].y -= deltaTime * 0.001;
+            if (this.floatingTexts[i].life <= 0) {
+                this.floatingTexts.splice(i, 1);
+            }
+        }
+
         this.processVisualsQueue();
     }
 
