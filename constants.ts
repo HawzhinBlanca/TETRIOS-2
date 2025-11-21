@@ -2,6 +2,7 @@
 
 
 
+
 import { Tetromino, TetrominoType, AdventureWorld, LevelObjectiveType, InitialBoardModifierType, GameGimmickType, Booster, BoosterType } from './types';
 
 export const STAGE_WIDTH = 10;
@@ -296,5 +297,62 @@ export const ADVENTURE_CAMPAIGN: AdventureWorld[] = [
             },
         ]
     },
-    // Add more worlds here
+    {
+        id: 'world_2',
+        name: 'Cyber Tundra',
+        description: 'A frozen wasteland where data streams freeze solid.',
+        themeColor: '#a855f7', // Purple
+        levels: [
+            {
+                id: 'lvl_2_1', index: 7, worldId: 'world_2',
+                title: 'Cold Storage', description: 'Break the ice! Frozen blocks require two clears.',
+                objective: { type: 'LINES', target: 12 },
+                initialBoard: [{ type: 'ICE', amount: 5, modifierProps: { hits: 2 } }],
+                constraints: { movesLimit: 50 },
+                style: { background: 'linear-gradient(to bottom, #1e1b4b, #312e81)', accentColor: '#818cf8' },
+                storyStart: [{ id: 'w2s1', speaker: 'AI Guide', text: 'Welcome to the Cyber Tundra. The cold here freezes data blocks. You need to clear lines twice to break the ice.', side: 'left', avatar: '🤖' }],
+                rewards: { coins: 200 }
+            },
+            {
+                id: 'lvl_2_2', index: 8, worldId: 'world_2',
+                title: 'System Glitch', description: 'Visual sensors failing. Score 3000 points with invisible rows.',
+                objective: { type: 'SCORE', target: 3000 },
+                gimmicks: [{ type: 'INVISIBLE_ROWS', config: { count: 3 } }],
+                constraints: { timeLimit: 120 },
+                style: { background: 'linear-gradient(to bottom, #2e1065, #4c1d95)', accentColor: '#c084fc' },
+                storyStart: [{ id: 'w2s2', speaker: 'AI Guide', text: 'Warning: Visual sensors compromised. Some rows are rendering as invisible. Rely on the ghost piece.', side: 'left', avatar: '🤖' }],
+                rewards: { coins: 250, boosters: [{ type: 'SLOW_TIME_BOOSTER', amount: 1 }] }
+            },
+            {
+                id: 'lvl_2_3', index: 9, worldId: 'world_2',
+                title: 'Avalanche', description: 'Survive the garbage rain for 90 seconds.',
+                objective: { type: 'TIME_SURVIVAL', target: 90 },
+                initialBoard: [{ type: 'GARBAGE', amount: 4 }],
+                constraints: { timeLimit: 90 },
+                style: { background: 'linear-gradient(to bottom, #172554, #1e3a8a)', accentColor: '#60a5fa' },
+                storyStart: [{ id: 'w2s3', speaker: 'AI Guide', text: 'Seismic activity detected. Data avalanche incoming! Survive until the storm passes.', side: 'left', avatar: '🤖' }],
+                rewards: { coins: 300 }
+            },
+            {
+                id: 'lvl_2_4', index: 10, worldId: 'world_2',
+                title: 'Inversion', description: 'Gravity stabilizers offline. Clear 15 lines in reverse gravity.',
+                objective: { type: 'LINES', target: 15 },
+                gimmicks: [{ type: 'FLIPPED_GRAVITY' }],
+                constraints: { movesLimit: 60 },
+                style: { background: 'linear-gradient(to bottom, #0f172a, #334155)', accentColor: '#94a3b8' },
+                storyStart: [{ id: 'w2s4', speaker: 'AI Guide', text: 'Critical failure in gravity generators. Local gravity is inverted. Adapt your strategy.', side: 'left', avatar: '🤖' }],
+                rewards: { coins: 350, boosters: [{ type: 'FLIPPED_GRAVITY_BOOSTER', amount: 1 }] }
+            },
+            {
+                id: 'lvl_2_5', index: 11, worldId: 'world_2',
+                title: 'Nuclear Option', description: 'Trigger the Nuke Block to clear corruption.',
+                objective: { type: 'SCORE', target: 5000 },
+                initialBoard: [{ type: 'NUKE_BLOCK', amount: 1 }, { type: 'GARBAGE', amount: 6 }],
+                constraints: { movesLimit: 40 },
+                style: { background: 'linear-gradient(to bottom, #450a0a, #7f1d1d)', accentColor: '#f87171' },
+                storyStart: [{ id: 'w2s5', speaker: 'AI Guide', text: 'Massive corruption cluster ahead. Standard clearing is insufficient. I have spawned a Nuke Block. Detonate it to purge the sector.', side: 'left', avatar: '🤖' }],
+                rewards: { coins: 500, boosters: [{ type: 'BOMB_BOOSTER', amount: 2 }] }
+            }
+        ]
+    },
 ];

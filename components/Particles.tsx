@@ -1,3 +1,4 @@
+
 import React, { useRef, useImperativeHandle, forwardRef, useEffect } from 'react';
 
 // Particle Pool Configuration
@@ -27,7 +28,7 @@ interface Props {
 
 /**
  * Renders a particle effects system on a canvas using Object Pooling.
- * This avoids creating and deleting objects constantly, preventing GC stutter.
+ * Uses rounded particles with global composite operations for a glowing look.
  */
 const Particles = forwardRef<ParticlesHandle, Props>(({ cellSize }, ref) => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -79,8 +80,8 @@ const Particles = forwardRef<ParticlesHandle, Props>(({ cellSize }, ref) => {
           (Math.random() - 0.5) * 10,
           (Math.random() - 0.5) * 10 - 5, // Upward bias
           color,
-          Math.random() * (cellSize / 5) + 2,
-          0.02
+          Math.random() * (cellSize / 4) + 2,
+          0.02 + Math.random() * 0.02
         );
       }
     },
@@ -95,10 +96,10 @@ const Particles = forwardRef<ParticlesHandle, Props>(({ cellSize }, ref) => {
                 w / 2, 
                 py,
                 (Math.random() - 0.5) * 40, // Wide horizontal spread
-                (Math.random() - 0.5) * 10,
+                (Math.random() - 0.5) * 15,
                 color,
-                Math.random() * (cellSize / 4) + 3,
-                0.015
+                Math.random() * (cellSize / 3) + 3,
+                0.01 + Math.random() * 0.02
              );
         }
     },
@@ -109,15 +110,15 @@ const Particles = forwardRef<ParticlesHandle, Props>(({ cellSize }, ref) => {
 
         for (let i = 0; i < amount; i++) {
             const angle = Math.random() * Math.PI * 2;
-            const speed = Math.random() * 15 + 5;
+            const speed = Math.random() * 12 + 2;
             spawnParticle(
                 px,
                 py,
                 Math.cos(angle) * speed,
                 Math.sin(angle) * speed,
                 color,
-                Math.random() * (cellSize / 3) + 3,
-                0.03
+                Math.random() * (cellSize / 3) + 2,
+                0.02 + Math.random() * 0.03
             );
         }
     }
@@ -145,34 +146,41 @@ const Particles = forwardRef<ParticlesHandle, Props>(({ cellSize }, ref) => {
         return;
       }
       ctx.clearRect(0, 0, canvas.width, canvas.height);
+      
+      // Additive blending for glowing effect
+      ctx.globalCompositeOperation = 'lighter';
 
       const pool = particlesRef.current;
-      let activeCount = 0;
-
+      
       // Optimization: Use a simple loop
       for (let i = 0; i < MAX_PARTICLES; i++) {
         const p = pool[i];
         if (!p.active) continue;
-        activeCount++;
 
         p.x += p.vx;
         p.y += p.vy;
-        p.vy += 0.3; // Gravity
+        p.vy += 0.2; // Gravity
+        p.vx *= 0.96; // Drag
+        p.vy *= 0.96;
         p.life -= p.decay;
-        p.size *= 0.96;
+        p.size *= 0.95;
 
-        if (p.life <= 0 || p.size <= 0.5) {
+        if (p.life <= 0 || p.size <= 0.2) {
             p.active = false;
         } else {
             ctx.globalAlpha = p.life;
             ctx.fillStyle = p.color;
-            // Only draw if visible
-            if (p.x > -10 && p.x < canvas.width + 10 && p.y > -10 && p.y < canvas.height + 10) {
-                ctx.fillRect(p.x, p.y, p.size, p.size);
+            
+            // Soft circle rendering
+            if (p.x > -20 && p.x < canvas.width + 20 && p.y > -20 && p.y < canvas.height + 20) {
+                ctx.beginPath();
+                ctx.arc(p.x, p.y, p.size, 0, Math.PI * 2);
+                ctx.fill();
             }
         }
       }
       
+      ctx.globalCompositeOperation = 'source-over';
       ctx.globalAlpha = 1;
       animationFrameId.current = requestAnimationFrame(render);
     };

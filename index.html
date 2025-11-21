@@ -1,8 +1,9 @@
+
 <!DOCTYPE html>
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
     <title>TETRIOS</title>
     <link rel="manifest" href="./metadata.json">
     <meta name="theme-color" content="#06B6D4" />
@@ -29,6 +30,13 @@
 }
 </script>
     <style>
+      :root {
+        --sat: env(safe-area-inset-top);
+        --sab: env(safe-area-inset-bottom);
+        --sal: env(safe-area-inset-left);
+        --sar: env(safe-area-inset-right);
+      }
+
       body {
         font-family: 'Rajdhani', sans-serif;
         background-color: #030712;
@@ -39,6 +47,8 @@
         -webkit-user-select: none;
         -webkit-font-smoothing: antialiased;
         -moz-osx-font-smoothing: grayscale;
+        text-rendering: optimizeLegibility;
+        padding: var(--sat) var(--sar) var(--sab) var(--sal);
       }
       
       /* Screen Shake Animations */

@@ -80,9 +80,9 @@ export class BoardRenderer {
 
     private renderStatic(engine: GameCore): void {
         const { cellSize } = this.config;
-        const gap = 1; // Tighter gap for premium feel
+        const gap = 1; // Tight gap for premium feel
         const size = cellSize - (gap * 2);
-        const radius = Math.max(2, size * 0.2); // Smoother rounded corners
+        const radius = Math.max(2, size * 0.15); // Slightly tighter corners
         const stage = engine.boardManager.stage;
 
         this.staticCtx.clearRect(0, 0, STAGE_WIDTH * cellSize, STAGE_HEIGHT * cellSize);
@@ -94,7 +94,7 @@ export class BoardRenderer {
         const { cellSize } = this.config;
         const gap = 1;
         const size = cellSize - (gap * 2);
-        const radius = Math.max(2, size * 0.2);
+        const radius = Math.max(2, size * 0.15);
         
         this.dynamicCtx.clearRect(0, 0, STAGE_WIDTH * cellSize, STAGE_HEIGHT * cellSize);
 
@@ -125,20 +125,20 @@ export class BoardRenderer {
 
     private drawGrid(ctx: CanvasRenderingContext2D, cellSize: number): void {
         const audioData = audioManager.getFrequencyData();
-        let gridAlpha = 0.08;
+        let gridAlpha = 0.06;
         if (audioData) {
              let bassEnergy = 0;
              for(let i=2; i<8; i++) bassEnergy += audioData[i];
-             gridAlpha = 0.08 + (bassEnergy / (6 * 255)) * 0.15; 
+             gridAlpha = 0.06 + (bassEnergy / (6 * 255)) * 0.1; 
         }
         
         ctx.fillStyle = `rgba(255, 255, 255, ${gridAlpha})`;
         
-        // Use dots for a cleaner, modern grid look
+        // Minimal dots for a premium, clean look
         for (let x = 0; x <= STAGE_WIDTH; x++) {
             for (let y = 0; y <= STAGE_HEIGHT; y++) {
                 ctx.beginPath();
-                ctx.arc(x * cellSize, y * cellSize, 1.5, 0, Math.PI * 2);
+                ctx.arc(x * cellSize, y * cellSize, 1, 0, Math.PI * 2);
                 ctx.fill();
             }
         }
@@ -169,53 +169,59 @@ export class BoardRenderer {
         
         const isLocking = lockData?.isLocking || false;
         const progress = lockData?.progress || 0;
+        const [r, g, b] = rgb.split(',').map(Number);
         
         ctx.save();
 
-        // Create Premium Gradient Look
-        const [r, g, b] = rgb.split(',').map(Number);
+        // --- Crystal Glass Effect ---
         
-        // Gradient from top-left to bottom-right
+        // 1. Base Gradient (Body)
         const gradient = ctx.createLinearGradient(px, py, px + size, py + size);
         
         if (isLocking) {
-            // Intense white flash ramping up
-            const flashAmt = Math.min(1, progress * 1.2); 
+            const flashAmt = Math.min(1, progress * 1.5); 
             const whiteR = r + (255 - r) * flashAmt;
             const whiteG = g + (255 - g) * flashAmt;
             const whiteB = b + (255 - b) * flashAmt;
             
-            gradient.addColorStop(0, `rgba(${whiteR}, ${whiteG}, ${whiteB}, 1)`);
-            gradient.addColorStop(1, `rgba(${r}, ${g}, ${b}, 0.9)`);
+            gradient.addColorStop(0, `rgba(${whiteR}, ${whiteG}, ${whiteB}, 0.95)`);
+            gradient.addColorStop(1, `rgba(${r}, ${g}, ${b}, 0.8)`);
             
-            ctx.shadowColor = `rgba(255, 255, 255, ${progress * 0.8})`;
-            ctx.shadowBlur = size * progress * 1.5;
+            ctx.shadowColor = `rgba(255, 255, 255, ${progress})`;
+            ctx.shadowBlur = size * progress * 2;
         } else {
-            // Standard: Glossy top-left, darker bottom-right
-            gradient.addColorStop(0, `rgba(${Math.min(255, r+50)}, ${Math.min(255, g+50)}, ${Math.min(255, b+50)}, 1)`);
-            gradient.addColorStop(0.4, `rgba(${r}, ${g}, ${b}, 0.9)`);
-            gradient.addColorStop(1, `rgba(${Math.max(0, r-30)}, ${Math.max(0, g-30)}, ${Math.max(0, b-30)}, 1)`);
+            // Translucent glass look with vibrant core
+            gradient.addColorStop(0, `rgba(${Math.min(255, r+60)}, ${Math.min(255, g+60)}, ${Math.min(255, b+60)}, 0.9)`);
+            gradient.addColorStop(0.5, `rgba(${r}, ${g}, ${b}, 0.8)`);
+            gradient.addColorStop(1, `rgba(${Math.max(0, r-40)}, ${Math.max(0, g-40)}, ${Math.max(0, b-40)}, 0.9)`);
             
-            // Subtle Ambient Shadow
-            ctx.shadowColor = `rgba(${r}, ${g}, ${b}, 0.3)`;
-            ctx.shadowBlur = size * 0.15;
+            ctx.shadowColor = `rgba(${r}, ${g}, ${b}, 0.2)`;
+            ctx.shadowBlur = size * 0.2;
         }
 
         ctx.fillStyle = gradient;
         this.drawRoundedRect(ctx, px, py, size, size, radius);
         ctx.fill();
 
-        // Top Inner Highlight (Bevel)
+        // 2. Inner Highlight (Top-Left Bevel) - Simulates light source
         ctx.beginPath();
         this.traceRoundedRect(ctx, px + 1, py + 1, size - 2, size - 2, radius);
-        ctx.strokeStyle = `rgba(255, 255, 255, 0.2)`;
-        ctx.lineWidth = 1;
-        ctx.stroke();
+        const highlightGrad = ctx.createLinearGradient(px, py, px + size, py + size);
+        highlightGrad.addColorStop(0, 'rgba(255, 255, 255, 0.5)');
+        highlightGrad.addColorStop(0.3, 'rgba(255, 255, 255, 0.1)');
+        highlightGrad.addColorStop(1, 'rgba(255, 255, 255, 0)');
+        ctx.fillStyle = highlightGrad;
+        ctx.fill();
 
-        // Locking Border
+        // 3. Border
         if (isLocking) {
-            ctx.strokeStyle = `rgba(255, 255, 255, ${0.6 + progress * 0.4})`;
+            ctx.strokeStyle = `rgba(255, 255, 255, ${0.8 + progress * 0.2})`;
             ctx.lineWidth = 2;
+            ctx.stroke();
+        } else {
+            // Subtle crisp border
+            ctx.strokeStyle = `rgba(255, 255, 255, 0.2)`;
+            ctx.lineWidth = 1;
             ctx.stroke();
         }
         
