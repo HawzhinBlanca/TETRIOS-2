@@ -1,4 +1,3 @@
-
 import React from 'react';
 import Display from './Display';
 import { GameMode, AdventureLevelConfig, GameStats, LevelObjectiveType } from '../types';
@@ -19,7 +18,7 @@ const formatTime = (seconds: number): string => {
   return `${mins}:${secs.toString().padStart(2, '0')}.${ms}`;
 };
 
-const StatsPanel: React.FC<Props> = ({ 
+const StatsPanel: React.FC<Props> = React.memo(({ 
     gameStats, gameMode, adventureLevelConfig
 }) => {
   const { 
@@ -161,6 +160,6 @@ const StatsPanel: React.FC<Props> = ({
       )}
     </div>
   );
-};
+});
 
 export default StatsPanel;

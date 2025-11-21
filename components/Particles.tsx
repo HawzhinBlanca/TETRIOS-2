@@ -1,6 +1,10 @@
 import React, { useRef, useImperativeHandle, forwardRef, useEffect } from 'react';
 
+// Particle Pool Configuration
+const MAX_PARTICLES = 300; // Fixed pool size
+
 interface Particle {
+  active: boolean;
   x: number;
   y: number;
   vx: number;
@@ -22,47 +26,64 @@ interface Props {
 }
 
 /**
- * Renders a particle effects system on a canvas.
- * Provides imperative handle methods to trigger different types of particle spawns.
+ * Renders a particle effects system on a canvas using Object Pooling.
+ * This avoids creating and deleting objects constantly, preventing GC stutter.
  */
 const Particles = forwardRef<ParticlesHandle, Props>(({ cellSize }, ref) => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
-  const particles = useRef<Particle[]>([]);
+  // Pre-allocate particles
+  const particlesRef = useRef<Particle[]>(
+    Array.from({ length: MAX_PARTICLES }, () => ({
+      active: false,
+      x: 0,
+      y: 0,
+      vx: 0,
+      vy: 0,
+      life: 0,
+      color: '#fff',
+      size: 0,
+      decay: 0
+    }))
+  );
   const animationFrameId = useRef<number>(0);
 
+  // Helper to find inactive particles and activate them
+  const spawnParticle = (x: number, y: number, vx: number, vy: number, color: string, size: number, decay: number) => {
+    const pool = particlesRef.current;
+    for (let i = 0; i < MAX_PARTICLES; i++) {
+      if (!pool[i].active) {
+        pool[i].active = true;
+        pool[i].x = x;
+        pool[i].y = y;
+        pool[i].vx = vx;
+        pool[i].vy = vy;
+        pool[i].life = 1.0;
+        pool[i].color = color;
+        pool[i].size = size;
+        pool[i].decay = decay;
+        return;
+      }
+    }
+  };
+
   useImperativeHandle(ref, () => ({
-    /**
-     * Spawns a fountain-like particle effect (e.g., for hard drops).
-     * @param {number} x X-coordinate in game cells.
-     * @param {number} y Y-coordinate in game cells.
-     * @param {string} color CSS color string for particles.
-     * @param {number} [amount=10] Number of particles to spawn.
-     * @returns {void}
-     */
     spawn: (x: number, y: number, color: string, amount: number = 10): void => {
       if (!canvasRef.current) return;
       const px = x * cellSize + (cellSize / 2);
       const py = y * cellSize + (cellSize / 2);
       
       for (let i = 0; i < amount; i++) {
-        particles.current.push({
-          x: px,
-          y: py,
-          vx: (Math.random() - 0.5) * 10,
-          vy: (Math.random() - 0.5) * 10 - 5, // Upward bias
-          life: 1.0,
+        spawnParticle(
+          px,
+          py,
+          (Math.random() - 0.5) * 10,
+          (Math.random() - 0.5) * 10 - 5, // Upward bias
           color,
-          size: Math.random() * (cellSize / 5) + 2,
-          decay: 0.02
-        });
+          Math.random() * (cellSize / 5) + 2,
+          0.02
+        );
       }
     },
-    /**
-     * Spawns an explosion effect along a row (e.g., for line clears).
-     * @param {number} y Y-coordinate in game cells for the explosion center.
-     * @param {string} [color='white'] CSS color string for particles.
-     * @returns {void}
-     */
     spawnExplosion: (y: number, color: string = 'white'): void => {
         const canvas = canvasRef.current;
         if (!canvas) return;
@@ -70,26 +91,17 @@ const Particles = forwardRef<ParticlesHandle, Props>(({ cellSize }, ref) => {
         const py = y * cellSize + (cellSize / 2);
         
         for (let i = 0; i < 40; i++) {
-             particles.current.push({
-                x: w / 2, 
-                y: py,
-                vx: (Math.random() - 0.5) * 40, // Wide horizontal spread
-                vy: (Math.random() - 0.5) * 10,
-                life: 1.0,
-                color: color,
-                size: Math.random() * (cellSize / 4) + 3,
-                decay: 0.015
-             });
+             spawnParticle(
+                w / 2, 
+                py,
+                (Math.random() - 0.5) * 40, // Wide horizontal spread
+                (Math.random() - 0.5) * 10,
+                color,
+                Math.random() * (cellSize / 4) + 3,
+                0.015
+             );
         }
     },
-    /**
-     * Spawns a radial burst effect (e.g., for T-Spins or big events).
-     * @param {number} x X-coordinate in game cells.
-     * @param {number} y Y-coordinate in game cells.
-     * @param {string} color CSS color string for particles.
-     * @param {number} [amount=30] Number of particles to spawn.
-     * @returns {void}
-     */
     spawnBurst: (x: number, y: number, color: string, amount: number = 30): void => {
         if (!canvasRef.current) return;
         const px = x * cellSize + (cellSize / 2);
@@ -98,16 +110,15 @@ const Particles = forwardRef<ParticlesHandle, Props>(({ cellSize }, ref) => {
         for (let i = 0; i < amount; i++) {
             const angle = Math.random() * Math.PI * 2;
             const speed = Math.random() * 15 + 5;
-            particles.current.push({
-                x: px,
-                y: py,
-                vx: Math.cos(angle) * speed,
-                vy: Math.sin(angle) * speed,
-                life: 1.0,
+            spawnParticle(
+                px,
+                py,
+                Math.cos(angle) * speed,
+                Math.sin(angle) * speed,
                 color,
-                size: Math.random() * (cellSize / 3) + 3,
-                decay: 0.03 // Fast fade
-            });
+                Math.random() * (cellSize / 3) + 3,
+                0.03
+            );
         }
     }
   }));
@@ -129,33 +140,40 @@ const Particles = forwardRef<ParticlesHandle, Props>(({ cellSize }, ref) => {
     resizeObserver.observe(canvas);
 
     const render = () => {
-      if (!ctx || !canvas) { // Ensure context and canvas are available
+      if (!ctx || !canvas) {
         animationFrameId.current = requestAnimationFrame(render);
         return;
       }
       ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-      particles.current.forEach((p, index) => {
+      const pool = particlesRef.current;
+      let activeCount = 0;
+
+      // Optimization: Use a simple loop
+      for (let i = 0; i < MAX_PARTICLES; i++) {
+        const p = pool[i];
+        if (!p.active) continue;
+        activeCount++;
+
         p.x += p.vx;
         p.y += p.vy;
         p.vy += 0.3; // Gravity
         p.life -= p.decay;
         p.size *= 0.96;
 
-        if (p.life <= 0 || p.size <= 0) { // Also remove if size becomes too small
-            particles.current.splice(index, 1);
+        if (p.life <= 0 || p.size <= 0.5) {
+            p.active = false;
         } else {
             ctx.globalAlpha = p.life;
             ctx.fillStyle = p.color;
-            // Add glow
-            ctx.shadowBlur = p.size * 2;
-            ctx.shadowColor = p.color;
-            ctx.fillRect(p.x, p.y, p.size, p.size);
-            ctx.shadowBlur = 0; // Reset shadow blur
+            // Only draw if visible
+            if (p.x > -10 && p.x < canvas.width + 10 && p.y > -10 && p.y < canvas.height + 10) {
+                ctx.fillRect(p.x, p.y, p.size, p.size);
+            }
         }
-      });
+      }
       
-      ctx.globalAlpha = 1; // Reset global alpha
+      ctx.globalAlpha = 1;
       animationFrameId.current = requestAnimationFrame(render);
     };
 

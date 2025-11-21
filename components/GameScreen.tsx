@@ -58,6 +58,7 @@ const GameScreen: React.FC<GameScreenProps> = ({
     } = useGameContext();
 
     const boardContainerRef = useRef<HTMLDivElement>(null);
+    const holdIntervalRef = useRef<number | null>(null);
     const levelProgress = (stats.rows % 10) / 10;
 
     const handleUiHover = () => audioManager.playUiHover();
@@ -66,9 +67,26 @@ const GameScreen: React.FC<GameScreenProps> = ({
     useGestures(boardContainerRef, {
         onSwipeLeft: () => touchControls.move(-1),
         onSwipeRight: () => touchControls.move(1),
-        onSwipeDown: () => touchControls.softDrop(),
-        onFlickDown: () => touchControls.hardDrop(),
+        // When gravity is flipped, "Up" is the direction of the fall.
+        // So Swipe Up (visually towards ceiling) should be Hard Drop (towards ceiling).
+        // And Swipe Down should swap to Hold.
+        onSwipeUp: () => flippedGravity ? touchControls.hardDrop() : touchControls.hold(),
+        onSwipeDown: () => flippedGravity ? touchControls.hold() : touchControls.hardDrop(),
         onTap: () => touchControls.rotate(1),
+        onHold: (active) => {
+            if (active) {
+                if (holdIntervalRef.current) window.clearInterval(holdIntervalRef.current);
+                touchControls.softDrop();
+                holdIntervalRef.current = window.setInterval(() => {
+                    touchControls.softDrop();
+                }, 50); // Fast soft drop repeat
+            } else {
+                if (holdIntervalRef.current) {
+                    window.clearInterval(holdIntervalRef.current);
+                    holdIntervalRef.current = null;
+                }
+            }
+        }
     });
 
     return (

@@ -3,19 +3,18 @@ import { useState, useCallback, useEffect, useRef, useMemo } from 'react';
 import { GameCore } from '../utils/GameCore';
 import { createAiWorker } from '../utils/aiWorker';
 import { GameState, GameStats, MoveScore, GameMode, KeyAction, KeyMap, TetrominoType, AdventureLevelConfig, BoosterType, LevelRewards, AudioEvent } from '../types';
-import { STAGE_WIDTH, DEFAULT_DAS, DEFAULT_ARR } from '../constants';
-import { InputManager } from '../utils/InputManager';
 import { useUiStore } from '../stores/uiStore';
 import { useAdventureStore } from '../stores/adventureStore';
 import { useBoosterStore } from '../stores/boosterStore';
 import { audioManager } from '../utils/audioManager';
+import { DEFAULT_DAS, DEFAULT_ARR } from '../constants';
 
 const DEFAULT_CONTROLS: KeyMap = {
-    moveLeft: ['ArrowLeft'],
-    moveRight: ['ArrowRight'],
-    softDrop: ['ArrowDown'],
+    moveLeft: ['ArrowLeft', 'a'],
+    moveRight: ['ArrowRight', 'd'],
+    softDrop: ['ArrowDown', 's'],
     hardDrop: [' '],
-    rotateCW: ['ArrowUp', 'x'],
+    rotateCW: ['ArrowUp', 'x', 'w'],
     rotateCCW: ['z', 'Control'],
     hold: ['c', 'Shift'],
 };
@@ -26,7 +25,7 @@ export const useTetrios = () => {
     isFrenzyActive: false, frenzyTimer: 0, slowTimeActive: false, slowTimeTimer: 0,
     wildcardAvailable: false, bombBoosterReady: false, lineClearerActive: false, flippedGravityActive: false, flippedGravityTimer: 0,
   });
-  const [gameState, setGameState] = useState<GameState>('MENU');
+  const [gameState, setGameStateLocal] = useState<GameState>('MENU'); 
   const [nextQueue, setNextQueue] = useState<TetrominoType[]>([]);
   const [heldPiece, setHeldPiece] = useState<TetrominoType | null>(null);
   const [canHold, setCanHold] = useState(true);
@@ -45,24 +44,33 @@ export const useTetrios = () => {
   const [isSelectingLine, setIsSelectingLine] = useState<boolean>(false); 
   const [selectedLineToClear, setSelectedLineToClear] = useState<number | null>(null); 
   const [blitzSpeedThresholdIndex, setBlitzSpeedThresholdIndex] = useState<number>(0); 
+  
+  // Input Configuration State
+  const [inputConfig, setInputConfig] = useState({ das: DEFAULT_DAS, arr: DEFAULT_ARR });
 
   const aiWorker = useRef<Worker | null>(null);
   const requestRef = useRef<number>(0);
   const lastTimeRef = useRef<number>(0);
 
   const engine = useRef<GameCore>(null!);
-  const inputManager = useRef<InputManager>(null!);
 
   const triggerVisualEffect = useUiStore((state) => state.triggerVisualEffect);
   const { trackFailedLevel, clearFailedAttempts, setStarsEarned } = useAdventureStore();
   const { addCoins, applyLevelRewards, resetActiveBoosters, consumeActiveBoosters } = useBoosterStore();
 
-  // Audio Handler
+  const setGameState = useCallback((newState: GameState) => {
+      if (engine.current) {
+          engine.current.stateManager.transitionTo(newState);
+      } else {
+          setGameStateLocal(newState);
+      }
+  }, []);
+
   const handleAudioEvent = useCallback((event: AudioEvent) => {
       switch(event) {
           case 'MOVE': audioManager.playMove(); break;
           case 'ROTATE': audioManager.playRotate(); break;
-          case 'SOFT_DROP': /* Handle soft drop loop if needed */ break;
+          case 'SOFT_DROP': break;
           case 'HARD_DROP': audioManager.playHardDrop(); break;
           case 'LOCK': audioManager.playLock(); break;
           case 'SOFT_LAND': audioManager.playSoftLand(); break;
@@ -72,7 +80,7 @@ export const useTetrios = () => {
           case 'CLEAR_3': audioManager.playClear(3); break;
           case 'CLEAR_4': audioManager.playClear(4); break;
           case 'GAME_OVER': audioManager.playGameOver(); break;
-          case 'VICTORY': audioManager.playClear(4); break; // Victory sound
+          case 'VICTORY': audioManager.playClear(4); break; 
           case 'FRENZY_START': audioManager.playFrenzyStart(); break;
           case 'FRENZY_END': audioManager.playFrenzyEnd(); break;
           case 'WILDCARD_SPAWN': audioManager.playWildcardSpawn(); break;
@@ -93,6 +101,7 @@ export const useTetrios = () => {
 
   if (!engine.current) {
       engine.current = new GameCore({
+          onStateChange: (newState: GameState) => setGameStateLocal(newState),
           onStatsChange: (s: GameStats) => setStats({...s}),
           onQueueChange: (q: TetrominoType[]) => setNextQueue(q),
           onHoldChange: (p: TetrominoType | null, c: boolean) => { setHeldPiece(p); setCanHold(c); if(!c) setLastHoldTime(Date.now()); },
@@ -107,7 +116,6 @@ export const useTetrios = () => {
             } else if ((s === 'GAMEOVER' || s === 'VICTORY') && rewards) { 
                 addCoins(rewards.coins); 
             }
-            setGameState(s);
             resetActiveBoosters(); 
           },
           onAiTrigger: () => triggerAi(),
@@ -115,53 +123,53 @@ export const useTetrios = () => {
           onGarbageChange: (g: number) => setGarbagePending(g),
           onGroundedChange: (isGrounded: boolean) => setPieceIsGrounded(isGrounded),
           onFlippedGravityChange: (isFlipped: boolean) => setFlippedGravity(isFlipped), 
-          onWildcardSelectionTrigger: () => setWildcardPieceActive(true),
+          onWildcardSelectionTrigger: () => {
+              setWildcardPieceActive(true);
+              engine.current.stateManager.transitionTo('WILDCARD_SELECTION');
+          },
           onWildcardAvailableChange: (available: boolean) => setStats(prev => ({...prev, wildcardAvailable: available})),
           onSlowTimeChange: (active: boolean, timer: number) => setStats(prev => ({...prev, slowTimeActive: active, slowTimeTimer: timer})), 
           onBombBoosterReadyChange: (ready: boolean) => setStats(prev => ({...prev, bombBoosterReady: ready})), 
           onBombSelectionStart: (rows: number) => { 
             setIsSelectingBombRows(true); 
             setBombRowsToClear(rows);
-            setGameState('BOMB_SELECTION'); 
+            engine.current.stateManager.transitionTo('BOMB_SELECTION');
           },
           onBombSelectionEnd: () => { 
             setIsSelectingBombRows(false);
             setBombRowsToClear(0);
-            if (gameState === 'BOMB_SELECTION') setGameState('PLAYING'); 
+            if (engine.current.stateManager.currentState === 'BOMB_SELECTION') {
+                engine.current.stateManager.transitionTo('PLAYING');
+            }
           },
           onLineClearerActiveChange: (active: boolean) => setStats(prev => ({...prev, lineClearerActive: active})), 
           onLineSelectionStart: () => { 
             setIsSelectingLine(true);
-            setGameState('LINE_SELECTION'); 
+            engine.current.stateManager.transitionTo('LINE_SELECTION');
           },
           onLineSelectionEnd: () => { 
             setIsSelectingLine(false);
             setSelectedLineToClear(null);
-            if (gameState === 'LINE_SELECTION') setGameState('PLAYING'); 
+            if (engine.current.stateManager.currentState === 'LINE_SELECTION') {
+                engine.current.stateManager.transitionTo('PLAYING');
+            }
           },
           onBlitzSpeedUp: (threshold: number) => triggerVisualEffect('BLITZ_SPEED_THRESHOLD', { threshold }), 
           onFlippedGravityTimerChange: (active: boolean, timer: number) => setStats(prev => ({...prev, flippedGravityActive: active, flippedGravityTimer: timer})),
           onAudio: handleAudioEvent,
-      }, DEFAULT_CONTROLS);
-
-      inputManager.current = new InputManager({
-        keyMap: engine.current.keyMap,
-        das: engine.current.das,
-        arr: engine.current.arr
-      });
-      
-      inputManager.current.addActionListener((action: KeyAction) => {
-          if (gameState !== 'PLAYING' && gameState !== 'BOMB_SELECTION' && gameState !== 'LINE_SELECTION') return; 
-          engine.current.handleAction(action); 
+      }, {
+          keyMap: DEFAULT_CONTROLS,
+          das: DEFAULT_DAS,
+          arr: DEFAULT_ARR
       });
   }
 
   const triggerAi = useCallback(() => {
-      if(aiWorker.current && engine.current.player.tetromino.type) {
+      if(aiWorker.current && engine.current.pieceManager.player.tetromino.type) {
           aiWorker.current.postMessage({
-              stage: engine.current.stage,
-              type: engine.current.player.tetromino.type,
-              rotationState: engine.current.rotationState,
+              stage: engine.current.boardManager.stage, 
+              type: engine.current.pieceManager.player.tetromino.type,
+              rotationState: engine.current.pieceManager.rotationState,
               flippedGravity: engine.current.flippedGravity, 
           });
       }
@@ -172,9 +180,9 @@ export const useTetrios = () => {
     if (savedControls) {
         try {
             const parsedControls: KeyMap = JSON.parse(savedControls);
-            engine.current.keyMap = parsedControls;
             setControlsState(parsedControls);
-            inputManager.current.updateConfig({ keyMap: parsedControls });
+            // Sync loaded controls to engine
+            engine.current.setInputConfig({ keyMap: parsedControls });
         } catch(e) {
             console.error("Failed to parse saved controls", e);
         }
@@ -185,14 +193,22 @@ export const useTetrios = () => {
 
     return () => { 
         aiWorker.current?.terminate(); 
-        inputManager.current?.destroy();
+        engine.current?.destroy();
     };
   }, []);
 
-  const resetGame = useCallback((startLevel: number = 0, mode: GameMode = 'MARATHON', adventureLevelConfig?: AdventureLevelConfig | undefined, assistRows?: number, activeBoosters?: BoosterType[]) => {
-      engine.current.resetGame(mode, startLevel, adventureLevelConfig, assistRows || 0, activeBoosters || []);
+  // Sync inputs effect
+  useEffect(() => {
+    engine.current.setInputConfig({ keyMap: controls });
+  }, [controls]);
+
+  useEffect(() => {
+    engine.current.setInputConfig({ das: inputConfig.das, arr: inputConfig.arr });
+  }, [inputConfig]);
+
+  const resetGame = useCallback((startLevel: number = 0, mode: GameMode = 'MARATHON', adventureLevelConfig: AdventureLevelConfig | undefined = undefined, assistRows: number = 0, activeBoosters: BoosterType[] = []) => {
+      engine.current.resetGame(mode, startLevel, adventureLevelConfig, assistRows, activeBoosters);
       setGameMode(mode);
-      setGameState('PLAYING');
       setPieceIsGrounded(false); 
       setFlippedGravity(false); 
       setWildcardPieceActive(false); 
@@ -205,36 +221,68 @@ export const useTetrios = () => {
 
   const setGameConfig = useCallback((config: { speed?: number, das?: number, arr?: number }) => {
       engine.current.setGameConfig(config);
-      inputManager.current.updateConfig({ das: config.das, arr: config.arr });
+      // Update local state which will propagate to InputManager via effect
+      setInputConfig(prev => ({
+          das: config.das ?? prev.das,
+          arr: config.arr ?? prev.arr
+      }));
   }, []);
 
-  const setKeyBinding = useCallback((action: KeyAction, key: string) => {
-      const newControls: KeyMap = { ...engine.current.keyMap };
-      Object.keys(newControls).forEach(k => {
-          const act = k as KeyAction;
-          newControls[act] = newControls[act].filter((k_item: string) => k_item !== key);
+  const setKeyBinding = useCallback((action: KeyAction, key: string, slot: number = 0) => {
+      if (key === 'Escape') return;
+      
+      setControlsState(prevControls => {
+          // Deep clone to avoid mutation issues
+          const newControls = JSON.parse(JSON.stringify(prevControls)) as KeyMap;
+
+          // If clearing a binding
+          if (key === 'Backspace' || key === 'Delete') {
+              if (newControls[action]) {
+                  // Remove the key at the specific slot if it exists
+                  if (slot < newControls[action].length) {
+                      newControls[action] = newControls[action].filter((_, i) => i !== slot);
+                  }
+              }
+          } else {
+              // If binding a new key, first unbind it from anywhere else it might be used
+              Object.keys(newControls).forEach(k => {
+                  const act = k as KeyAction;
+                  if (newControls[act].includes(key)) {
+                      newControls[act] = newControls[act].filter((k_item) => k_item !== key);
+                  }
+              });
+
+              // Assign to new slot
+              const currentKeys = newControls[action] || [];
+              if (slot >= currentKeys.length) {
+                  currentKeys.push(key);
+              } else {
+                  currentKeys[slot] = key;
+              }
+              newControls[action] = currentKeys;
+          }
+          
+          localStorage.setItem('tetrios_controls', JSON.stringify(newControls));
+          return newControls;
       });
-      newControls[action] = [key]; 
-      engine.current.keyMap = newControls;
-      setControlsState(newControls);
-      localStorage.setItem('tetrios_controls', JSON.stringify(newControls));
-      inputManager.current.updateConfig({ keyMap: newControls });
   }, []);
 
   const update = useCallback((time: number) => {
-      if (gameState !== 'PLAYING' && gameState !== 'WILDCARD_SELECTION' && gameState !== 'BOMB_SELECTION' && gameState !== 'LINE_SELECTION') return; 
+      const currentState = engine.current.stateManager.currentState;
+      
+      if (currentState !== 'PLAYING' && currentState !== 'WILDCARD_SELECTION' && currentState !== 'BOMB_SELECTION' && currentState !== 'LINE_SELECTION') return; 
       
       const deltaTime = time - lastTimeRef.current;
       lastTimeRef.current = time;
 
-      if (gameState === 'PLAYING') { 
+      if (currentState === 'PLAYING') { 
           engine.current.update(deltaTime);
-      } else if (gameState === 'WILDCARD_SELECTION' || gameState === 'BOMB_SELECTION' || gameState === 'LINE_SELECTION') {
+      } else if (currentState === 'WILDCARD_SELECTION' || currentState === 'BOMB_SELECTION' || currentState === 'LINE_SELECTION') {
         engine.current.updateEphemeralStates(deltaTime); 
       }
       
       requestRef.current = requestAnimationFrame(update);
-  }, [gameState]);
+  }, []); 
 
   useEffect(() => {
       if (gameState === 'PLAYING' || gameState === 'WILDCARD_SELECTION' || gameState === 'BOMB_SELECTION' || gameState === 'LINE_SELECTION') {
@@ -258,13 +306,13 @@ export const useTetrios = () => {
   const activateWildcardSelection = useCallback(() => {
       setWildcardPieceActive(true);
       setGameState('WILDCARD_SELECTION');
-  }, []);
+  }, [setGameState]);
 
   const chooseWildcardPiece = useCallback((type: TetrominoType) => {
       engine.current.chooseWildcardPiece(type);
       setWildcardPieceActive(false);
       setGameState('PLAYING'); 
-  }, []);
+  }, [setGameState]);
 
   const triggerBombBoosterSelection = useCallback(() => {
       if (stats.bombBoosterReady && gameState === 'PLAYING') {
@@ -283,7 +331,7 @@ export const useTetrios = () => {
           engine.current.callbacks.onBombSelectionEnd(); 
           setGameState('PLAYING');
       }
-  }, [isSelectingBombRows]);
+  }, [isSelectingBombRows, setGameState]);
 
   const triggerLineClearerSelection = useCallback(() => {
       if (stats.lineClearerActive && gameState === 'PLAYING') {
@@ -302,11 +350,11 @@ export const useTetrios = () => {
           engine.current.callbacks.onLineSelectionEnd(); 
           setGameState('PLAYING');
       }
-  }, [isSelectingLine]);
+  }, [isSelectingLine, setGameState]);
 
   return {
       engine, 
-      stats, // Expose the whole object
+      stats, 
       nextQueue,
       heldPiece,
       canHold,
@@ -339,5 +387,6 @@ export const useTetrios = () => {
       isSelectingLine,
       selectedLineToClear, 
       blitzSpeedThresholdIndex, 
+      activeBoosters: useBoosterStore.getState().activeBoosters 
   };
 };

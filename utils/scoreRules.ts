@@ -1,16 +1,6 @@
-import { SCORES } from '../constants';
-import { GameState } from '../types'; // Assuming GameState is needed for context but not directly used in score calculation.
 
-/**
- * Interface for the result of a score calculation.
- */
-export interface ScoreResult {
-  score: number;
-  text: string;
-  isBackToBack: boolean;
-  soundLevel: number; // Represents the number of lines cleared for sound purposes
-  visualShake: 'hard' | 'soft' | null;
-}
+import { SCORES } from '../constants';
+import { ScoreResult } from '../types'; 
 
 /**
  * Pure function to calculate score, text, and effects based on clearing action.
@@ -29,15 +19,17 @@ export const calculateScore = (
   isBackToBack: boolean,
   comboCount: number
 ): ScoreResult => {
-  let score: number = 0;
-  let text: string = '';
-  let soundLevel: number = rowsCleared;
-  let visualShake: 'hard' | 'soft' | null = 'soft'; // Default shake for line clears
-  let newBackToBack: boolean = isBackToBack; // Track new B2B status for next clear
+  let score = 0;
+  let text = '';
+  let soundLevel = rowsCleared;
+  let visualShake: 'hard' | 'soft' | null = rowsCleared > 0 ? 'soft' : null;
+  let newBackToBack = isBackToBack; // Default to maintaining state (e.g. for drops with 0 clears)
+
+  const isDifficultClear = (isTSpin && rowsCleared > 0) || rowsCleared === 4;
 
   // 1. Base Score & Text (T-Spin or Standard Clears)
   if (isTSpin) {
-    const tSpinScores: number[] = [SCORES.TSPIN, SCORES.TSPIN_SINGLE, SCORES.TSPIN_DOUBLE, SCORES.TSPIN_TRIPLE]; // T-Spin 0, 1, 2, 3 lines
+    const tSpinScores = [SCORES.TSPIN, SCORES.TSPIN_SINGLE, SCORES.TSPIN_DOUBLE, SCORES.TSPIN_TRIPLE];
     // Clamp rowsCleared to max 3 for T-Spin scores
     score = (tSpinScores[Math.min(rowsCleared, 3)] || SCORES.TSPIN) * (level + 1);
     
@@ -47,12 +39,14 @@ export const calculateScore = (
     else text = 'T-SPIN'; // T-Spin Zero
 
     // T-Spins (with lines) maintain/start B2B
-    if (rowsCleared > 0) newBackToBack = true; 
-    else newBackToBack = isBackToBack; // T-Spin Zero maintains B2B but doesn't start it if not active
+    if (rowsCleared > 0) {
+        newBackToBack = true;
+    } 
+    // T-Spin Zero (rows=0) maintains previous B2B status
 
   } else {
     // Standard Clears
-    const basePoints: number[] = [0, SCORES.SINGLE, SCORES.DOUBLE, SCORES.TRIPLE, SCORES.TETRIS];
+    const basePoints = [0, SCORES.SINGLE, SCORES.DOUBLE, SCORES.TRIPLE, SCORES.TETRIS];
     score = (basePoints[rowsCleared] || 0) * (level + 1);
 
     if (rowsCleared === 4) {
@@ -61,17 +55,16 @@ export const calculateScore = (
       newBackToBack = true; // Tetris maintains/starts B2B
     } else if (rowsCleared > 0) {
       text = rowsCleared === 3 ? 'TRIPLE' : rowsCleared === 2 ? 'DOUBLE' : 'SINGLE';
-      newBackToBack = false; // Non-Tetris clears break B2B
+      newBackToBack = false; // Standard line clears break B2B
     }
   }
 
   // 2. Back-to-Back Bonus
   // Apply B2B multiplier *after* base score if the current clear is a 'difficult' clear (Tetris or T-Spin with lines)
-  // AND the previous clear was also a difficult clear.
-  const isDifficultClear: boolean = (isTSpin && rowsCleared > 0) || rowsCleared === 4;
+  // AND the previous clear was also a difficult clear (status held in isBackToBack).
   if (isBackToBack && isDifficultClear) {
-    score *= SCORES.BACK_TO_BACK_MULTIPLIER;
-    if (text) text += ' B2B'; // Append B2B to text
+    score = Math.floor(score * SCORES.BACK_TO_BACK_MULTIPLIER);
+    if (text) text = `${text} B2B`; // Append B2B to text
   }
 
   // 3. Combo Bonus (applies to any line clear when combo is active)
@@ -85,6 +78,6 @@ export const calculateScore = (
     text,
     isBackToBack: newBackToBack,
     soundLevel,
-    visualShake: rowsCleared > 0 ? visualShake : null // Only shake if lines were cleared
+    visualShake
   };
 };

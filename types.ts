@@ -1,5 +1,6 @@
 
 
+
 export type TetrominoType = 'I' | 'J' | 'L' | 'O' | 'S' | 'T' | 'Z' | 'G' | 'WILDCARD_SHAPE'; // G for Garbage, WILDCARD_SHAPE for wildcard piece
 
 export interface Tetromino {
@@ -253,6 +254,7 @@ export type AudioEvent =
 
 // Callbacks for GameCore
 export interface GameCallbacks {
+    onStateChange: (newState: GameState, previousState: GameState) => void; // New FSM callback
     onStatsChange: (stats: GameStats) => void;
     onQueueChange: (queue: TetrominoType[]) => void;
     onHoldChange: (piece: TetrominoType | null, canHold: boolean) => void;
@@ -274,8 +276,16 @@ export interface GameCallbacks {
     onLineSelectionEnd: () => void; 
     onBlitzSpeedUp?: (threshold: number) => void; 
     onFlippedGravityTimerChange?: (active: boolean, timer: number) => void;
-    // New: Decoupled audio event
     onAudio: (event: AudioEvent) => void;
+}
+
+// Score Result Interface
+export interface ScoreResult {
+  score: number;
+  text: string;
+  isBackToBack: boolean;
+  soundLevel: number; // Represents the number of lines cleared for sound purposes
+  visualShake: 'hard' | 'soft' | null;
 }
 
 // Extend Window interface for webkitAudioContext

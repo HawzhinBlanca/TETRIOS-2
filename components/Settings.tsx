@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect, useRef } from 'react';
 import { X, Gamepad2, Eye, Keyboard, RefreshCcw, Monitor, Volume2, Music, Settings as SettingsIcon } from 'lucide-react';
 import { KeyMap, KeyAction, GhostStyle } from '../types';
@@ -10,7 +11,7 @@ type Tab = 'GAMEPLAY' | 'CONTROLS' | 'VISUALS' | 'AUDIO';
 
 interface SettingsProps {
   controls: KeyMap; 
-  setKeyBinding: (action: KeyAction, key: string) => void;
+  setKeyBinding: (action: KeyAction, key: string, slot: number) => void;
   activeTab?: Tab;
 }
 
@@ -141,38 +142,97 @@ const GameplayPanel: React.FC = () => {
 
 interface ControlsPanelProps {
   controls: KeyMap;
-  setKeyBinding: (action: KeyAction, key: string) => void;
+  setKeyBinding: (action: KeyAction, key: string, slot: number) => void;
 }
 
+const formatKey = (key: string): string => {
+    if (!key) return '---';
+    if (key === ' ') return 'Space';
+    if (key === 'ArrowUp') return 'Up';
+    if (key === 'ArrowDown') return 'Down';
+    if (key === 'ArrowLeft') return 'Left';
+    if (key === 'ArrowRight') return 'Right';
+    if (key.length === 1) return key.toUpperCase();
+    return key;
+};
+
 const ControlsPanel: React.FC<ControlsPanelProps> = ({ controls, setKeyBinding }) => {
-    const [listeningFor, setListeningFor] = useState<KeyAction | null>(null);
-    const handleBind = (action: KeyAction) => {
+    const [listening, setListening] = useState<{ action: KeyAction, slot: number } | null>(null);
+
+    const handleBind = (action: KeyAction, slot: number) => {
         audioManager.playUiClick();
-        setListeningFor(action);
+        setListening({ action, slot });
+    };
+
+    useEffect(() => {
+        if (!listening) return;
+
         const listener = (e: KeyboardEvent) => {
             e.preventDefault();
+            
+            if (e.key === 'Escape') {
+                setListening(null);
+                return;
+            }
+
             audioManager.playUiSelect();
-            setKeyBinding(action, e.key as KeyAction); // Explicitly cast e.key to KeyAction
-            setListeningFor(null);
-            window.removeEventListener('keydown', listener);
+            setKeyBinding(listening.action, e.key, listening.slot);
+            setListening(null);
         };
-        window.addEventListener('keydown', listener, { once: true }); 
-    };
+
+        window.addEventListener('keydown', listener);
+        return () => window.removeEventListener('keydown', listener);
+    }, [listening, setKeyBinding]);
+
     return (
         <div className="bg-gray-900/30 p-6 md:p-8 rounded border border-gray-800/50 animate-slide-in">
             <h3 className="text-white text-xs font-bold uppercase tracking-widest mb-8 border-b border-gray-800 pb-4 flex items-center gap-2" role="heading" aria-level={3}>
                 <Keyboard size={16} className="text-cyan-500" aria-hidden="true"/> Key Mapping
             </h3>
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 md:gap-6" role="grid" aria-label="Key Bindings">
-                {(Object.entries(controls || {}) as [KeyAction, string[]][]).map(([action, keys]) => (
-                    <button key={action} onClick={() => handleBind(action)} onMouseEnter={() => audioManager.playUiHover()} className={`group relative flex flex-col p-4 border rounded-lg transition-all duration-200 ${listeningFor === action ? 'bg-cyan-900/40 border-cyan-500 ring-1 ring-cyan-500/50' : 'bg-gray-900/50 border-gray-800 hover:border-gray-600 hover:bg-gray-800'}`} aria-label={`Bind key for ${action.replace(/([A-Z])/g, ' $1')}`} role="gridcell">
-                        <span className="text-[9px] text-gray-500 uppercase tracking-widest mb-3 font-bold">{action.replace(/([A-Z])/g, ' $1')}</span>
-                        <div className={`h-10 px-4 min-w-[60px] flex items-center justify-center bg-[#1a1f2e] border-b-4 border-black rounded text-sm font-mono font-bold text-gray-300 shadow-sm transition-transform ${listeningFor === action ? 'translate-y-1 border-b-0 bg-cyan-900 text-white' : 'group-hover:translate-y-[1px] group-hover:border-b-2'}`}>
-                                {listeningFor === action ? 'Press a key...' : keys[0]}
+            <div className="space-y-2" role="grid" aria-label="Key Bindings">
+                <div className="grid grid-cols-3 gap-4 text-[10px] text-gray-500 uppercase tracking-widest font-bold mb-2 px-2">
+                    <div>Action</div>
+                    <div>Primary</div>
+                    <div>Secondary</div>
+                </div>
+                {(Object.entries(controls || {}) as [KeyAction, string[]][]).map(([action, keys]) => {
+                    const displayAction = action.replace(/([A-Z])/g, ' $1').trim();
+                    return (
+                        <div key={action} className="grid grid-cols-3 gap-4 items-center p-3 bg-gray-900/50 rounded border border-gray-800 hover:border-gray-700 transition-colors">
+                            <span className="text-xs font-bold text-gray-300 uppercase tracking-wide">{displayAction}</span>
+                            
+                            {[0, 1].map(slot => {
+                                const isListening = listening?.action === action && listening?.slot === slot;
+                                const keyName = keys[slot];
+                                return (
+                                    <button 
+                                        key={slot} 
+                                        onClick={() => handleBind(action, slot)}
+                                        onMouseEnter={() => audioManager.playUiHover()}
+                                        className={`
+                                            relative h-10 px-4 flex items-center justify-center 
+                                            bg-[#1a1f2e] border-b-2 rounded text-sm font-mono font-bold shadow-sm transition-all duration-150
+                                            ${isListening 
+                                                ? 'bg-cyan-900 border-cyan-500 text-white ring-1 ring-cyan-500/50 scale-105 z-10' 
+                                                : 'border-black text-gray-400 hover:text-white hover:bg-gray-800 hover:border-gray-600'
+                                            }
+                                        `}
+                                        aria-label={`Bind ${slot === 0 ? 'primary' : 'secondary'} key for ${displayAction}`}
+                                    >
+                                        {isListening ? (
+                                            <span className="animate-pulse text-cyan-400">Press Key...</span>
+                                        ) : (
+                                            formatKey(keyName)
+                                        )}
+                                    </button>
+                                );
+                            })}
                         </div>
-                        {listeningFor === action && <div className="w-2 h-2 bg-cyan-400 rounded-full animate-pulse" aria-hidden="true"></div>}
-                    </button>
-                ))}
+                    );
+                })}
+            </div>
+            <div className="mt-6 text-[10px] text-gray-500 italic text-center">
+                Press <span className="text-gray-300 font-bold">Backspace</span> or <span className="text-gray-300 font-bold">Delete</span> to clear a binding. <span className="text-gray-300 font-bold">Escape</span> to cancel.
             </div>
         </div>
     );

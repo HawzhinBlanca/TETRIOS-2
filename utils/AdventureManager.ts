@@ -1,7 +1,6 @@
 
-
 import { GameCore } from './GameCore';
-import { AdventureLevelConfig, LevelObjectiveType, GameState } from '../types';
+import { AdventureLevelConfig } from '../types';
 import { STAGE_HEIGHT, LEVEL_PASS_COIN_REWARD } from '../constants';
 
 export class AdventureManager {
@@ -39,7 +38,7 @@ export class AdventureManager {
             this.bossHp = this.config.objective.target;
             this.core.addFloatingText("BOSS BATTLE!", "#ef4444", 0.8);
         } else if (this.config.objective.type === 'TIME_SURVIVAL' && this.config.constraints?.timeLimit) {
-            this.core.stats.time = this.config.constraints.timeLimit;
+            this.core.scoreManager.stats.time = this.config.constraints.timeLimit;
         }
     }
 
@@ -51,7 +50,7 @@ export class AdventureManager {
         }
         if (this.config.constraints?.timeLimit && this.config.objective.type !== 'TIME_SURVIVAL') {
             this.timeLimit = this.config.constraints.timeLimit;
-            this.core.stats.time = this.timeLimit; 
+            this.core.scoreManager.stats.time = this.timeLimit; 
         }
     }
 
@@ -75,18 +74,12 @@ export class AdventureManager {
     public update(deltaTime: number): void {
         if (!this.config) return;
 
-        // Timer updates
-        if (this.config.objective.type === 'TIME_SURVIVAL' || this.config.constraints?.timeLimit) {
-            this.core.stats.time = Math.max(0, this.core.stats.time - (deltaTime / 1000));
-        }
-
         // Boss Logic
         if (this.config.boss) {
             this.bossTimer += deltaTime;
             if (this.bossTimer >= this.config.boss.interval) {
                 if (this.config.boss.ability === 'GARBAGE_RAIN') {
-                    this.core.garbagePending += 1;
-                    this.core.callbacks.onGarbageChange(this.core.garbagePending);
+                    this.core.boardManager.addGarbage(1);
                     this.core.addFloatingText('BOSS ATTACK!', '#ef4444', 0.6);
                 }
                 this.bossTimer = 0;
@@ -114,7 +107,7 @@ export class AdventureManager {
             if (damage > 0) {
                 this.bossHp = Math.max(0, this.bossHp - damage);
                 this.core.addFloatingText(`BOSS HIT! -${damage}HP`, '#ef4444', 0.6);
-                this.core.callbacks.onAudio('BOSS_DAMAGE'); // New audio event
+                this.core.callbacks.onAudio('BOSS_DAMAGE'); 
                 if (this.bossHp <= 0) {
                     this.core.triggerGameOver('VICTORY', { coins: LEVEL_PASS_COIN_REWARD, stars: 3 });
                 }
@@ -125,7 +118,7 @@ export class AdventureManager {
     private _checkVictory(): boolean {
         if (!this.config) return false;
         const objective = this.config.objective;
-        const stats = this.core.stats;
+        const stats = this.core.scoreManager.stats;
 
         switch (objective.type) {
             case 'LINES': return stats.rows >= objective.target;
@@ -144,22 +137,18 @@ export class AdventureManager {
     private _checkLoss(): boolean {
         if (!this.config) return false;
         
-        // Move Limit
-        if (this.movesLimit && (this.core.stats.movesTaken || 0) >= this.movesLimit) {
+        if (this.movesLimit && (this.core.scoreManager.stats.movesTaken || 0) >= this.movesLimit) {
             return true;
         }
         
-        // Time Limit (Non-Survival)
-        if (this.timeLimit && this.config.objective.type !== 'TIME_SURVIVAL' && (this.core.stats.time || 0) <= 0) {
+        if (this.timeLimit && this.config.objective.type !== 'TIME_SURVIVAL' && (this.core.scoreManager.stats.time || 0) <= 0) {
             return true;
         }
 
         // Bomb Explosion
         for (let y = 0; y < STAGE_HEIGHT; y++) {
-            // Accessing core stage safely
-            // We assume stage width is constant 10
             for (let x = 0; x < 10; x++) { 
-                const cell = this.core.stage[y][x];
+                const cell = this.core.boardManager.stage[y][x];
                 if (cell[2]?.type === 'BOMB' && (cell[2]?.timer || 0) <= 0) {
                     this.core.callbacks.onVisualEffect({type: 'SHAKE', payload: 'hard'});
                     this.core.callbacks.onVisualEffect({type: 'FLASH', payload: { color: 'red', duration: 400 }});

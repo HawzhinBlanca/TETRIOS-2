@@ -50,7 +50,7 @@ export class BoosterManager {
         }
         
         if (this.activeBoosters.includes('PIECE_SWAP_BOOSTER')) {
-            this.core.canHold = true;
+            this.core.pieceManager.canHold = true;
             this.core.addFloatingText('PIECE SWAP+', '#a78bfa', 0.8, 'powerup');
         }
         
@@ -67,8 +67,8 @@ export class BoosterManager {
         if (this.activeBoosters.includes('FLIPPED_GRAVITY_BOOSTER')) {
             this.flippedGravityActive = true;
             this.flippedGravityTimer = FLIPPED_GRAVITY_BOOSTER_DURATION_MS;
-            this.core.flippedGravity = true;
-            this.core.callbacks.onFlippedGravityChange(true);
+            // Use setter to ensure InputManager is synced
+            this.core.setFlippedGravity(true);
             this.core.callbacks.onVisualEffect({ type: 'FLIPPED_GRAVITY_ACTIVATE' });
             this.core.addFloatingText('GRAVITY FLIPPED!', '#3b82f6', 0.8, 'powerup');
         }
@@ -102,8 +102,8 @@ export class BoosterManager {
             this.flippedGravityTimer -= deltaTime;
             if (this.flippedGravityTimer <= 0) {
                 this.flippedGravityActive = false;
-                this.core.flippedGravity = this.core.initialFlippedGravityGimmick; // Revert
-                this.core.callbacks.onFlippedGravityChange(this.core.flippedGravity);
+                // Use setter to revert and sync InputManager
+                this.core.setFlippedGravity(this.core.initialFlippedGravityGimmick);
                 this.core.callbacks.onFlippedGravityTimerChange?.(false, 0);
                 this.core.callbacks.onVisualEffect({ type: 'FLIPPED_GRAVITY_END' });
                 this.core.addFloatingText('GRAVITY RESTORED!', '#888888', 0.6, 'powerup');
@@ -133,7 +133,7 @@ export class BoosterManager {
         }
         this.selectedLineToClear = null;
 
-        const tempStage = this.core.stage.map(row => [...row]);
+        const tempStage = this.core.boardManager.stage.map(row => [...row]);
         tempStage[selectedRow].fill([null, 'clear']);
 
         this.core.callbacks.onVisualEffect({type: 'PARTICLE', payload: { isExplosion: true, clearedRows: selectedRow, color: MODIFIER_COLORS.LASER_BLOCK }});
@@ -142,7 +142,7 @@ export class BoosterManager {
         this.core.addFloatingText('LINE CLEARED!', MODIFIER_COLORS.LASER_BLOCK, 0.7, 'powerup');
         this.core.applyScore({ score: SCORES.BOOSTER_LINE_CLEARER_BONUS });
         this.core.callbacks.onAudio('LASER_CLEAR');
-        this.core.sweepRows(tempStage, false, [selectedRow]);
+        this.core.boardManager.sweepRows(tempStage, false, [selectedRow]);
 
         this.activeBoosters = this.activeBoosters.filter(b => b !== 'LINE_CLEARER_BOOSTER');
         this.lineClearerActive = false;
@@ -177,7 +177,7 @@ export class BoosterManager {
             return;
         }
 
-        const tempStage = this.core.stage.map(row => [...row]);
+        const tempStage = this.core.boardManager.stage.map(row => [...row]);
         rowsToClear.forEach(r => {
             if (tempStage[r]) {
                 tempStage[r].fill([null, 'clear']);
@@ -191,7 +191,7 @@ export class BoosterManager {
         this.core.applyScore({ score: SCORES.BOOSTER_BOMB_CLEAR_BONUS });
         this.core.callbacks.onAudio('NUKE_CLEAR');
 
-        this.core.sweepRows(tempStage, false, rowsToClear);
+        this.core.boardManager.sweepRows(tempStage, false, rowsToClear);
 
         this.activeBoosters = this.activeBoosters.filter(b => b !== 'BOMB_BOOSTER');
         this.bombBoosterReady = false;

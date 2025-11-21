@@ -22,9 +22,21 @@ class AudioManager {
   private enabled: boolean = true; // Overall audio enabled/disabled (mute)
   private musicEnabled: boolean = true; // Music specific enabled/disabled
   
-  private droneOsc: OscillatorNode | null = null; // Oscillator for background music drone
-  private droneGain: GainNode | null = null;
-  private droneLfo: OscillatorNode | null = null; // LFO for drone filter modulation
+  // Music Engine State
+  private musicNodes: AudioNode[] = []; // Track persistent nodes (pad, lfos)
+  private sequencerInterval: number | null = null;
+  private melodyInterval: number | null = null; // Interval for lead melody
+  private nextNoteTime: number = 0;
+  private sequenceIndex: number = 0;
+  
+  // C Minor Pentatonic Scale for procedural melody (Octave 4-5)
+  private melodyScale = [ 261.63, 311.13, 349.23, 392.00, 466.16, 523.25 ];
+  
+  // Retro Bass Sequence (C2 base)
+  private bassSequence = [
+      65.41, 65.41, 77.78, 65.41, // C2, C2, Eb2, C2
+      98.00, 65.41, 87.31, 77.78  // G2, C2, F2, Eb2
+  ];
 
   constructor() {
     // Initialize context lazily on first interaction
@@ -106,80 +118,186 @@ class AudioManager {
       this.musicEnabled = enabled;
       if (!enabled) {
           this.stopMusic();
+      } else if (this.ctx && this.ctx.state === 'running') {
+          // Optionally restart if enabling while game is running handled by Game component
       }
   }
 
   /**
-   * Starts the background ambient drone music.
-   * Only plays if audio is enabled and music is specifically enabled.
+   * Starts the background ambient retro music.
+   * Plays a detuned saw pad, a square wave bass sequence, and a procedural lead.
    */
   startMusic(): void {
-      if(!this.ctx || !this.musicGain || !this.musicEnabled || this.droneOsc) return; // Prevent multiple instances
+      if(!this.ctx || !this.musicGain || !this.musicEnabled || this.musicNodes.length > 0) return;
       
       const now = this.ctx.currentTime;
       
-      // --- Ambient Drone (The "Music") ---
-      // Osc 1: Low Bass Sawtooth
-      this.droneOsc = this.ctx.createOscillator();
-      this.droneOsc.type = 'sawtooth';
-      this.droneOsc.frequency.value = 55; // A1 (low bass)
+      // --- 1. Ambient Retro Pad (The Atmosphere) ---
+      // Two Sawtooth oscillators slightly detuned for "chorus" effect
+      const padGain = this.ctx.createGain();
+      padGain.gain.value = 0; // Start silent for fade-in
+      padGain.connect(this.musicGain);
       
-      // LFO for subtle filter frequency modulation
-      this.droneLfo = this.ctx.createOscillator();
-      this.droneLfo.type = 'sine';
-      this.droneLfo.frequency.value = 0.1; // Slow modulation (0.1 Hz)
+      const osc1 = this.ctx.createOscillator();
+      osc1.type = 'sawtooth';
+      osc1.frequency.value = 130.81; // C3 Root
+      osc1.detune.value = -12; 
+      
+      const osc2 = this.ctx.createOscillator();
+      osc2.type = 'sawtooth';
+      osc2.frequency.value = 130.81; // C3 Root
+      osc2.detune.value = 12;
+
+      // Lowpass Filter with LFO for "breathing" sound
+      const filter = this.ctx.createBiquadFilter();
+      filter.type = 'lowpass';
+      filter.frequency.value = 600; // Lower cutoff for "chill" vibe
+      filter.Q.value = 0.5;
+
+      const lfo = this.ctx.createOscillator();
+      lfo.type = 'sine';
+      lfo.frequency.value = 0.15; // Slow sweep (0.15 Hz)
       
       const lfoGain = this.ctx.createGain();
-      lfoGain.gain.value = 500; // Filter cutoff modulation depth
-      
-      this.droneGain = this.ctx.createGain();
-      this.droneGain.gain.value = 0; // Start silent for fade in
-      
-      // Connections
-      this.droneOsc.connect(this.droneGain);
-      this.droneGain.connect(this.musicGain); // Connect to music specific gain node
-      
-      // LFO -> Filter Freq (Subtle movement)
-      if(this.filterNode) {
-        this.droneLfo.connect(lfoGain);
-        lfoGain.connect(this.filterNode.frequency);
-      }
+      lfoGain.gain.value = 200; // Modulation depth
 
-      this.droneOsc.start(now);
-      this.droneLfo.start(now);
-      
+      lfo.connect(lfoGain);
+      lfoGain.connect(filter.frequency);
+
+      osc1.connect(filter);
+      osc2.connect(filter);
+      filter.connect(padGain);
+
+      osc1.start(now);
+      osc2.start(now);
+      lfo.start(now);
+
       // Fade In music
-      this.droneGain.gain.linearRampToValueAtTime(0.15, now + 2.0); // Ramps to 0.15 volume over 2 seconds
+      padGain.gain.linearRampToValueAtTime(0.15, now + 3.0);
+
+      // Keep references to stop them later
+      this.musicNodes.push(osc1, osc2, lfo, padGain, filter, lfoGain);
+
+      // --- 2. Bass Sequencer (The Rhythm) ---
+      this.nextNoteTime = now;
+      this.sequenceIndex = 0;
+      this.sequencerInterval = window.setInterval(() => this.scheduleBass(), 200);
+
+      // --- 3. Procedural Lead Melody (The Chill) ---
+      this.melodyInterval = window.setInterval(() => {
+          if (this.ctx && this.musicEnabled) {
+             // Random chance to play a note, creating sparse "chill" melody
+             if (Math.random() > 0.6) {
+                 this.playLeadNote();
+             }
+          }
+      }, 1200); // Check periodically for melody note
   }
   
   /**
-   * Stops the background ambient drone music with a fade-out.
+   * Scheduler lookahead function to queue up bass notes.
+   */
+  private scheduleBass(): void {
+      if (!this.ctx || !this.musicGain) return;
+      const lookahead = 0.5; // seconds
+      const noteDuration = 0.25; // seconds (approx 120bpm 16th notes)
+      
+      while (this.nextNoteTime < this.ctx.currentTime + lookahead) {
+          const freq = this.bassSequence[this.sequenceIndex % this.bassSequence.length];
+          
+          this.playBassNote(freq, this.nextNoteTime, 0.15);
+          
+          this.nextNoteTime += noteDuration;
+          this.sequenceIndex++;
+      }
+  }
+
+  /**
+   * Plays a single short bass note (Square wave with filter pluck).
+   */
+  private playBassNote(freq: number, time: number, duration: number): void {
+      if(!this.ctx || !this.musicGain) return;
+      
+      const osc = this.ctx.createOscillator();
+      osc.type = 'square'; // Square is distinctively retro
+      osc.frequency.value = freq;
+      
+      const filter = this.ctx.createBiquadFilter();
+      filter.type = 'lowpass';
+      filter.frequency.setValueAtTime(800, time);
+      filter.frequency.exponentialRampToValueAtTime(100, time + duration); // Filter pluck envelope
+      
+      const gain = this.ctx.createGain();
+      gain.gain.setValueAtTime(0, time);
+      gain.gain.linearRampToValueAtTime(0.1, time + 0.02); // Fast attack
+      gain.gain.exponentialRampToValueAtTime(0.001, time + duration); // Fast decay
+      
+      osc.connect(filter);
+      filter.connect(gain);
+      gain.connect(this.musicGain);
+      
+      osc.start(time);
+      osc.stop(time + duration + 0.1);
+  }
+
+  /**
+   * Plays a random lead note from the pentatonic scale for a chill melody.
+   */
+  private playLeadNote(): void {
+      if (!this.ctx || !this.musicGain) return;
+      const now = this.ctx.currentTime;
+      // Pick random note from scale
+      const note = this.melodyScale[Math.floor(Math.random() * this.melodyScale.length)];
+      const duration = 1.5; // Long sustain for chill feel
+
+      const osc = this.ctx.createOscillator();
+      osc.type = 'triangle'; // Smooth tone
+      osc.frequency.value = note;
+
+      const gain = this.ctx.createGain();
+      gain.gain.setValueAtTime(0, now);
+      gain.gain.linearRampToValueAtTime(0.05, now + 0.2); // Soft attack
+      gain.gain.exponentialRampToValueAtTime(0.001, now + duration); // Long fade out
+
+      osc.connect(gain);
+      gain.connect(this.musicGain);
+      
+      osc.start(now);
+      osc.stop(now + duration + 0.1);
+  }
+  
+  /**
+   * Stops the background music with a fade-out and cleans up nodes.
    */
   stopMusic(): void {
-      if (!this.ctx || !this.droneOsc || !this.droneGain) return;
+      // Stop Sequencers
+      if (this.sequencerInterval !== null) {
+          clearInterval(this.sequencerInterval);
+          this.sequencerInterval = null;
+      }
+      if (this.melodyInterval !== null) {
+          clearInterval(this.melodyInterval);
+          this.melodyInterval = null;
+      }
       
-      const now = this.ctx.currentTime;
-      
-      // Fade Out music
-      this.droneGain.gain.cancelScheduledValues(now); // Cancel any pending ramps
-      this.droneGain.gain.setValueAtTime(this.droneGain.gain.value, now); // Set current value as base
-      this.droneGain.gain.linearRampToValueAtTime(0, now + 1.5); // Ramps to 0 volume over 1.5 seconds
-      
-      const osc = this.droneOsc;
-      const lfo = this.droneLfo;
-      
-      // Stop oscillators after fade out completes
-      osc.stop(now + 1.5);
-      if (lfo) lfo.stop(now + 1.5);
-      
-      // Nullify references after stopping
-      setTimeout(() => {
-          if (this.droneOsc === osc) { 
-              this.droneOsc = null;
-              this.droneLfo = null;
-              this.droneGain = null;
-          }
-      }, 1500);
+      // Fade out and stop Pad/Nodes
+      if (this.musicNodes.length > 0 && this.ctx) {
+          const now = this.ctx.currentTime;
+          this.musicNodes.forEach(node => {
+              if (node instanceof GainNode) {
+                  node.gain.cancelScheduledValues(now);
+                  node.gain.setTargetAtTime(0, now, 0.5); // Smooth fade out
+              } else if (node instanceof OscillatorNode) {
+                  node.stop(now + 1.0);
+              }
+          });
+          
+          // Disconnect nodes after fade out to free resources
+          setTimeout(() => {
+              this.musicNodes.forEach(n => n.disconnect());
+              this.musicNodes = [];
+          }, 1000);
+      }
   }
 
   /**
@@ -367,7 +485,7 @@ class AudioManager {
 
       // High frequency explosion burst
       const osc2 = this.ctx.createOscillator();
-      osc2.type = 'square'; // Changed from 'noise' to 'square'
+      osc2.type = 'square'; 
       const gain2 = this.ctx.createGain();
       gain2.gain.setValueAtTime(0.5, now);
       gain2.gain.exponentialRampToValueAtTime(0.001, now + 0.3);

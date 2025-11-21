@@ -2,12 +2,11 @@
 import React, { useRef, useEffect, useLayoutEffect } from 'react';
 import { STAGE_WIDTH, STAGE_HEIGHT } from '../constants';
 import { GameCore } from '../utils/GameCore';
-import { BoardRenderer } from '../utils/BoardRenderer';
-import { BoardRenderConfig } from '../types';
+import { BoardRenderer, RenderConfig } from '../utils/BoardRenderer';
 
 interface Props {
   engine: React.MutableRefObject<GameCore>;
-  renderConfig: Omit<BoardRenderConfig, 'bombSelectionRows' | 'lineClearerSelectedRow'>; // Core config
+  renderConfig: Omit<RenderConfig, 'bombSelectionRows' | 'lineClearerSelectedRow'>; // Core config
   bombSelectionRows?: number[]; // Dynamic prop for bomb selection
   lineClearerSelectedRow?: number | null; // Dynamic prop for line clearer selection
   className?: string;
@@ -20,17 +19,23 @@ const BoardCanvas: React.FC<Props> = ({
   lineClearerSelectedRow, // Destructure new dynamic props
   className = ''
 }) => {
-  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const staticCanvasRef = useRef<HTMLCanvasElement>(null);
+  const dynamicCanvasRef = useRef<HTMLCanvasElement>(null);
   const rendererRef = useRef<BoardRenderer | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
 
   useLayoutEffect(() => {
-    const canvas = canvasRef.current;
-    if (!canvas) return;
-    const ctx = canvas.getContext('2d', { alpha: true }); 
-    if (!ctx) return;
-    // Initialize renderer with full config, including dynamic parts defaulting to undefined
-    rendererRef.current = new BoardRenderer(ctx, { 
+    const staticCanvas = staticCanvasRef.current;
+    const dynamicCanvas = dynamicCanvasRef.current;
+    if (!staticCanvas || !dynamicCanvas) return;
+
+    const staticCtx = staticCanvas.getContext('2d', { alpha: true }); 
+    const dynamicCtx = dynamicCanvas.getContext('2d', { alpha: true });
+    
+    if (!staticCtx || !dynamicCtx) return;
+
+    // Initialize renderer with both contexts
+    rendererRef.current = new BoardRenderer(staticCtx, dynamicCtx, { 
       ...renderConfig, 
       bombSelectionRows: undefined, 
       lineClearerSelectedRow: undefined 
@@ -49,7 +54,7 @@ const BoardCanvas: React.FC<Props> = ({
   }, [renderConfig, bombSelectionRows, lineClearerSelectedRow]); // Re-evaluate when dynamic props change
 
   useLayoutEffect(() => {
-    if (rendererRef.current && canvasRef.current && containerRef.current) {
+    if (rendererRef.current && containerRef.current) {
         const { cellSize } = renderConfig; 
         const logicWidth = STAGE_WIDTH * cellSize;
         const logicHeight = STAGE_HEIGHT * cellSize;
@@ -78,7 +83,10 @@ const BoardCanvas: React.FC<Props> = ({
       className={`relative flex justify-center items-center bg-gray-900 rounded-[4px] border-4 border-gray-800 shadow-[0_0_50px_-10px_rgba(6,182,212,0.15)] transition-all duration-300 ease-out ${className}`}
       style={{ boxSizing: 'content-box' }}
     >
-       <canvas ref={canvasRef} className="block rounded-[1px]" style={{ display: 'block' }} />
+       {/* Static Layer (Bottom) */}
+       <canvas ref={staticCanvasRef} className="absolute inset-0 rounded-[1px] z-0" style={{ display: 'block' }} />
+       {/* Dynamic Layer (Top) */}
+       <canvas ref={dynamicCanvasRef} className="absolute inset-0 rounded-[1px] z-10" style={{ display: 'block' }} />
     </div>
   );
 };

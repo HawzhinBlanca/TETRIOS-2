@@ -1,9 +1,11 @@
+
 import { KeyAction, KeyMap } from '../types';
 
 interface InputConfig {
   keyMap: KeyMap;
   das: number;
   arr: number;
+  flippedGravity?: boolean;
 }
 
 export class InputManager {
@@ -28,6 +30,21 @@ export class InputManager {
 
   private emitAction(action: KeyAction): void {
     this.actionListeners.forEach(listener => listener(action));
+  }
+
+  /**
+   * Determines the effective action based on current game state (e.g., flipped gravity).
+   * Swaps directional inputs to maintain intuitive controls.
+   */
+  private getEffectiveAction(action: KeyAction): KeyAction {
+    if (this.config.flippedGravity) {
+      // In flipped gravity (falling up):
+      // Physical Up (rotateCW) should become Soft Drop (fall up)
+      // Physical Down (softDrop) should become Rotate (swap)
+      if (action === 'softDrop') return 'rotateCW';
+      if (action === 'rotateCW') return 'softDrop';
+    }
+    return action;
   }
 
   private handleKeyDown = (e: KeyboardEvent): void => {
@@ -58,10 +75,12 @@ export class InputManager {
   private triggerInitialAction(key: string): void {
     for (const [action, keys] of Object.entries(this.config.keyMap)) {
       if (keys.includes(key)) {
-        if (['rotateCW', 'rotateCCW', 'hardDrop', 'hold'].includes(action)) {
-          this.emitAction(action as KeyAction);
-        } else if (action === 'moveLeft' || action === 'moveRight' || action === 'softDrop') {
-          this.emitAction(action as KeyAction);
+        const effectiveAction = this.getEffectiveAction(action as KeyAction);
+
+        if (['rotateCW', 'rotateCCW', 'hardDrop', 'hold'].includes(effectiveAction)) {
+          this.emitAction(effectiveAction);
+        } else if (effectiveAction === 'moveLeft' || effectiveAction === 'moveRight' || effectiveAction === 'softDrop') {
+          this.emitAction(effectiveAction);
           if (this.keyState[key]) {
             this.keyState[key].lastActionTime = this.keyState[key].timer;
           }
@@ -72,6 +91,8 @@ export class InputManager {
   }
 
   public update(deltaTime: number): void {
+    const triggeredActions = new Set<KeyAction>();
+
     this.activeKeys.forEach(key => {
       if (this.keyState[key]) {
         this.keyState[key].timer += deltaTime;
@@ -79,10 +100,16 @@ export class InputManager {
         
         for (const [action, keys] of Object.entries(this.config.keyMap)) {
             if (keys.includes(key)) {
-                if (action === 'moveLeft' || action === 'moveRight' || action === 'softDrop') {
+                const effectiveAction = this.getEffectiveAction(action as KeyAction);
+
+                if (effectiveAction === 'moveLeft' || effectiveAction === 'moveRight' || effectiveAction === 'softDrop') {
                     // DAS/ARR Logic
                     if (timer > this.config.das && (timer - lastActionTime) >= this.config.arr) {
-                        this.emitAction(action as KeyAction);
+                        if (!triggeredActions.has(effectiveAction)) {
+                            this.emitAction(effectiveAction);
+                            triggeredActions.add(effectiveAction);
+                        }
+                        // Sync timer to prevent interleaved triggers from other keys mapped to the same action
                         this.keyState[key].lastActionTime = timer;
                     }
                 }

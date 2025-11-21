@@ -7,7 +7,7 @@ interface Props {
   icon?: React.ReactNode; // Optional icon for the label
 }
 
-const Display: React.FC<Props> = ({ label, text, progress, icon }) => {
+const Display: React.FC<Props> = React.memo(({ label, text, progress, icon }) => {
   const [prevText, setPrevText] = useState(text);
   const [delta, setDelta] = useState<string | null>(null);
 
@@ -87,6 +87,6 @@ const Display: React.FC<Props> = ({ label, text, progress, icon }) => {
       <div className="absolute bottom-0 right-0 w-2 h-2 border-b border-r border-cyan-600/50" aria-hidden="true"></div>
     </div>
   );
-};
+});
 
 export default Display;
