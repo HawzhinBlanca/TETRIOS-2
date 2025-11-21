@@ -1,3 +1,4 @@
+
 import React from 'react';
 import Display from './Display';
 import { GameMode, AdventureLevelConfig, GameStats, LevelObjectiveType } from '../types';
@@ -146,8 +147,16 @@ const StatsPanel: React.FC<Props> = React.memo(({
       {gameMode === 'SPRINT' && (
          <Display label="Time Elapsed" text={formatTime(time)} aria-label={`Time elapsed is ${formatTime(time)}`} />
       )}
+
+      {gameMode === 'SURVIVAL' && (
+         <Display label="Time Survived" text={formatTime(time)} aria-label={`Time survived is ${formatTime(time)}`} />
+      )}
+
+      {gameMode === 'COMBO_MASTER' && (
+         <Display label="Time Left" text={formatTime(time)} aria-label={`Time left is ${formatTime(time)}`} />
+      )}
       
-      {gameMode === 'MARATHON' && (
+      {(gameMode === 'MARATHON' || gameMode === 'SURVIVAL' || gameMode === 'COMBO_MASTER') && (
          <Display label="Current Level" text={level} progress={levelProgress} aria-label={`Current level is ${level}, progress to next level ${Math.round(levelProgress * 100)} percent`} />
       )}
       

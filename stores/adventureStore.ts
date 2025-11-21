@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import { persist } from 'zustand/middleware';
+import { persist, createJSONStorage } from 'zustand/middleware';
 import { ADVENTURE_CAMPAIGN, MAX_STARS_PER_LEVEL } from '../constants';
 import { AdventureLevelConfig } from '../types';
 
@@ -89,15 +89,21 @@ export const useAdventureStore = create<AdventureState>()(
         }),
         {
             name: 'tetrios-adventure-store',
-            version: 1, // Increment version for new field
+            version: 2, // Increased version to ensure schema compatibility
+            storage: createJSONStorage(() => localStorage),
             partialize: (state) => ({
               unlockedIndex: state.unlockedIndex,
               failedAttempts: state.failedAttempts,
-              starsEarned: state.starsEarned, // Ensure starsEarned is persisted
+              starsEarned: state.starsEarned, 
             }),
             migrate: (persistedState: any, currentVersion) => {
                 if (currentVersion === 0) {
-                    persistedState.starsEarned = {}; // Add new field with default value
+                    persistedState.starsEarned = {}; 
+                }
+                if (currentVersion < 2) {
+                    // Ensure strict types for existing data
+                    if (!persistedState.failedAttempts) persistedState.failedAttempts = {};
+                    if (!persistedState.starsEarned) persistedState.starsEarned = {};
                 }
                 return persistedState as AdventureState;
             },

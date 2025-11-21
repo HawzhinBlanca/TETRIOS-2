@@ -1,5 +1,7 @@
 
 
+
+
 // Procedural Audio Engine using Web Audio API
 // Generates retro synth sounds without external assets
 
@@ -451,6 +453,13 @@ class AudioManager {
   playFrenzyEnd(): void {
       this.playTone(800, 'square', 0.1, 0, 0.1, this.sfxGain);
       this.playTone(400, 'square', 0.1, 0.05, 0.1, this.sfxGain);
+  }
+
+  playLevelUp(): void {
+      this.playTone(523.25, 'sine', 0.1, 0, 0.2, this.sfxGain); // C5
+      this.playTone(659.25, 'sine', 0.1, 0.1, 0.2, this.sfxGain); // E5
+      this.playTone(783.99, 'sine', 0.1, 0.2, 0.2, this.sfxGain); // G5
+      this.playTone(1046.50, 'sine', 0.4, 0.3, 0.2, this.sfxGain); // C6
   }
 
   // --- NEW POWER-UP SOUNDS ---

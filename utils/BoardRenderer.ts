@@ -80,9 +80,9 @@ export class BoardRenderer {
 
     private renderStatic(engine: GameCore): void {
         const { cellSize } = this.config;
-        const gap = cellSize * 0.05;
+        const gap = 1; // Tighter gap for premium feel
         const size = cellSize - (gap * 2);
-        const radius = cellSize * 0.12;
+        const radius = Math.max(2, size * 0.2); // Smoother rounded corners
         const stage = engine.boardManager.stage;
 
         this.staticCtx.clearRect(0, 0, STAGE_WIDTH * cellSize, STAGE_HEIGHT * cellSize);
@@ -92,9 +92,9 @@ export class BoardRenderer {
 
     private renderDynamic(engine: GameCore): void {
         const { cellSize } = this.config;
-        const gap = cellSize * 0.05;
+        const gap = 1;
         const size = cellSize - (gap * 2);
-        const radius = cellSize * 0.12;
+        const radius = Math.max(2, size * 0.2);
         
         this.dynamicCtx.clearRect(0, 0, STAGE_WIDTH * cellSize, STAGE_HEIGHT * cellSize);
 
@@ -125,24 +125,23 @@ export class BoardRenderer {
 
     private drawGrid(ctx: CanvasRenderingContext2D, cellSize: number): void {
         const audioData = audioManager.getFrequencyData();
-        let gridAlpha = 0.05;
+        let gridAlpha = 0.08;
         if (audioData) {
              let bassEnergy = 0;
-             for(let i=2; i<12; i++) bassEnergy += audioData[i];
-             gridAlpha = 0.05 + (bassEnergy / (10 * 255)) * 0.25; 
+             for(let i=2; i<8; i++) bassEnergy += audioData[i];
+             gridAlpha = 0.08 + (bassEnergy / (6 * 255)) * 0.15; 
         }
-        ctx.strokeStyle = `rgba(6, 182, 212, ${gridAlpha})`;
-        ctx.lineWidth = Math.max(0.5, cellSize * 0.03);
-        ctx.beginPath();
+        
+        ctx.fillStyle = `rgba(255, 255, 255, ${gridAlpha})`;
+        
+        // Use dots for a cleaner, modern grid look
         for (let x = 0; x <= STAGE_WIDTH; x++) {
-            ctx.moveTo(x * cellSize, 0);
-            ctx.lineTo(x * cellSize, STAGE_HEIGHT * cellSize);
+            for (let y = 0; y <= STAGE_HEIGHT; y++) {
+                ctx.beginPath();
+                ctx.arc(x * cellSize, y * cellSize, 1.5, 0, Math.PI * 2);
+                ctx.fill();
+            }
         }
-        for (let y = 0; y <= STAGE_HEIGHT; y++) {
-            ctx.moveTo(0, y * cellSize);
-            ctx.lineTo(STAGE_WIDTH * cellSize, y * cellSize);
-        }
-        ctx.stroke();
     }
 
     private drawStage(ctx: CanvasRenderingContext2D, stage: Board, cellSize: number, gap: number, size: number, radius: number, flippedGravity: boolean): void {
@@ -170,56 +169,55 @@ export class BoardRenderer {
         
         const isLocking = lockData?.isLocking || false;
         const progress = lockData?.progress || 0;
-        const pulse = isLocking ? (Math.sin(Date.now() / (60 - (progress * 40))) + 1) / 2 : 0;
-
+        
         ctx.save();
 
+        // Create Premium Gradient Look
+        const [r, g, b] = rgb.split(',').map(Number);
+        
+        // Gradient from top-left to bottom-right
+        const gradient = ctx.createLinearGradient(px, py, px + size, py + size);
+        
         if (isLocking) {
-            const warningColorRgb = '255, 69, 0'; 
-            const baseColorRgb = rgb;
-
-            const r = parseInt(baseColorRgb.split(',')[0]) * (1 - progress) + parseInt(warningColorRgb.split(',')[0]) * progress;
-            const g = parseInt(baseColorRgb.split(',')[1]) * (1 - progress) + parseInt(warningColorRgb.split(',')[1]) * progress;
-            const b = parseInt(baseColorRgb.split(',')[2]) * (1 - progress) + parseInt(warningColorRgb.split(',')[2]) * progress;
-            const interpolatedColorRgb = `${r},${g},${b}`;
-
-            const shadowColor = `rgba(${interpolatedColorRgb}, ${0.6 + (pulse * 0.4) + (progress * 0.4)})`;
-            const shadowBlur = size * 0.6 + (pulse * size * 0.3) + (progress * size * 0.5);
-            const fillStyle = `rgba(${interpolatedColorRgb}, ${0.7 + progress * 0.2})`;
-            const overlayOpacity = 0.1 + (progress * 0.4) + (pulse * 0.1);
-            const strokeStyle = `rgba(255, 255, 255, ${0.8 + (progress * 0.2)})`;
-            const lineWidth = Math.max(1, size * 0.06 + (pulse * size * 0.03));
-
-            ctx.shadowColor = shadowColor;
-            ctx.shadowBlur = shadowBlur;
-            ctx.fillStyle = fillStyle;
+            // Intense white flash ramping up
+            const flashAmt = Math.min(1, progress * 1.2); 
+            const whiteR = r + (255 - r) * flashAmt;
+            const whiteG = g + (255 - g) * flashAmt;
+            const whiteB = b + (255 - b) * flashAmt;
             
-            this.drawRoundedRect(ctx, px, py, size, size, radius / 1.5);
-            ctx.fill();
-
-            ctx.fillStyle = `rgba(255, 255, 255, ${overlayOpacity})`; 
-            ctx.beginPath();
-            this.traceRoundedRect(ctx, px, py, size, size, radius / 1.5);
-            ctx.fill();
-
-            ctx.strokeStyle = strokeStyle;
-            ctx.lineWidth = lineWidth;
-            ctx.stroke();
+            gradient.addColorStop(0, `rgba(${whiteR}, ${whiteG}, ${whiteB}, 1)`);
+            gradient.addColorStop(1, `rgba(${r}, ${g}, ${b}, 0.9)`);
+            
+            ctx.shadowColor = `rgba(255, 255, 255, ${progress * 0.8})`;
+            ctx.shadowBlur = size * progress * 1.5;
         } else {
-            ctx.fillStyle = `rgba(${rgb}, 0.9)`;
-            ctx.shadowColor = `rgba(${rgb}, 0.8)`;
-            ctx.shadowBlur = size * 0.5;
-            this.drawRoundedRect(ctx, px, py, size, size, radius / 1.5);
-            ctx.fill();
-            ctx.strokeStyle = `rgba(${rgb}, 1)`;
-            ctx.lineWidth = Math.max(1, size * 0.03);
+            // Standard: Glossy top-left, darker bottom-right
+            gradient.addColorStop(0, `rgba(${Math.min(255, r+50)}, ${Math.min(255, g+50)}, ${Math.min(255, b+50)}, 1)`);
+            gradient.addColorStop(0.4, `rgba(${r}, ${g}, ${b}, 0.9)`);
+            gradient.addColorStop(1, `rgba(${Math.max(0, r-30)}, ${Math.max(0, g-30)}, ${Math.max(0, b-30)}, 1)`);
+            
+            // Subtle Ambient Shadow
+            ctx.shadowColor = `rgba(${r}, ${g}, ${b}, 0.3)`;
+            ctx.shadowBlur = size * 0.15;
+        }
+
+        ctx.fillStyle = gradient;
+        this.drawRoundedRect(ctx, px, py, size, size, radius);
+        ctx.fill();
+
+        // Top Inner Highlight (Bevel)
+        ctx.beginPath();
+        this.traceRoundedRect(ctx, px + 1, py + 1, size - 2, size - 2, radius);
+        ctx.strokeStyle = `rgba(255, 255, 255, 0.2)`;
+        ctx.lineWidth = 1;
+        ctx.stroke();
+
+        // Locking Border
+        if (isLocking) {
+            ctx.strokeStyle = `rgba(255, 255, 255, ${0.6 + progress * 0.4})`;
+            ctx.lineWidth = 2;
             ctx.stroke();
         }
-        
-        ctx.fillStyle = 'rgba(255,255,255,0.2)';
-        ctx.beginPath();
-        ctx.rect(px, py, size, size/2);
-        ctx.fill();
         
         ctx.restore();
 
@@ -262,7 +260,7 @@ export class BoardRenderer {
          
          ctx.fillStyle = color;
          ctx.shadowColor = color;
-         ctx.shadowBlur = size * 0.5;
+         ctx.shadowBlur = size * 0.6;
          
          this.drawRoundedRect(ctx, px + size*0.25, py + size*0.25, size*0.5, size*0.5, radius);
          ctx.fill();
@@ -276,20 +274,21 @@ export class BoardRenderer {
         ctx.strokeStyle = `rgba(${this.getRgb(MODIFIER_COLORS.GEM)}, 0.8)`;
         ctx.lineWidth = Math.max(1, cellSize * 0.05);
         ctx.shadowColor = MODIFIER_COLORS.GEM;
-        ctx.shadowBlur = size * 0.4;
+        ctx.shadowBlur = size * 0.5;
         
         ctx.beginPath();
-        ctx.moveTo(px + size / 2, py);
-        ctx.lineTo(px + size, py + size / 2);
-        ctx.lineTo(px + size / 2, py + size);
-        ctx.lineTo(px, py + size / 2);
+        ctx.moveTo(px + size / 2, py + size * 0.1);
+        ctx.lineTo(px + size * 0.9, py + size / 2);
+        ctx.lineTo(px + size / 2, py + size * 0.9);
+        ctx.lineTo(px + size * 0.1, py + size / 2);
         ctx.closePath();
         ctx.fill();
         ctx.stroke();
 
-        ctx.fillStyle = 'rgba(255, 255, 255, 0.7)';
-        ctx.fillRect(px + size * 0.2, py + size * 0.2, size * 0.1, size * 0.1);
-        ctx.fillRect(px + size * 0.7, py + size * 0.3, size * 0.1, size * 0.1);
+        ctx.fillStyle = 'rgba(255, 255, 255, 0.8)';
+        ctx.beginPath();
+        ctx.arc(px + size * 0.35, py + size * 0.35, size * 0.1, 0, Math.PI * 2);
+        ctx.fill();
     }
 
     private _drawBombModifier(ctx: CanvasRenderingContext2D, x: number, y: number, modifier: CellModifier, cellSize: number, gap: number, size: number, radius: number): void {
@@ -297,22 +296,27 @@ export class BoardRenderer {
         const py = y * cellSize + gap;
 
         const bombRgb = this.getRgb(MODIFIER_COLORS.BOMB);
-        const pulse = (Math.sin(Date.now() / 200) + 1) / 2;
-        ctx.fillStyle = `rgba(${bombRgb}, ${0.7 + pulse * 0.3})`;
-        ctx.strokeStyle = `rgba(255, 255, 255, ${0.8 + pulse * 0.2})`;
-        ctx.lineWidth = Math.max(1, cellSize * 0.08);
-        ctx.shadowColor = `rgba(${bombRgb}, ${0.8 + pulse * 0.2})`;
-        ctx.shadowBlur = size * 0.6;
+        const pulse = (Math.sin(Date.now() / 150) + 1) / 2;
+        
+        // Bomb Base
+        ctx.fillStyle = `rgba(${bombRgb}, 0.8)`;
+        ctx.strokeStyle = '#fff';
+        ctx.lineWidth = 2;
+        ctx.shadowColor = `rgba(${bombRgb}, 1)`;
+        ctx.shadowBlur = size * (0.5 + pulse * 0.3);
 
-        this.drawRoundedRect(ctx, px, py, size, size, radius);
+        ctx.beginPath();
+        ctx.arc(px + size/2, py + size/2, size * 0.35, 0, Math.PI * 2);
         ctx.fill();
         ctx.stroke();
 
-        ctx.font = `bold ${cellSize * 0.6}px Rajdhani`;
+        // Timer Text
+        ctx.font = `bold ${cellSize * 0.5}px Rajdhani`;
         ctx.textAlign = 'center';
         ctx.textBaseline = 'middle';
-        ctx.fillStyle = MODIFIER_COLORS.BOMB_TEXT;
-        ctx.fillText(modifier.timer!.toString(), px + size / 2, py + size / 2 + cellSize * 0.05);
+        ctx.fillStyle = '#fff';
+        ctx.shadowBlur = 0;
+        ctx.fillText(modifier.timer!.toString(), px + size / 2, py + size / 2 + 1);
     }
 
     private _drawIceModifier(ctx: CanvasRenderingContext2D, x: number, y: number, modifier: CellModifier, cellSize: number, gap: number, size: number, radius: number): void {
@@ -320,31 +324,35 @@ export class BoardRenderer {
         const py = y * cellSize + gap;
 
         const iceRgb = this.getRgb(MODIFIER_COLORS.ICE);
-        const crackedRgb = this.getRgb(MODIFIER_COLORS.CRACKED_ICE);
-        const iceColor = modifier.type === 'ICE' ? iceRgb : crackedRgb;
+        
+        const gradient = ctx.createLinearGradient(px, py, px + size, py + size);
+        gradient.addColorStop(0, `rgba(200, 230, 255, 0.8)`);
+        gradient.addColorStop(1, `rgba(${iceRgb}, 0.6)`);
 
-        ctx.fillStyle = `rgba(${iceColor}, 0.7)`;
-        ctx.strokeStyle = `rgba(${this.getRgb(COLORS.I)}, 0.4)`;
-        ctx.lineWidth = Math.max(1, cellSize * 0.03);
-        ctx.shadowColor = `rgba(${iceColor}, 0.5)`;
-        ctx.shadowBlur = size * 0.3;
-
-        this.drawRoundedRect(ctx, px, py, size, size, radius / 2);
+        ctx.fillStyle = gradient;
+        ctx.strokeStyle = `rgba(255, 255, 255, 0.5)`;
+        ctx.lineWidth = 1;
+        
+        this.drawRoundedRect(ctx, px, py, size, size, radius);
         ctx.fill();
         ctx.stroke();
 
-        ctx.fillStyle = `rgba(255, 255, 255, 0.3)`;
-        ctx.fillRect(px, py, size, size * 0.3);
-        ctx.fillRect(px + size * 0.7, py + size * 0.3, size * 0.3, size * 0.7);
+        // Glare
+        ctx.fillStyle = `rgba(255, 255, 255, 0.4)`;
+        ctx.beginPath();
+        ctx.moveTo(px, py);
+        ctx.lineTo(px + size * 0.6, py);
+        ctx.lineTo(px, py + size * 0.6);
+        ctx.fill();
 
         if (modifier.type === 'CRACKED_ICE') {
-            ctx.strokeStyle = `rgba(0, 0, 0, 0.4)`;
-            ctx.lineWidth = Math.max(1, cellSize * 0.05);
+            ctx.strokeStyle = `rgba(255, 255, 255, 0.7)`;
+            ctx.lineWidth = 1.5;
             ctx.beginPath();
-            ctx.moveTo(px + size * 0.2, py + size * 0.3);
-            ctx.lineTo(px + size * 0.8, py + size * 0.7);
-            ctx.moveTo(px + size * 0.5, py + size * 0.1);
-            ctx.lineTo(px + size * 0.5, py + size * 0.9);
+            ctx.moveTo(px + size * 0.2, py + size * 0.2);
+            ctx.lineTo(px + size * 0.8, py + size * 0.8);
+            ctx.moveTo(px + size * 0.8, py + size * 0.2);
+            ctx.lineTo(px + size * 0.2, py + size * 0.8);
             ctx.stroke();
         }
     }
@@ -358,64 +366,45 @@ export class BoardRenderer {
 
         let displayRgb = rgb;
         let effectiveOpacity = ghostOpacity;
-        let effectiveGlowIntensity = ghostGlowIntensity;
         let effectiveOutlineThickness = ghostOutlineThickness;
-        let effectiveShadow = ghostShadow;
         let useDashed = false;
 
         if (isGhostWarning) {
             displayRgb = '255, 69, 0'; 
             const elapsed = now - lockStartTime;
             const progress = Math.min(1, Math.max(0, elapsed / lockDelayDuration));
-
-            effectiveOpacity = 0.6 + progress * 0.4;
-            effectiveGlowIntensity = 1 + progress * 2;
-            effectiveOutlineThickness = Math.max(2, ghostOutlineThickness + progress * 3);
-            effectiveShadow = `0 0 ${8 * effectiveGlowIntensity}px rgba(${displayRgb}, 0.9), inset 0 0 ${4 * effectiveGlowIntensity}px rgba(${displayRgb}, 0.5)`;
+            effectiveOpacity = 0.5 + progress * 0.5;
+            effectiveOutlineThickness = Math.max(2, ghostOutlineThickness + progress * 2);
+            ctx.shadowColor = `rgba(${displayRgb}, 1)`;
+            ctx.shadowBlur = 15 * progress;
         } else {
             switch (ghostStyle) {
                 case 'dashed':
                     useDashed = true;
                     break;
                 case 'solid':
-                    effectiveOpacity = 0.4;
-                    effectiveGlowIntensity = 0;
-                    effectiveOutlineThickness = 0;
+                    effectiveOpacity = 0.3;
                     break;
                 case 'neon':
                 default:
-                    effectiveShadow = ghostShadow || `0 0 ${8 * ghostGlowIntensity}px rgba(${displayRgb}, 0.6), inset 0 0 ${4 * ghostGlowIntensity}px rgba(${displayRgb}, 0.4)`;
+                     ctx.shadowColor = `rgba(${displayRgb}, ${0.5 * ghostGlowIntensity})`;
+                     ctx.shadowBlur = 10 * ghostGlowIntensity;
                     break;
             }
         }
         
-        const pulseFactor = (Math.sin(now / 300) + 1) / 2;
-
         ctx.globalAlpha = effectiveOpacity;
 
         if (useDashed) {
-            ctx.strokeStyle = `rgba(${displayRgb}, 0.6)`;
+            ctx.strokeStyle = `rgba(${displayRgb}, 0.5)`;
             ctx.lineWidth = Math.max(1, effectiveOutlineThickness);
             this.DASHED_LINE_PATTERN[0] = size * 0.25;
             this.DASHED_LINE_PATTERN[1] = size * 0.15;
             ctx.setLineDash(this.DASHED_LINE_PATTERN);
-            ctx.fillStyle = `rgba(${displayRgb}, 0.05)`;
         } else {
-            if (effectiveShadow) {
-                const shadowColorMatch = effectiveShadow.match(/rgba\((\d+,\s*\d+,\s*\d+),\s*([\d.]+)\)/);
-                let shadowColorRgb = displayRgb;
-                let shadowBaseAlpha = 0.6;
-                if (shadowColorMatch) {
-                    shadowColorRgb = shadowColorMatch[1];
-                    shadowBaseAlpha = parseFloat(shadowColorMatch[2]);
-                }
-
-                ctx.shadowColor = `rgba(${shadowColorRgb}, ${shadowBaseAlpha + (pulseFactor * 0.3 * effectiveGlowIntensity)})`;
-                ctx.shadowBlur = (effectiveShadow.includes('inset') ? 0 : parseFloat(effectiveShadow.split(' ')[1])) + (pulseFactor * size * 0.1 * effectiveGlowIntensity);
-            }
-            ctx.strokeStyle = `rgba(${displayRgb}, 0.9)`;
+            ctx.strokeStyle = `rgba(${displayRgb}, 0.8)`;
             ctx.lineWidth = Math.max(1, effectiveOutlineThickness);
-            ctx.fillStyle = `rgba(${displayRgb}, ${isGhostWarning ? 0.25 : 0.15})`;
+            ctx.fillStyle = `rgba(${displayRgb}, 0.1)`;
             ctx.setLineDash(this.EMPTY_LINE_PATTERN);
         }
 
@@ -426,14 +415,12 @@ export class BoardRenderer {
                     const px = (x + player.pos.x) * cellSize + gap;
                     const py = (flippedGravity ? STAGE_HEIGHT - 1 - (y + ghostY) : (y + ghostY)) * cellSize + gap;
                     this.traceRoundedRect(ctx, px, py, size, size, radius);
+                    if (!useDashed) ctx.fill();
                 }
             });
         });
 
-        ctx.fill();
-        if (effectiveOutlineThickness > 0) {
-            ctx.stroke();
-        }
+        ctx.stroke();
         ctx.restore();
     }
 
@@ -446,13 +433,12 @@ export class BoardRenderer {
              
              ctx.save();
              const pulse = (Math.sin(Date.now() / 300) + 1) / 2; 
-             const alpha = 0.4 + pulse * 0.4;
+             const alpha = 0.3 + pulse * 0.3;
+             
              ctx.strokeStyle = `rgba(255, 215, 0, ${alpha})`;
-             this.DASHED_LINE_PATTERN[0] = cellSize * 0.2;
-             this.DASHED_LINE_PATTERN[1] = cellSize * 0.15;
-             ctx.setLineDash(this.DASHED_LINE_PATTERN);
-             ctx.lineWidth = Math.max(1, cellSize * 0.06);
-             ctx.fillStyle = `rgba(255, 215, 0, 0.1)`; 
+             ctx.lineWidth = 2;
+             ctx.shadowColor = 'gold';
+             ctx.shadowBlur = 5;
              
              ctx.beginPath();
              aiShape.forEach((row: TetrominoShape[number], dy: number) => {
@@ -464,7 +450,6 @@ export class BoardRenderer {
                      }
                  })
              });
-             ctx.fill();
              ctx.stroke();
              ctx.restore();
         }
@@ -474,6 +459,7 @@ export class BoardRenderer {
        const dropTime = engine.pieceManager.dropTime || 1000;
        const effectiveDropTime = engine.scoreManager.frenzyActive ? dropTime / engine.scoreManager.frenzyMultiplier : dropTime; 
        const offsetY = Math.min(1, engine.pieceManager.dropCounter / effectiveDropTime);
+       // Interpolate Y for smooth animation
        const visualY = engine.pieceManager.player.pos.y + (config.flippedGravity ? -offsetY : offsetY);
        
        const isLocking = config.lockWarningEnabled && engine.pieceManager.lockTimer !== null && engine.pieceManager.pieceIsGrounded;
@@ -496,19 +482,21 @@ export class BoardRenderer {
          });
        });
        
-       // Access visual flash via FXManager
+       // Visual flash on lock/T-Spin
        if (engine.fxManager.lockResetFlash > 0.01) {
             ctx.save();
-            ctx.globalAlpha = engine.fxManager.lockResetFlash;
+            ctx.globalAlpha = engine.fxManager.lockResetFlash * 0.5;
             ctx.fillStyle = 'white';
+            ctx.shadowColor = 'white';
+            ctx.shadowBlur = 10;
             ctx.beginPath();
             engine.pieceManager.player.tetromino.shape.forEach((row: TetrominoShape[number], y: number) => {
                 row.forEach((value: TetrominoType | 0, x: number) => {
                     if (value !== 0) {
                          const drawY = config.flippedGravity ? STAGE_HEIGHT - 1 - (y + visualY) : (y + visualY);
-                         const px = ((x + engine.pieceManager.player.pos.x) * cellSize) + (cellSize * 0.05);
-                         const py = (drawY * cellSize) + (cellSize * 0.05);
-                         this.traceRoundedRect(ctx, px, py, size, size, cellSize * 0.15);
+                         const px = ((x + engine.pieceManager.player.pos.x) * cellSize) + gap;
+                         const py = (drawY * cellSize) + gap;
+                         this.traceRoundedRect(ctx, px, py, size, size, radius);
                     }
                 });
             });
@@ -521,19 +509,21 @@ export class BoardRenderer {
         if (!engine.scoreManager.isBackToBack && engine.scoreManager.comboCount < 1) return;
 
         ctx.save();
-        ctx.globalCompositeOperation = 'overlay'; 
+        ctx.globalCompositeOperation = 'screen'; 
 
         const now = Date.now();
-        const pulseFactor = (Math.sin(now / 200) + 1) / 2; 
+        const pulseFactor = (Math.sin(now / 250) + 1) / 2; 
 
         if (engine.scoreManager.isBackToBack) {
-            ctx.fillStyle = `rgba(168, 85, 247, ${0.1 + pulseFactor * 0.15})`; 
+            // Subtle purple glow for B2B
+            ctx.fillStyle = `rgba(192, 132, 252, ${0.05 + pulseFactor * 0.05})`; 
             ctx.fillRect(0, 0, STAGE_WIDTH * cellSize, STAGE_HEIGHT * cellSize);
         }
 
         if (engine.scoreManager.comboCount > 0) {
-            const comboAlpha = Math.min(0.5, 0.1 + engine.scoreManager.comboCount * 0.05); 
-            ctx.fillStyle = `rgba(34, 197, 94, ${comboAlpha + pulseFactor * 0.1})`; 
+            // Green glow intensity scales with combo
+            const comboAlpha = Math.min(0.3, 0.05 + engine.scoreManager.comboCount * 0.02); 
+            ctx.fillStyle = `rgba(74, 222, 128, ${comboAlpha})`; 
             ctx.fillRect(0, 0, STAGE_WIDTH * cellSize, STAGE_HEIGHT * cellSize);
         }
 
@@ -544,25 +534,27 @@ export class BoardRenderer {
         if (engine.boardManager.garbagePending === 0) return;
 
         ctx.save();
-        ctx.globalCompositeOperation = 'lighter'; 
-
-        const now = Date.now();
-        const flicker = (Math.sin(now / 100) + 1) / 2; 
-        const baseAlpha = Math.min(0.6, 0.2 + engine.boardManager.garbagePending * 0.1); 
-
-        ctx.fillStyle = `rgba(239, 68, 68, ${baseAlpha * (0.5 + flicker * 0.5)})`; 
-
-        for (let i = 0; i < Math.min(engine.boardManager.garbagePending, STAGE_HEIGHT); i++) {
-            const y = flippedGravity ? i : STAGE_HEIGHT - 1 - i;
-            ctx.fillRect(0, y * cellSize, STAGE_WIDTH * cellSize, cellSize);
-        }
-        
-        ctx.strokeStyle = `rgba(255, 100, 0, ${baseAlpha * (0.8 + flicker * 0.2)})`; 
-        ctx.lineWidth = Math.max(1, cellSize * 0.1);
-        
-        const startY = flippedGravity ? 0 : (STAGE_HEIGHT - Math.min(engine.boardManager.garbagePending, STAGE_HEIGHT)) * cellSize;
+        // Red bar indicating incoming garbage
         const height = Math.min(engine.boardManager.garbagePending, STAGE_HEIGHT) * cellSize;
-        ctx.strokeRect(0, startY, STAGE_WIDTH * cellSize, height);
+        const startY = flippedGravity ? 0 : (STAGE_HEIGHT * cellSize) - height;
+        
+        const gradient = ctx.createLinearGradient(0, startY, 0, startY + height);
+        gradient.addColorStop(0, 'rgba(239, 68, 68, 0.1)');
+        gradient.addColorStop(0.5, 'rgba(239, 68, 68, 0.4)');
+        gradient.addColorStop(1, 'rgba(239, 68, 68, 0.1)');
+        
+        ctx.fillStyle = gradient;
+        ctx.fillRect(0, startY, STAGE_WIDTH * cellSize, height);
+        
+        // Warning Line
+        const lineY = flippedGravity ? height : startY;
+        ctx.strokeStyle = '#ef4444';
+        ctx.lineWidth = 2;
+        ctx.setLineDash([10, 5]);
+        ctx.beginPath();
+        ctx.moveTo(0, lineY);
+        ctx.lineTo(STAGE_WIDTH * cellSize, lineY);
+        ctx.stroke();
 
         ctx.restore();
     }
@@ -571,17 +563,26 @@ export class BoardRenderer {
         if (!engine.scoreManager.frenzyActive) return;
 
         ctx.save();
-        ctx.globalCompositeOperation = 'overlay'; 
+        ctx.globalCompositeOperation = 'screen'; 
 
         const now = Date.now();
-        const pulse = (Math.sin(now / 150) + 1) / 2; 
-        const alpha = 0.2 + pulse * 0.2;
+        const pulse = (Math.sin(now / 100) + 1) / 2; 
+        const alpha = 0.1 + pulse * 0.1;
 
+        // Gold Overlay
         ctx.fillStyle = `rgba(255, 215, 0, ${alpha})`; 
-        ctx.shadowColor = `rgba(255, 215, 0, ${alpha * 1.5})`;
-        ctx.shadowBlur = cellSize * (0.5 + pulse * 0.5);
-
         ctx.fillRect(0, 0, this.width, this.height);
+        
+        // Cinematic Borders
+        const borderGradient = ctx.createLinearGradient(0, 0, 0, this.height);
+        borderGradient.addColorStop(0, 'rgba(255, 215, 0, 0.3)');
+        borderGradient.addColorStop(0.1, 'transparent');
+        borderGradient.addColorStop(0.9, 'transparent');
+        borderGradient.addColorStop(1, 'rgba(255, 215, 0, 0.3)');
+        
+        ctx.fillStyle = borderGradient;
+        ctx.fillRect(0, 0, this.width, this.height);
+        
         ctx.restore();
     }
 
@@ -590,10 +591,8 @@ export class BoardRenderer {
         if (engine.fxManager.tSpinFlash && engine.fxManager.tSpinFlash > 0.01) {
             ctx.save();
             ctx.globalCompositeOperation = 'screen';
-            ctx.globalAlpha = engine.fxManager.tSpinFlash; 
-            ctx.fillStyle = 'rgba(217, 70, 239, 0.6)'; 
-            ctx.shadowColor = 'rgba(217, 70, 239, 1)';
-            ctx.shadowBlur = cellSize * 2 * engine.fxManager.tSpinFlash; 
+            ctx.globalAlpha = engine.fxManager.tSpinFlash * 0.8; 
+            ctx.fillStyle = 'rgba(217, 70, 239, 0.8)'; 
             ctx.fillRect(0, 0, this.width, this.height);
             ctx.restore();
         }
@@ -607,31 +606,35 @@ export class BoardRenderer {
 
             let textColor = ft.color;
             let textShadowColor = ft.color;
-            let textShadowBlur = cellSize * 0.5 * ft.life;
-
+            
+            // Use distinct styling for different variants
             if (ft.variant === 'gem') {
-                textColor = MODIFIER_COLORS.GEM;
-                textShadowColor = MODIFIER_COLORS.GEM;
-                textShadowBlur = cellSize * 0.8 * ft.life;
+                textColor = '#f472b6';
+                textShadowColor = '#be185d';
             } else if (ft.variant === 'bomb') {
-                textColor = MODIFIER_COLORS.BOMB;
-                textShadowColor = MODIFIER_COLORS.BOMB;
-                textShadowBlur = cellSize * 0.8 * ft.life;
+                textColor = '#4ade80';
+                textShadowColor = '#15803d';
             } else if (ft.variant === 'frenzy') {
-                textColor = 'gold';
-                textShadowColor = 'gold';
-                textShadowBlur = cellSize * 1.0 * ft.life;
+                textColor = '#fcd34d';
+                textShadowColor = '#b45309';
             }
             
-            ctx.fillStyle = textColor;
-            const currentScale = ft.initialScale * (1 + 0.2 * ft.life) * (0.8 + 0.2 * ft.life);
-            ctx.font = `bold ${cellSize * currentScale * 0.7}px Rajdhani`; 
+            const currentScale = ft.initialScale * (1.5 - 0.5 * ft.life); // Grow slightly
+            ctx.font = `900 ${cellSize * currentScale}px Rajdhani`; 
             
-            ctx.shadowColor = textShadowColor;
-            ctx.shadowBlur = textShadowBlur; 
+            // Stroke outline for readability
+            ctx.strokeStyle = 'rgba(0,0,0,0.8)';
+            ctx.lineWidth = 4;
+            ctx.lineJoin = 'round';
             
             ctx.translate(fx, fy);
+            ctx.strokeText(ft.text, 0, 0);
+            
+            ctx.fillStyle = textColor;
+            ctx.shadowColor = textShadowColor;
+            ctx.shadowBlur = 15 * ft.life;
             ctx.fillText(ft.text, 0, 0);
+            
             ctx.restore();
         });
     }
@@ -640,18 +643,24 @@ export class BoardRenderer {
         const invisibleRowsGimmick = engine.adventureManager.config?.gimmicks?.find(g => g.type === 'INVISIBLE_ROWS');
         if (invisibleRowsGimmick && engine.adventureManager.invisibleRows.length > 0) {
             ctx.save();
-            ctx.globalAlpha = 0.8; 
-            ctx.fillStyle = 'rgba(0, 0, 0, 0.7)'; 
-            ctx.strokeStyle = 'rgba(6, 182, 212, 0.5)';
-            ctx.lineWidth = 2;
-            this.DASHED_LINE_PATTERN[0] = cellSize * 0.1;
-            this.DASHED_LINE_PATTERN[1] = cellSize * 0.1;
-            ctx.setLineDash(this.DASHED_LINE_PATTERN);
+            ctx.fillStyle = 'rgba(3, 7, 18, 0.9)'; 
+            
+            // Fog effect
+            const fogGradient = ctx.createLinearGradient(0,0, this.width, 0);
+            fogGradient.addColorStop(0, 'rgba(6, 182, 212, 0.1)');
+            fogGradient.addColorStop(0.5, 'rgba(6, 182, 212, 0.0)');
+            fogGradient.addColorStop(1, 'rgba(6, 182, 212, 0.1)');
 
             engine.adventureManager.invisibleRows.forEach(y => {
                 const py = (flippedGravity ? STAGE_HEIGHT - 1 - y : y) * cellSize;
                 ctx.fillRect(0, py, STAGE_WIDTH * cellSize, cellSize);
-                ctx.strokeRect(0, py, STAGE_WIDTH * cellSize, cellSize);
+                
+                // Draw fog
+                ctx.fillStyle = fogGradient;
+                ctx.fillRect(0, py, STAGE_WIDTH * cellSize, cellSize);
+                
+                // Reset fill
+                ctx.fillStyle = 'rgba(3, 7, 18, 0.9)';
             });
             ctx.restore();
         }
@@ -661,14 +670,12 @@ export class BoardRenderer {
         if (!bombSelectionRows || bombSelectionRows.length === 0) return;
 
         ctx.save();
-        ctx.globalCompositeOperation = 'lighter'; 
-        ctx.globalAlpha = 0.5 + (Math.sin(Date.now() / 150) + 1) / 4; 
+        ctx.globalCompositeOperation = 'source-over'; 
+        const pulse = (Math.sin(Date.now() / 150) + 1) / 2; 
 
-        ctx.fillStyle = `rgba(${this.getRgb(MODIFIER_COLORS.BOMB)}, 0.4)`;
-        ctx.strokeStyle = `rgba(${this.getRgb(MODIFIER_COLORS.BOMB)}, 0.8)`;
-        ctx.lineWidth = Math.max(1, cellSize * 0.1);
-        ctx.shadowColor = MODIFIER_COLORS.BOMB;
-        ctx.shadowBlur = cellSize * 0.8;
+        ctx.fillStyle = `rgba(239, 68, 68, ${0.3 + pulse * 0.2})`;
+        ctx.strokeStyle = `rgba(255, 255, 255, 0.8)`;
+        ctx.lineWidth = 2;
 
         bombSelectionRows.forEach(y => {
             const py = (flippedGravity ? STAGE_HEIGHT - 1 - y : y) * cellSize;
@@ -683,14 +690,11 @@ export class BoardRenderer {
         if (selectedRow === null || selectedRow === undefined) return;
 
         ctx.save();
-        ctx.globalCompositeOperation = 'lighter'; 
-        ctx.globalAlpha = 0.5 + (Math.sin(Date.now() / 100) + 1) / 4; 
+        const pulse = (Math.sin(Date.now() / 100) + 1) / 2; 
 
-        ctx.fillStyle = `rgba(${this.getRgb(MODIFIER_COLORS.LASER_BLOCK)}, 0.4)`;
-        ctx.strokeStyle = `rgba(${this.getRgb(MODIFIER_COLORS.LASER_BLOCK)}, 0.8)`;
-        ctx.lineWidth = Math.max(1, cellSize * 0.1);
-        ctx.shadowColor = MODIFIER_COLORS.LASER_BLOCK;
-        ctx.shadowBlur = cellSize * 0.8;
+        ctx.fillStyle = `rgba(6, 182, 212, ${0.3 + pulse * 0.2})`;
+        ctx.strokeStyle = `rgba(255, 255, 255, 0.9)`;
+        ctx.lineWidth = 2;
 
         const py = (flippedGravity ? STAGE_HEIGHT - 1 - selectedRow : selectedRow) * cellSize;
         ctx.fillRect(0, py, STAGE_WIDTH * cellSize, cellSize);

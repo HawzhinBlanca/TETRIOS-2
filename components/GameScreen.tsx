@@ -67,9 +67,6 @@ const GameScreen: React.FC<GameScreenProps> = ({
     useGestures(boardContainerRef, {
         onSwipeLeft: () => touchControls.move(-1),
         onSwipeRight: () => touchControls.move(1),
-        // When gravity is flipped, "Up" is the direction of the fall.
-        // So Swipe Up (visually towards ceiling) should be Hard Drop (towards ceiling).
-        // And Swipe Down should swap to Hold.
         onSwipeUp: () => flippedGravity ? touchControls.hardDrop() : touchControls.hold(),
         onSwipeDown: () => flippedGravity ? touchControls.hold() : touchControls.hardDrop(),
         onTap: () => touchControls.rotate(1),
@@ -79,7 +76,7 @@ const GameScreen: React.FC<GameScreenProps> = ({
                 touchControls.softDrop();
                 holdIntervalRef.current = window.setInterval(() => {
                     touchControls.softDrop();
-                }, 50); // Fast soft drop repeat
+                }, 50);
             } else {
                 if (holdIntervalRef.current) {
                     window.clearInterval(holdIntervalRef.current);
@@ -90,15 +87,17 @@ const GameScreen: React.FC<GameScreenProps> = ({
     });
 
     return (
-        <main id="main-app-content" className="w-full h-full max-w-7xl mx-auto flex flex-col lg:flex-row items-center justify-between p-4 relative z-10 gap-4 lg:gap-8 transition-all duration-500 ease-out">
+        <main id="main-app-content" className="w-full h-full max-w-7xl mx-auto flex flex-col lg:flex-row items-center justify-center p-4 relative z-10 gap-8 transition-all duration-500 ease-out">
+            {/* Left Panel - Stats & Controls */}
             <aside className="hidden lg:flex flex-col flex-1 h-full justify-center items-end space-y-6 py-8 animate-slide-in delay-100 opacity-0" style={{ animationFillMode: 'forwards' }}>
-                <div className="mb-8 text-right select-none">
-                    <h1 className="text-5xl xl:text-6xl font-black text-transparent bg-clip-text bg-gradient-to-br from-cyan-400 to-purple-600 italic tracking-tighter drop-shadow-[0_0_15px_rgba(6,182,212,0.4)]">TETRIOS</h1>
-                    <div className="flex items-center justify-end gap-2 mt-2">
-                        <span className="text-[10px] text-cyan-700 uppercase tracking-[0.3em] font-bold">{gameMode.replace('_', ' ')} // v1.4</span>
-                        <div className="h-1.5 w-1.5 bg-green-500 rounded-full animate-pulse shadow-[0_0_5px_#22c55e]" aria-hidden="true"></div>
+                <div className="mb-6 text-right select-none">
+                    <h1 className="text-5xl font-black text-white italic tracking-tighter drop-shadow-lg opacity-90">TETRIOS</h1>
+                    <div className="flex items-center justify-end gap-2 mt-2 opacity-70">
+                        <span className="text-[10px] text-cyan-400 uppercase tracking-[0.3em] font-bold">{gameMode.replace('_', ' ')}</span>
+                        <div className="h-1 w-1 bg-green-400 rounded-full animate-pulse" aria-hidden="true"></div>
                     </div>
                 </div>
+                
                 <StatsPanel 
                     gameStats={stats}
                     gameMode={gameMode} 
@@ -107,72 +106,99 @@ const GameScreen: React.FC<GameScreenProps> = ({
                 />
                 <ComboIndicator comboCount={comboCount} isBackToBack={isBackToBack} />
                 {(gameMode === 'BATTLE' || gameMode === 'ADVENTURE') && garbagePending > 0 && <GarbageDisplay garbagePending={garbagePending} flippedGravity={flippedGravity} />}
-                <nav className="grid grid-cols-3 gap-2 w-full max-w-[240px] mt-auto" aria-label="Game Controls">
-                    <button onClick={() => {handleUiClick(); openSettings();}} onMouseEnter={handleUiHover} className="bg-gray-900/60 hover:bg-cyan-900/50 border border-gray-700 hover:border-cyan-500/50 p-3 rounded-sm transition-all group" title="Settings" aria-label="Open Settings"><SettingsIcon size={18} className="text-gray-400 group-hover:text-cyan-400 mx-auto" aria-hidden="true" /></button>
-                    <button onClick={toggleMute} onMouseEnter={handleUiHover} className="bg-gray-900/60 hover:bg-cyan-900/50 border border-gray-700 hover:border-cyan-500/50 p-3 rounded-sm transition-all group" title="Mute Audio" aria-label={isMuted ? "Unmute Audio" : "Mute Audio"}>{isMuted ? <VolumeX size={18} className="text-red-400 mx-auto" aria-hidden="true"/> : <Volume2 size={18} className="text-cyan-400 mx-auto" aria-hidden="true"/>}</button>
-                    <button onClick={() => { handleUiClick(); toggleShowAi(); }} onMouseEnter={handleUiHover} className={`border p-3 rounded-sm transition-all group ${showAi ? 'bg-cyan-950/50 border-cyan-500/50' : 'bg-gray-900/60 border-gray-700 hover:border-cyan-500/30'}`} title="Toggle AI Assistant" aria-label={showAi ? "Hide AI Assistant" : "Show AI Assistant"}><Brain size={18} className={`${showAi ? 'text-cyan-400' : 'text-gray-500 group-hover:text-gray-300'} mx-auto`} aria-hidden="true" /></button>
+                
+                {/* Desktop Controls Bar */}
+                <nav className="grid grid-cols-3 gap-3 w-full max-w-[240px] mt-auto bg-gray-900/40 backdrop-blur-md border border-white/10 p-3 rounded-2xl shadow-xl" aria-label="Game Controls">
+                    <button onClick={() => {handleUiClick(); openSettings();}} onMouseEnter={handleUiHover} className="flex items-center justify-center p-3 rounded-xl bg-white/5 hover:bg-white/10 transition-colors group" title="Settings" aria-label="Open Settings">
+                        <SettingsIcon size={20} className="text-gray-400 group-hover:text-white transition-colors" aria-hidden="true" />
+                    </button>
+                    <button onClick={toggleMute} onMouseEnter={handleUiHover} className="flex items-center justify-center p-3 rounded-xl bg-white/5 hover:bg-white/10 transition-colors group" title="Mute Audio" aria-label={isMuted ? "Unmute Audio" : "Mute Audio"}>
+                        {isMuted ? <VolumeX size={20} className="text-red-400" aria-hidden="true"/> : <Volume2 size={20} className="text-cyan-400" aria-hidden="true"/>}
+                    </button>
+                    <button onClick={() => { handleUiClick(); toggleShowAi(); }} onMouseEnter={handleUiHover} className={`flex items-center justify-center p-3 rounded-xl transition-colors group ${showAi ? 'bg-cyan-500/20 text-cyan-300' : 'bg-white/5 text-gray-400 hover:bg-white/10 hover:text-white'}`} title="Toggle AI Assistant" aria-label={showAi ? "Hide AI Assistant" : "Show AI Assistant"}>
+                        <Brain size={20} aria-hidden="true" />
+                    </button>
                     
                     {stats.bombBoosterReady && gameMode === 'ADVENTURE' && !isSelectingBombRows && !isSelectingLine && (
-                        <button onClick={() => { handleUiClick(); touchControls.triggerBombBooster(); }} onMouseEnter={handleUiHover} className="col-span-3 py-3 bg-red-600 hover:bg-red-500 text-white font-bold uppercase tracking-widest rounded-lg flex items-center justify-center gap-3 transition-all shadow-[0_0_20px_rgba(239,68,68,0.4)]" aria-label="Activate Bomb Booster">
-                            <Bomb size={20} /> Bomb Booster
+                        <button onClick={() => { handleUiClick(); touchControls.triggerBombBooster(); }} onMouseEnter={handleUiHover} className="col-span-3 py-3 bg-red-600 hover:bg-red-500 text-white text-xs font-bold uppercase tracking-widest rounded-xl flex items-center justify-center gap-2 transition-all shadow-lg hover:shadow-red-500/40" aria-label="Activate Bomb Booster">
+                            <Bomb size={16} /> Bomb
                         </button>
                     )}
                     {stats.lineClearerActive && gameMode === 'ADVENTURE' && !isSelectingLine && !isSelectingBombRows && (
-                        <button onClick={() => { handleUiClick(); touchControls.triggerLineClearer(); }} onMouseEnter={handleUiHover} className="col-span-3 py-3 bg-cyan-600 hover:bg-cyan-500 text-white font-bold uppercase tracking-widest rounded-lg flex items-center justify-center gap-3 transition-all shadow-[0_0_20px_rgba(6,182,212,0.4)]" aria-label="Activate Line Clearer Booster">
-                            <Sparkles size={20} /> Line Clearer
+                        <button onClick={() => { handleUiClick(); touchControls.triggerLineClearer(); }} onMouseEnter={handleUiHover} className="col-span-3 py-3 bg-cyan-600 hover:bg-cyan-500 text-white text-xs font-bold uppercase tracking-widest rounded-xl flex items-center justify-center gap-2 transition-all shadow-lg hover:shadow-cyan-500/40" aria-label="Activate Line Clearer Booster">
+                            <Sparkles size={16} /> Line Clear
                         </button>
                     )}
                 </nav>
             </aside>
 
-            <section className="flex-shrink-0 relative z-20 transition-transform duration-500 ease-out" aria-label="Game Board">
-                <div className="relative p-0 bg-gray-900/40 rounded-[4px] backdrop-blur-sm transition-all duration-500 ease-out hover:transform hover:-translate-y-1 hover:shadow-[0_10px_40px_-5px_rgba(6,182,212,0.4)] border border-gray-700/30 hover:border-cyan-500/50 group" ref={boardContainerRef}>
-                    <div className="absolute -top-2 -left-2 w-6 h-6 border-t-2 border-l-2 border-cyan-500/30 group-hover:border-cyan-400 transition-colors duration-300 rounded-tl-sm" aria-hidden="true"></div>
-                    <div className="absolute -top-2 -right-2 w-6 h-6 border-t-2 border-r-2 border-cyan-500/30 group-hover:border-cyan-400 transition-colors duration-300 rounded-tr-sm" aria-hidden="true"></div>
-                    <div className="absolute -bottom-2 -left-2 w-6 h-6 border-b-2 border-l-2 border-cyan-500/30 group-hover:border-cyan-400 transition-colors duration-300 rounded-bl-sm" aria-hidden="true"></div>
-                    <div className="absolute -bottom-2 -right-2 w-6 h-6 border-b-2 border-r-2 border-cyan-500/30 group-hover:border-cyan-400 transition-colors duration-300 rounded-br-sm" aria-hidden="true"></div>
-                    <div className="absolute inset-0 pointer-events-none z-30 overflow-hidden rounded-sm" aria-hidden="true"><Particles ref={particlesRef} cellSize={cellSize} /></div>
+            {/* Center - Board */}
+            <section className="flex-shrink-0 relative z-20" aria-label="Game Board">
+                <div className="relative p-3 bg-gray-900/60 rounded-lg backdrop-blur-xl shadow-2xl ring-1 ring-white/10 transition-transform hover:scale-[1.005] duration-500 ease-out group" ref={boardContainerRef}>
+                    {/* Subtle corner accents */}
+                    <div className="absolute -top-1 -left-1 w-4 h-4 border-t border-l border-white/30 rounded-tl-lg group-hover:border-cyan-400 transition-colors"></div>
+                    <div className="absolute -top-1 -right-1 w-4 h-4 border-t border-r border-white/30 rounded-tr-lg group-hover:border-cyan-400 transition-colors"></div>
+                    <div className="absolute -bottom-1 -left-1 w-4 h-4 border-b border-l border-white/30 rounded-bl-lg group-hover:border-cyan-400 transition-colors"></div>
+                    <div className="absolute -bottom-1 -right-1 w-4 h-4 border-b border-r border-white/30 rounded-br-lg group-hover:border-cyan-400 transition-colors"></div>
+                    
+                    <div className="absolute inset-0 pointer-events-none z-30 overflow-hidden rounded-lg" aria-hidden="true"><Particles ref={particlesRef} cellSize={cellSize} /></div>
+                    
                     <BoardCanvas 
                         engine={engine} 
                         renderConfig={boardRenderCoreConfig} 
                         bombSelectionRows={isSelectingBombRows ? Array.from({length: bombRowsToClear}, (_, i) => i) : undefined}
                         lineClearerSelectedRow={isSelectingLine ? selectedLineToClear : null}
-                        className="shadow-inner" 
+                        className="rounded shadow-inner bg-black/80" 
                     />
                 </div>
             </section>
 
+            {/* Right Panel - Next & Hold */}
             <aside className="hidden lg:flex flex-col flex-1 h-full justify-center items-start space-y-8 py-8 pl-4 animate-slide-in delay-200 opacity-0" style={{ animationFillMode: 'forwards' }}>
-                <div className="w-full max-w-[200px]">
-                    <div className="mb-6 transform scale-105 origin-top-left">
-                        <div className="text-[10px] text-cyan-500 uppercase tracking-widest font-bold mb-2 flex items-center gap-2"><div className="w-1 h-4 bg-cyan-500" aria-hidden="true"></div> Next Unit</div>
-                        <Preview title="" type={nextQueue[0]} aria-label="Next Tetromino" />
-                    </div>
-                    <div className="space-y-3 pl-4 border-l border-gray-800 transition-colors hover:border-gray-700" aria-label="Upcoming Tetrominos">
-                        <div className="text-[9px] text-gray-600 uppercase tracking-widest mb-1">In Queue</div>
+                <div className="w-full max-w-[180px]">
+                     <div className="relative mb-6 p-4 bg-gray-900/40 backdrop-blur-md border border-white/10 rounded-2xl shadow-lg">
+                        <div className="text-[10px] text-cyan-400 uppercase tracking-widest font-bold mb-3">Next Unit</div>
+                        <div className="flex justify-center">
+                            <Preview title="" type={nextQueue[0]} aria-label="Next Tetromino" />
+                        </div>
+                     </div>
+
+                    <div className="pl-4 border-l-2 border-white/5 space-y-2" aria-label="Upcoming Tetrominos">
+                        <div className="text-[9px] text-gray-500 uppercase tracking-widest mb-1 pl-1">Queue</div>
                         {nextQueue.slice(1, 5).map((type, i) => (
-                            <div key={i} className="scale-75 origin-left opacity-60 mix-blend-screen hover:opacity-100 transition-opacity"><Preview title="" type={type} aria-label={`Upcoming Tetromino ${i + 1}`} /></div>
+                            <div key={i} className="opacity-60 scale-90 origin-left"><Preview title="" type={type} aria-label={`Upcoming Tetromino ${i + 1}`} /></div>
                         ))}
                     </div>
                 </div>
 
-                <div className="w-full max-w-[200px]">
-                    <button onClick={() => canHold && touchControls.hold()} className={`cursor-pointer transition-all duration-300 relative group p-4 border border-dashed rounded-lg ${canHold ? 'border-gray-700 hover:border-cyan-500 hover:bg-cyan-950/20 hover:shadow-[0_0_20px_-5px_cyan]' : 'opacity-50 border-red-900/30 bg-red-950/10'}`} disabled={!canHold} aria-label="Hold Piece (C)">
-                        <div className="text-[10px] text-gray-500 uppercase tracking-widest font-bold mb-2">Hold Buffer (C)</div>
-                        <div className="flex justify-center transition-transform group-hover:scale-105"><Preview title="" type={heldPiece} lastUpdate={lastHoldTime} /></div>
-                        {!canHold && <div className="absolute inset-0 flex items-center justify-center bg-black/60 backdrop-blur-[1px] rounded-lg"><span className="text-[10px] font-bold text-red-500 uppercase border border-red-500 px-2 py-0.5 rounded">Locked</span></div>}
+                <div className="w-full max-w-[180px]">
+                    <button 
+                        onClick={() => canHold && touchControls.hold()} 
+                        className={`w-full p-4 bg-gray-900/40 backdrop-blur-md border rounded-2xl shadow-lg transition-all duration-300 group
+                            ${canHold ? 'border-white/10 hover:border-cyan-500/50 hover:bg-gray-800/60' : 'border-red-500/20 bg-red-900/10'}
+                        `}
+                        disabled={!canHold} 
+                        aria-label="Hold Piece (C)"
+                    >
+                        <div className="text-[10px] text-gray-500 uppercase tracking-widest font-bold mb-3 group-hover:text-cyan-400 transition-colors">Hold (C)</div>
+                        <div className="flex justify-center group-hover:scale-105 transition-transform">
+                            <Preview title="" type={heldPiece} lastUpdate={lastHoldTime} />
+                        </div>
                     </button>
                 </div>
             </aside>
 
+            {/* Mobile Top Bar */}
             <div className="lg:hidden fixed top-0 left-0 right-0 p-4 flex justify-between items-start z-40 pointer-events-none" aria-live="polite" aria-atomic="true">
-                <div className="bg-black/40 backdrop-blur-md p-3 rounded border border-white/10 pointer-events-auto">
-                    <div className="text-[9px] text-gray-400 uppercase font-bold">Score</div>
-                    <div className="text-xl font-mono font-bold text-white leading-none">{stats.score}</div>
+                <div className="bg-black/60 backdrop-blur-lg px-4 py-2 rounded-full border border-white/10 pointer-events-auto shadow-lg">
+                    <div className="text-[8px] text-gray-400 uppercase font-bold tracking-wider">Score</div>
+                    <div className="text-lg font-mono font-bold text-white leading-none">{stats.score}</div>
                 </div>
-                <div className="bg-black/40 backdrop-blur-md p-3 rounded border border-white/10 pointer-events-auto">
-                    <div className="text-[9px] text-cyan-400 uppercase font-bold">{gameMode === 'SPRINT' ? 'Lines' : 'Lvl ' + stats.level}</div>
-                    <div className="flex gap-1 mt-1"><div className="w-12 h-1 bg-gray-700 rounded-full overflow-hidden"><div className="h-full bg-cyan-500" style={{ width: `${levelProgress * 100}%` }}></div></div></div>
+                <div className="bg-black/60 backdrop-blur-lg px-4 py-2 rounded-full border border-white/10 pointer-events-auto shadow-lg">
+                    <div className="text-[8px] text-cyan-400 uppercase font-bold tracking-wider">{gameMode === 'SPRINT' ? 'Lines' : 'Lvl ' + stats.level}</div>
+                    <div className="h-1 w-12 bg-gray-700 rounded-full mt-1 overflow-hidden">
+                        <div className="h-full bg-cyan-500" style={{ width: `${levelProgress * 100}%` }}></div>
+                    </div>
                 </div>
             </div>
         </main>

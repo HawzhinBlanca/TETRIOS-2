@@ -1,1 +1,9 @@
-// File intentionally left empty as logic is handled by aiWorker.ts
+
+/**
+ * @deprecated
+ * This file is deprecated.
+ * AI Logic has been moved to a dedicated Web Worker to prevent blocking the main thread.
+ * 
+ * See: utils/aiWorker.ts
+ */
+export {};

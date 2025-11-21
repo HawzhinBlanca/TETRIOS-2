@@ -101,7 +101,6 @@ export class GameStateManager {
         // Note: We allow 'PLAYING' to transition from anywhere if it's a hard reset (handled by resetGame usually),
         // but strictly speaking, the FSM should enforce paths.
         if (config && !config.allowedTransitions.includes(newState)) {
-            console.warn(`Invalid State Transition: ${this._currentState} -> ${newState}`);
             return false;
         }
 
@@ -110,7 +109,6 @@ export class GameStateManager {
             config.onExit();
         }
 
-        console.log(`State Change: ${this._currentState} -> ${newState}`);
         const previousState = this._currentState;
         this._currentState = newState;
 

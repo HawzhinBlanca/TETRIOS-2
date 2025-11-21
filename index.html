@@ -8,7 +8,7 @@
     <meta name="theme-color" content="#06B6D4" />
     <meta name="description" content="High-fidelity Tetris clone with neon aesthetics and robust mechanics.">
     <script src="https://cdn.tailwindcss.com"></script>
-    <link href="https://fonts.googleapis.com/css2?family=Rajdhani:wght@400;600;700&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Rajdhani:wght@400;500;600;700;800&display=swap" rel="stylesheet">
     <script type="importmap">
 {
   "imports": {
@@ -22,7 +22,9 @@
     "types": "https://aistudiocdn.com/types@^0.1.1",
     "react-dom/": "https://aistudiocdn.com/react-dom@^19.2.0/",
     "react/": "https://aistudiocdn.com/react@^19.2.0/",
-    "zustand/": "https://aistudiocdn.com/zustand@^5.0.8/"
+    "zustand/": "https://aistudiocdn.com/zustand@^5.0.8/",
+    "@testing-library/jest-dom": "https://aistudiocdn.com/@testing-library/jest-dom@^6.9.1",
+    "@testing-library/react": "https://aistudiocdn.com/@testing-library/react@^16.3.0"
   }
 }
 </script>
@@ -35,6 +37,8 @@
         touch-action: none;
         user-select: none;
         -webkit-user-select: none;
+        -webkit-font-smoothing: antialiased;
+        -moz-osx-font-smoothing: grayscale;
       }
       
       /* Screen Shake Animations */
@@ -80,7 +84,7 @@
         to { opacity: 1; transform: translateX(0); }
       }
       .animate-slide-in {
-        animation: slideInRight 0.3s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+        animation: slideInRight 0.5s cubic-bezier(0.16, 1, 0.3, 1) forwards;
       }
 
       /* Garbage Display Pulse */
@@ -106,13 +110,13 @@
           scrollbar-width: none;
       }
       .custom-scrollbar::-webkit-scrollbar {
-          width: 6px;
+          width: 4px;
       }
       .custom-scrollbar::-webkit-scrollbar-track {
-          background: rgba(255, 255, 255, 0.05);
+          background: transparent;
       }
       .custom-scrollbar::-webkit-scrollbar-thumb {
-          background: rgba(255, 255, 255, 0.2);
+          background: rgba(255, 255, 255, 0.1);
           border-radius: 10px;
       }
       .custom-scrollbar::-webkit-scrollbar-thumb:hover {

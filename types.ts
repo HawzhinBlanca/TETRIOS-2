@@ -1,6 +1,8 @@
 
 
 
+
+
 export type TetrominoType = 'I' | 'J' | 'L' | 'O' | 'S' | 'T' | 'Z' | 'G' | 'WILDCARD_SHAPE'; // G for Garbage, WILDCARD_SHAPE for wildcard piece
 
 export interface Tetromino {
@@ -39,7 +41,7 @@ export interface Player {
 
 export type GameState = 'MENU' | 'PLAYING' | 'PAUSED' | 'GAMEOVER' | 'VICTORY' | 'MAP' | 'STORY' | 'BOOSTER_SELECTION' | 'WILDCARD_SELECTION' | 'BOMB_SELECTION' | 'LINE_SELECTION';
 
-export type GameMode = 'MARATHON' | 'TIME_ATTACK' | 'SPRINT' | 'ZEN' | 'MASTER' | 'PUZZLE' | 'BATTLE' | 'ADVENTURE' | 'BLITZ';
+export type GameMode = 'MARATHON' | 'TIME_ATTACK' | 'SPRINT' | 'ZEN' | 'MASTER' | 'PUZZLE' | 'BATTLE' | 'ADVENTURE' | 'BLITZ' | 'SURVIVAL' | 'COMBO_MASTER';
 
 export interface GameStats {
   score: number;
@@ -250,7 +252,7 @@ export type AudioEvent =
   'WILDCARD_SPAWN' | 'LASER_CLEAR' | 'NUKE_CLEAR' | 'NUKE_SPAWN' | 
   'BOMB_ACTIVATE' | 'LINE_CLEARER_ACTIVATE' | 
   'BLITZ_SPEEDUP' | 'GRAVITY_FLIP_START' | 'GRAVITY_FLIP_END' | 'BOSS_DAMAGE' |
-  'UI_HOVER' | 'UI_CLICK' | 'UI_SELECT' | 'UI_BACK';
+  'UI_HOVER' | 'UI_CLICK' | 'UI_SELECT' | 'UI_BACK' | 'LEVEL_UP';
 
 // Callbacks for GameCore
 export interface GameCallbacks {

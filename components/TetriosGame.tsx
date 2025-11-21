@@ -9,6 +9,8 @@ import GameScreen from './GameScreen';
 import { GameOverlayManager } from './GameOverlayManager';
 import { audioManager } from '../utils/audioManager';
 import { useUiStore } from '../stores/uiStore';
+import { useModalStore } from '../stores/modalStore';
+import { useEffectStore } from '../stores/effectStore';
 import { useGameSettingsStore } from '../stores/gameSettingsStore';
 import { useAdventureStore } from '../stores/adventureStore';
 import { useBoosterStore } from '../stores/boosterStore';
@@ -20,6 +22,7 @@ import { ArrowLeftRight, Play, PauseCircle, Settings as SettingsIcon, Bomb, Spar
 import { useVisualEffects } from '../hooks/useVisualEffects';
 
 const LazySettings = lazy(() => import('./Settings'));
+const LazyProfile = lazy(() => import('./modals/ProfileModal'));
 
 const GHOST_SHADOW = "rgba(6, 182, 212, 0.6)"; 
 
@@ -44,15 +47,21 @@ export const TetriosGame = () => {
   } = useGameContext();
 
   const {
-      isSettingsOpen, openSettings, toggleMute,
-      isMuted, shakeClass, setShakeClass, showAi, toggleShowAi,
-      flashOverlay, setFlashOverlay, visualEffect: uiVisualEffect, clearVisualEffect,
-      musicEnabled,
+      isSettingsOpen, openSettings, activeTutorialTip, setTutorialTip, dismissTutorialTip, isProfileOpen
+  } = useModalStore();
+
+  const {
+      isMuted, toggleMute, musicEnabled
   } = useUiStore();
 
   const {
+      shakeClass, setShakeClass, flashOverlay, setFlashOverlay, 
+      visualEffect: uiVisualEffect, clearVisualEffect
+  } = useEffectStore();
+
+  const {
       ghostStyle, ghostOpacity, ghostOutlineThickness, ghostGlowIntensity,
-      gameSpeed, lockWarning, das, arr
+      gameSpeed, lockWarning, das, arr, showAi, toggleShowAi
   } = useGameSettingsStore();
 
   const {
@@ -66,7 +75,6 @@ export const TetriosGame = () => {
   const [cellSize, setCellSize] = useState(30);
   const [highScore, setHighScore] = useState(0);
   const [currentStory, setCurrentStory] = useState<StoryNode[] | null>(null);
-  const [currentTutorialTip, setCurrentTutorialTip] = useState<string | null>(null);
   const [lastRewards, setLastRewards] = useState<LevelRewards | null>(null); 
 
   const particlesRef = useRef<ParticlesHandle>(null);
@@ -150,7 +158,7 @@ export const TetriosGame = () => {
               setGameState('PLAYING');
               setCurrentStory(null);
               if (config.tutorialTip) {
-                  setCurrentTutorialTip(config.tutorialTip.text);
+                  setTutorialTip(config.tutorialTip.text);
               }
           } 
           else if (currentStory === config.storyEnd) {
@@ -161,12 +169,12 @@ export const TetriosGame = () => {
           setGameState('MENU'); 
           setCurrentStory(null);
       }
-  }, [currentStory, getCurrentLevelConfig, engine, setGameState, getFailedAttempts, resetGame, storeActiveBoosters]);
+  }, [currentStory, getCurrentLevelConfig, engine, setGameState, getFailedAttempts, resetGame, storeActiveBoosters, setTutorialTip]);
 
   const onDismissTutorialTip = useCallback(() => {
       audioManager.playUiBack();
-      setCurrentTutorialTip(null);
-  }, []);
+      dismissTutorialTip();
+  }, [dismissTutorialTip]);
 
   useEffect(() => {
       const handleResize = () => {
@@ -255,13 +263,37 @@ export const TetriosGame = () => {
   const handleUiHover = () => audioManager.playUiHover();
   const handleUiClick = () => audioManager.playUiClick();
 
+  const formatTime = (seconds: number): string => {
+    const mins = Math.floor(seconds / 60);
+    const secs = Math.floor(seconds % 60);
+    const ms = Math.floor((seconds % 1) * 10);
+    return `${mins}:${secs.toString().padStart(2, '0')}.${ms}`;
+  };
+
   const handleShareScore = useCallback(async () => {
     audioManager.playUiClick();
+    
+    let text = '';
+    const outcome = gameState === 'VICTORY' ? 'VICTORY' : 'GAME OVER';
+    const scoreFormatted = stats.score.toLocaleString();
+
+    if (gameMode === 'SPRINT') {
+        text = `I just finished TETRIOS Sprint 40 Lines in ${formatTime(stats.time)}! Score: ${scoreFormatted}. #Tetrios`;
+    } else if (gameMode === 'BLITZ') {
+        text = `I scored ${scoreFormatted} in TETRIOS Blitz (2min)! #Tetrios`;
+    } else if (gameMode === 'ADVENTURE') {
+        const config = getCurrentLevelConfig();
+        text = `I ${gameState === 'VICTORY' ? 'completed' : 'played'} Level ${config?.index !== undefined ? config.index + 1 : '?'} in TETRIOS Adventure! Score: ${scoreFormatted}`;
+    } else {
+        text = `I scored ${scoreFormatted} in TETRIOS ${gameMode.replace('_', ' ')}! Level ${stats.level}. Can you beat it? #Tetrios`;
+    }
+
     const shareData = {
-        title: 'TETRIOS High Score!',
-        text: `I just scored ${stats.score} in TETRIOS ${gameMode.replace('_', ' ')} mode! Can you beat it?`,
+        title: `TETRIOS: ${outcome}`,
+        text: text,
         url: window.location.origin, 
     };
+
     try {
         if (navigator.share) {
             await navigator.share(shareData);
@@ -273,9 +305,15 @@ export const TetriosGame = () => {
         }
     } catch (err) {
         console.error('Error sharing:', err);
-        alert('Failed to share score. Please try again.'); 
+        // Fallback to clipboard if share fails (common on desktop)
+        if (navigator.clipboard) {
+             try {
+                await navigator.clipboard.writeText(`${shareData.text} ${shareData.url}`);
+                alert('Score copied to clipboard!');
+             } catch (e) {}
+        }
     }
-  }, [stats.score, gameMode]);
+  }, [stats.score, stats.time, stats.level, gameMode, gameState, getCurrentLevelConfig]);
 
   const calculateStars = (gameInstance: GameCore): number => {
     if (!gameInstance.adventureManager.config) return 0;
@@ -350,6 +388,12 @@ export const TetriosGame = () => {
           </Suspense>
       )}
 
+      {isProfileOpen && (
+          <Suspense fallback={<div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/90 backdrop-blur-xl text-cyan-400 text-xl font-bold uppercase tracking-widest">Loading Profile...</div>}>
+              <LazyProfile />
+          </Suspense>
+      )}
+
       {gameState === 'MAP' && (
           <AdventureMap 
             onSelectLevel={launchAdventureLevel} 
@@ -363,8 +407,8 @@ export const TetriosGame = () => {
           <StoryOverlay story={currentStory} onComplete={onStoryComplete} />
       )}
 
-      {currentTutorialTip && gameState === 'PLAYING' && (
-          <TutorialTip text={currentTutorialTip} onDismiss={onDismissTutorialTip} />
+      {activeTutorialTip && gameState === 'PLAYING' && (
+          <TutorialTip text={activeTutorialTip} onDismiss={onDismissTutorialTip} />
       )}
 
       <GameOverlayManager

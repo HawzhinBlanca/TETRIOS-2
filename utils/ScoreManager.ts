@@ -1,7 +1,11 @@
 
+
+
+
+
 import { GameCore } from './GameCore';
 import { GameStats, GameMode, GameCallbacks, ScoreResult } from '../types';
-import { SCORES, DEFAULT_GAMESPEED, FRENZY_DURATION_MS, FRENZY_COMBO_THRESHOLD, BLITZ_DURATION_MS, BLITZ_SPEED_THRESHOLDS, LEVEL_PASS_COIN_REWARD } from '../constants';
+import { SCORES, DEFAULT_GAMESPEED, FRENZY_DURATION_MS, FRENZY_COMBO_THRESHOLD, BLITZ_DURATION_MS, BLITZ_SPEED_THRESHOLDS, LEVEL_PASS_COIN_REWARD, COMBO_MASTER_INITIAL_TIME, COMBO_MASTER_TIME_BONUS_BASE, COMBO_MASTER_TIME_BONUS_MULTIPLIER } from '../constants';
 import { calculateScore } from './scoreRules';
 
 export class ScoreManager {
@@ -44,7 +48,9 @@ export class ScoreManager {
             this.stats.time = 180;
         } else if (mode === 'BLITZ') {
             this.stats.time = BLITZ_DURATION_MS / 1000;
-        } else if (['SPRINT', 'PUZZLE', 'ADVENTURE'].includes(mode)) {
+        } else if (mode === 'COMBO_MASTER') {
+            this.stats.time = COMBO_MASTER_INITIAL_TIME;
+        } else if (['SPRINT', 'PUZZLE', 'ADVENTURE', 'SURVIVAL'].includes(mode)) {
             this.stats.level = 0;
         } else {
             this.stats.level = startLevel;
@@ -68,12 +74,16 @@ export class ScoreManager {
 
     public update(deltaTime: number): void {
         // Time Tracking
-        if (this.core.mode === 'TIME_ATTACK' || this.core.mode === 'SPRINT') {
+        if (this.core.mode === 'TIME_ATTACK' || this.core.mode === 'SPRINT' || this.core.mode === 'SURVIVAL') {
             this.stats.time += (deltaTime / 1000);
-        } else if (this.core.mode === 'BLITZ') {
+        } else if (this.core.mode === 'BLITZ' || this.core.mode === 'COMBO_MASTER') {
             this.stats.time = Math.max(0, this.stats.time - (deltaTime / 1000));
             if (this.stats.time <= 0) {
-                this.core.triggerGameOver('VICTORY', { coins: LEVEL_PASS_COIN_REWARD, stars: 3 }); 
+                if (this.core.mode === 'COMBO_MASTER') {
+                    this.core.triggerGameOver('GAMEOVER');
+                } else {
+                    this.core.triggerGameOver('VICTORY', { coins: LEVEL_PASS_COIN_REWARD, stars: 3 }); 
+                }
             }
         }
 
@@ -108,6 +118,13 @@ export class ScoreManager {
         
         if (this.comboCount >= FRENZY_COMBO_THRESHOLD) {
             this._activateFrenzy();
+        }
+
+        // Combo Master Time Bonus
+        if (this.core.mode === 'COMBO_MASTER' && rowsCleared > 0) {
+            const bonus = COMBO_MASTER_TIME_BONUS_BASE + (this.comboCount * COMBO_MASTER_TIME_BONUS_MULTIPLIER);
+            this.stats.time += bonus;
+            this.core.addFloatingText(`+${bonus.toFixed(1)}s`, '#4ade80');
         }
 
         return result;
@@ -186,19 +203,18 @@ export class ScoreManager {
     private _handleLevelProgression(rowsCleared: number): void {
         this.stats.rows += rowsCleared;
         
-        if (this.core.mode === 'MARATHON') {
+        if (this.core.mode === 'MARATHON' || this.core.mode === 'SURVIVAL' || this.core.mode === 'COMBO_MASTER') {
             const newLevel: number = Math.floor(this.stats.rows / 10);
+            // Delegate level up logic to Core
             if (newLevel > this.stats.level) {
-                this.stats.level = newLevel;
-                // Update drop speed based on level
-                this.core.pieceManager.dropTime = Math.max(100, 1000 * Math.pow(0.95, this.stats.level));
+                this.core.handleLevelUp(newLevel);
             }
         } else if (this.core.mode === 'SPRINT') {
             if (this.stats.rows >= 40) {
                 this.core.triggerGameOver('VICTORY', { coins: LEVEL_PASS_COIN_REWARD, stars: 3 });
             }
         } else if (this.core.mode === 'PUZZLE') {
-            // Logic handled in GameCore checks usually, but good to have safety
+            // Logic handled in GameCore checks usually
         }
     }
 }

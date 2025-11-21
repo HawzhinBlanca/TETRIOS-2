@@ -1,5 +1,7 @@
 
 
+
+
 import { Tetromino, TetrominoType, AdventureWorld, LevelObjectiveType, InitialBoardModifierType, GameGimmickType, Booster, BoosterType } from './types';
 
 export const STAGE_WIDTH = 10;
@@ -155,6 +157,16 @@ export const BLITZ_SPEED_THRESHOLDS = [ // Score thresholds for speed-ups
     { score: 50000, speedFactor: 0.7, message: "INSANE!" },
 ];
 export const BLITZ_POWERUP_SPAWN_CHANCE_MULTIPLIER = 2; // Double the chance of power-ups
+
+// Survival Mode Constants
+export const SURVIVAL_INITIAL_GARBAGE_INTERVAL = 10000; // 10s
+export const SURVIVAL_MIN_GARBAGE_INTERVAL = 1000; // 1s
+export const SURVIVAL_GARBAGE_DECREMENT = 500; // 0.5s decrease per interval
+
+// Combo Master Mode Constants
+export const COMBO_MASTER_INITIAL_TIME = 30; // 30s
+export const COMBO_MASTER_TIME_BONUS_BASE = 2; // 2s per clear
+export const COMBO_MASTER_TIME_BONUS_MULTIPLIER = 1.5; // bonus = base + (combo * multiplier)
 
 // --- GAME ECONOMY ---
 export const DEFAULT_COINS = 500; // Starting coins for new players

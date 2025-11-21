@@ -1,7 +1,7 @@
 
 import React, { useEffect, useCallback, Suspense } from 'react';
 import { GameState, LevelRewards, AdventureLevelConfig, BoosterType, TetrominoType, GameMode } from '../types';
-import { Trophy, AlertTriangle, RefreshCw, Share2, PauseCircle, Settings as SettingsIcon } from 'lucide-react';
+import { Trophy, AlertTriangle, RefreshCw, Share2, PauseCircle, Settings as SettingsIcon, Award } from 'lucide-react';
 import { useGameContext } from '../contexts/GameContext';
 import { useAdventureStore } from '../stores/adventureStore';
 import { useBoosterStore } from '../stores/boosterStore';
@@ -116,18 +116,39 @@ export const GameOverlayManager: React.FC<GameOverlayManagerProps> = ({
                         {gameState === 'VICTORY' ? <Trophy size={64} className="text-yellow-500 mx-auto mb-6 animate-bounce" aria-hidden="true" /> : <AlertTriangle size={64} className="text-red-500 mx-auto mb-6 animate-pulse" aria-hidden="true" />}
                         <h2 className="text-5xl md:text-6xl font-black text-white mb-2 tracking-tighter" role="heading" aria-level={2}>{gameState === 'VICTORY' ? 'VICTORY' : 'FAILURE'}</h2>
                         <div className={`${gameState === 'VICTORY' ? 'text-yellow-500' : 'text-red-500'} text-xs uppercase tracking-[0.5em] font-bold mb-8`}>{gameState === 'VICTORY' ? 'Objective Complete' : 'System Critical'}</div>
+                        
                         <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 md:gap-6 mb-8" role="region" aria-label="Game Statistics">
-                            <div className="bg-black/40 p-4 rounded border border-white/10">
+                            {/* Score Box */}
+                            <div className="bg-black/40 p-4 rounded border border-white/10 relative overflow-hidden">
+                                {stats.score >= highScore && stats.score > 0 && (
+                                    <div className="absolute -right-3 -top-3 bg-yellow-500 text-black text-[8px] font-bold px-4 py-2 rotate-45 shadow-lg flex items-center gap-1">
+                                       <Award size={8} fill="black" /> NEW
+                                    </div>
+                                )}
                                 <div className="text-[10px] text-gray-400 uppercase tracking-widest">Final Score</div>
-                                <div className="text-2xl md:text-3xl font-mono font-bold text-white" aria-live="polite">{stats.score}</div>
+                                <div className={`text-2xl md:text-3xl font-mono font-bold ${stats.score >= highScore && stats.score > 0 ? 'text-yellow-400' : 'text-white'}`} aria-live="polite">
+                                    {stats.score.toLocaleString()}
+                                </div>
                             </div>
+
+                            {/* Primary Metric Box (Lines/Time) */}
                             <div className="bg-black/40 p-4 rounded border border-white/10">
-                                <div className="text-[10px] text-gray-400 uppercase tracking-widest">{gameMode === 'SPRINT' || gameMode === 'BLITZ' ? 'Time' : 'Lines'}</div>
-                                <div className="text-2xl md:text-3xl font-mono font-bold text-white" aria-live="polite">{gameMode === 'SPRINT' || gameMode === 'BLITZ' ? formatTime(stats.time) : stats.rows}</div>
+                                <div className="text-[10px] text-gray-400 uppercase tracking-widest">
+                                    {gameMode === 'SPRINT' || gameMode === 'BLITZ' || gameMode === 'TIME_ATTACK' ? 'Time' : 'Lines'}
+                                </div>
+                                <div className="text-2xl md:text-3xl font-mono font-bold text-white" aria-live="polite">
+                                    {gameMode === 'SPRINT' || gameMode === 'BLITZ' || gameMode === 'TIME_ATTACK' ? formatTime(stats.time) : stats.rows}
+                                </div>
                             </div>
+
+                            {/* Secondary Metric Box (Level/Combo/Max Combo) */}
                             <div className="bg-black/40 p-4 rounded border border-white/10">
-                                <div className="text-[10px] text-gray-400 uppercase tracking-widest">Final Level</div>
-                                <div className="text-2xl md:text-3xl font-mono font-bold text-white" aria-live="polite">{stats.level}</div>
+                                <div className="text-[10px] text-gray-400 uppercase tracking-widest">
+                                    {gameMode === 'BLITZ' ? 'Avg Speed' : (gameMode === 'ADVENTURE' ? 'Level' : 'Max Combo')} 
+                                </div>
+                                <div className="text-2xl md:text-3xl font-mono font-bold text-white" aria-live="polite">
+                                     {gameMode === 'BLITZ' ? 'x' + (1 + stats.level * 0.1).toFixed(1) : (gameMode === 'ADVENTURE' ? (currentAdventureConfig?.index ?? 0) + 1 : (stats.combosAchieved || 0))}
+                                </div>
                             </div>
                         </div>
 

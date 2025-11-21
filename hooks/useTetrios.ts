@@ -2,22 +2,16 @@
 import { useState, useCallback, useEffect, useRef, useMemo } from 'react';
 import { GameCore } from '../utils/GameCore';
 import { createAiWorker } from '../utils/aiWorker';
-import { GameState, GameStats, MoveScore, GameMode, KeyAction, KeyMap, TetrominoType, AdventureLevelConfig, BoosterType, LevelRewards, AudioEvent } from '../types';
+import { GameState, GameStats, MoveScore, GameMode, TetrominoType, AdventureLevelConfig, BoosterType, LevelRewards } from '../types';
 import { useUiStore } from '../stores/uiStore';
+import { useEffectStore } from '../stores/effectStore';
 import { useAdventureStore } from '../stores/adventureStore';
 import { useBoosterStore } from '../stores/boosterStore';
-import { audioManager } from '../utils/audioManager';
-import { DEFAULT_DAS, DEFAULT_ARR } from '../constants';
-
-const DEFAULT_CONTROLS: KeyMap = {
-    moveLeft: ['ArrowLeft', 'a'],
-    moveRight: ['ArrowRight', 'd'],
-    softDrop: ['ArrowDown', 's'],
-    hardDrop: [' '],
-    rotateCW: ['ArrowUp', 'x', 'w'],
-    rotateCCW: ['z', 'Control'],
-    hold: ['c', 'Shift'],
-};
+import { useProfileStore } from '../stores/profileStore';
+import { DEFAULT_DAS, DEFAULT_ARR, DEFAULT_GAMESPEED } from '../constants';
+import { useGameLoop } from './useGameLoop';
+import { useGameAudio } from './useGameAudio';
+import { useGameInput, DEFAULT_CONTROLS } from './useGameInput';
 
 export const useTetrios = () => {
   const [stats, setStats] = useState<GameStats>({ 
@@ -30,7 +24,6 @@ export const useTetrios = () => {
   const [heldPiece, setHeldPiece] = useState<TetrominoType | null>(null);
   const [canHold, setCanHold] = useState(true);
   const [aiHint, setAiHint] = useState<MoveScore | null>(null);
-  const [controls, setControlsState] = useState<KeyMap>(DEFAULT_CONTROLS);
   const [gameMode, setGameMode] = useState<GameMode>('MARATHON');
   const [lastHoldTime, setLastHoldTime] = useState<number>(0);
   const [comboCount, setComboCount] = useState<number>(-1);
@@ -45,18 +38,23 @@ export const useTetrios = () => {
   const [selectedLineToClear, setSelectedLineToClear] = useState<number | null>(null); 
   const [blitzSpeedThresholdIndex, setBlitzSpeedThresholdIndex] = useState<number>(0); 
   
-  // Input Configuration State
+  // Config State
   const [inputConfig, setInputConfig] = useState({ das: DEFAULT_DAS, arr: DEFAULT_ARR });
+  const [gameSpeedMultiplier, setGameSpeedMultiplier] = useState(DEFAULT_GAMESPEED);
 
+  // Refs
   const aiWorker = useRef<Worker | null>(null);
-  const requestRef = useRef<number>(0);
-  const lastTimeRef = useRef<number>(0);
-
   const engine = useRef<GameCore>(null!);
 
-  const triggerVisualEffect = useUiStore((state) => state.triggerVisualEffect);
+  // External Stores
+  const triggerVisualEffect = useEffectStore((state) => state.triggerVisualEffect);
   const { trackFailedLevel, clearFailedAttempts, setStarsEarned } = useAdventureStore();
   const { addCoins, applyLevelRewards, resetActiveBoosters, consumeActiveBoosters } = useBoosterStore();
+  const { updateStats } = useProfileStore();
+
+  // Composed Hooks
+  const { handleAudioEvent } = useGameAudio();
+  const { controls, setKeyBinding } = useGameInput();
 
   const setGameState = useCallback((newState: GameState) => {
       if (engine.current) {
@@ -66,39 +64,7 @@ export const useTetrios = () => {
       }
   }, []);
 
-  const handleAudioEvent = useCallback((event: AudioEvent) => {
-      switch(event) {
-          case 'MOVE': audioManager.playMove(); break;
-          case 'ROTATE': audioManager.playRotate(); break;
-          case 'SOFT_DROP': break;
-          case 'HARD_DROP': audioManager.playHardDrop(); break;
-          case 'LOCK': audioManager.playLock(); break;
-          case 'SOFT_LAND': audioManager.playSoftLand(); break;
-          case 'TSPIN': audioManager.playTSpin(); break;
-          case 'CLEAR_1': audioManager.playClear(1); break;
-          case 'CLEAR_2': audioManager.playClear(2); break;
-          case 'CLEAR_3': audioManager.playClear(3); break;
-          case 'CLEAR_4': audioManager.playClear(4); break;
-          case 'GAME_OVER': audioManager.playGameOver(); break;
-          case 'VICTORY': audioManager.playClear(4); break; 
-          case 'FRENZY_START': audioManager.playFrenzyStart(); break;
-          case 'FRENZY_END': audioManager.playFrenzyEnd(); break;
-          case 'WILDCARD_SPAWN': audioManager.playWildcardSpawn(); break;
-          case 'LASER_CLEAR': audioManager.playLaserClear(); break;
-          case 'NUKE_CLEAR': audioManager.playNukeClear(); break;
-          case 'NUKE_SPAWN': audioManager.playNukeSpawn(); break;
-          case 'BOMB_ACTIVATE': audioManager.playBombBoosterActivate(); break;
-          case 'LINE_CLEARER_ACTIVATE': audioManager.playLineClearerActivate(); break;
-          case 'BLITZ_SPEEDUP': audioManager.playBlitzSpeedUp(); break;
-          case 'GRAVITY_FLIP_START': audioManager.playFlippedGravityActivate(); break;
-          case 'GRAVITY_FLIP_END': audioManager.playFlippedGravityEnd(); break;
-          case 'UI_HOVER': audioManager.playUiHover(); break;
-          case 'UI_CLICK': audioManager.playUiClick(); break;
-          case 'UI_SELECT': audioManager.playUiSelect(); break;
-          case 'UI_BACK': audioManager.playUiBack(); break;
-      }
-  }, []);
-
+  // Initialize Game Engine
   if (!engine.current) {
       engine.current = new GameCore({
           onStateChange: (newState: GameState) => setGameStateLocal(newState),
@@ -116,6 +82,11 @@ export const useTetrios = () => {
             } else if ((s === 'GAMEOVER' || s === 'VICTORY') && rewards) { 
                 addCoins(rewards.coins); 
             }
+            
+            if (s === 'GAMEOVER' || s === 'VICTORY') {
+               updateStats({ score: engine.current.scoreManager.stats.score, rows: engine.current.scoreManager.stats.rows, level: engine.current.scoreManager.stats.level });
+            }
+            
             resetActiveBoosters(); 
           },
           onAiTrigger: () => triggerAi(),
@@ -164,6 +135,12 @@ export const useTetrios = () => {
       });
   }
 
+  // Hook the game loop logic
+  useGameLoop(engine, gameState, {
+      das: inputConfig.das,
+      arr: inputConfig.arr
+  });
+
   const triggerAi = useCallback(() => {
       if(aiWorker.current && engine.current.pieceManager.player.tetromino.type) {
           aiWorker.current.postMessage({
@@ -175,18 +152,10 @@ export const useTetrios = () => {
       }
   }, [gameState]);
 
+  // Initialize Worker and Controls Sync
   useEffect(() => {
-    const savedControls = localStorage.getItem('tetrios_controls');
-    if (savedControls) {
-        try {
-            const parsedControls: KeyMap = JSON.parse(savedControls);
-            setControlsState(parsedControls);
-            // Sync loaded controls to engine
-            engine.current.setInputConfig({ keyMap: parsedControls });
-        } catch(e) {
-            console.error("Failed to parse saved controls", e);
-        }
-    }
+    // Sync initial controls to engine
+    engine.current.setInputConfig({ keyMap: controls });
 
     aiWorker.current = createAiWorker();
     aiWorker.current.onmessage = (e: MessageEvent<MoveScore | null>) => setAiHint(e.data);
@@ -197,14 +166,10 @@ export const useTetrios = () => {
     };
   }, []);
 
-  // Sync inputs effect
+  // Sync inputs effect when controls change
   useEffect(() => {
     engine.current.setInputConfig({ keyMap: controls });
   }, [controls]);
-
-  useEffect(() => {
-    engine.current.setInputConfig({ das: inputConfig.das, arr: inputConfig.arr });
-  }, [inputConfig]);
 
   const resetGame = useCallback((startLevel: number = 0, mode: GameMode = 'MARATHON', adventureLevelConfig: AdventureLevelConfig | undefined = undefined, assistRows: number = 0, activeBoosters: BoosterType[] = []) => {
       engine.current.resetGame(mode, startLevel, adventureLevelConfig, assistRows, activeBoosters);
@@ -221,77 +186,16 @@ export const useTetrios = () => {
 
   const setGameConfig = useCallback((config: { speed?: number, das?: number, arr?: number }) => {
       engine.current.setGameConfig(config);
-      // Update local state which will propagate to InputManager via effect
+      
+      // Update local state for UI inputs if needed
+      if (config.speed !== undefined) setGameSpeedMultiplier(config.speed);
       setInputConfig(prev => ({
           das: config.das ?? prev.das,
           arr: config.arr ?? prev.arr
       }));
   }, []);
 
-  const setKeyBinding = useCallback((action: KeyAction, key: string, slot: number = 0) => {
-      if (key === 'Escape') return;
-      
-      setControlsState(prevControls => {
-          // Deep clone to avoid mutation issues
-          const newControls = JSON.parse(JSON.stringify(prevControls)) as KeyMap;
-
-          // If clearing a binding
-          if (key === 'Backspace' || key === 'Delete') {
-              if (newControls[action]) {
-                  // Remove the key at the specific slot if it exists
-                  if (slot < newControls[action].length) {
-                      newControls[action] = newControls[action].filter((_, i) => i !== slot);
-                  }
-              }
-          } else {
-              // If binding a new key, first unbind it from anywhere else it might be used
-              Object.keys(newControls).forEach(k => {
-                  const act = k as KeyAction;
-                  if (newControls[act].includes(key)) {
-                      newControls[act] = newControls[act].filter((k_item) => k_item !== key);
-                  }
-              });
-
-              // Assign to new slot
-              const currentKeys = newControls[action] || [];
-              if (slot >= currentKeys.length) {
-                  currentKeys.push(key);
-              } else {
-                  currentKeys[slot] = key;
-              }
-              newControls[action] = currentKeys;
-          }
-          
-          localStorage.setItem('tetrios_controls', JSON.stringify(newControls));
-          return newControls;
-      });
-  }, []);
-
-  const update = useCallback((time: number) => {
-      const currentState = engine.current.stateManager.currentState;
-      
-      if (currentState !== 'PLAYING' && currentState !== 'WILDCARD_SELECTION' && currentState !== 'BOMB_SELECTION' && currentState !== 'LINE_SELECTION') return; 
-      
-      const deltaTime = time - lastTimeRef.current;
-      lastTimeRef.current = time;
-
-      if (currentState === 'PLAYING') { 
-          engine.current.update(deltaTime);
-      } else if (currentState === 'WILDCARD_SELECTION' || currentState === 'BOMB_SELECTION' || currentState === 'LINE_SELECTION') {
-        engine.current.updateEphemeralStates(deltaTime); 
-      }
-      
-      requestRef.current = requestAnimationFrame(update);
-  }, []); 
-
-  useEffect(() => {
-      if (gameState === 'PLAYING' || gameState === 'WILDCARD_SELECTION' || gameState === 'BOMB_SELECTION' || gameState === 'LINE_SELECTION') {
-          lastTimeRef.current = performance.now();
-          requestRef.current = requestAnimationFrame(update);
-      }
-      return () => cancelAnimationFrame(requestRef.current);
-  }, [gameState, update]);
-
+  // Touch controls mapping
   const touchControls = useMemo(() => ({
       move: (dir: number) => engine.current.handleAction(dir === -1 ? 'moveLeft' : 'moveRight'),
       rotate: (dir: number) => engine.current.handleAction(dir === 1 ? 'rotateCW' : 'rotateCCW'),

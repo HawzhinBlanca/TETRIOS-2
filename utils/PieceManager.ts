@@ -1,4 +1,6 @@
 
+
+
 import { GameCore } from './GameCore';
 import { Player, TetrominoType, TetrominoShape, MoveScore } from '../types';
 import { TETROMINOS, STAGE_WIDTH, STAGE_HEIGHT, DEFAULT_GAMESPEED, BLITZ_INITIAL_DROPTIME, KICKS, COLORS } from '../constants';
@@ -41,7 +43,6 @@ export class PieceManager {
              // Puzzle mode logic if needed
         }
         
-        this._initDropSpeed(startLevel, adventureLevelConfig);
         this.heldPiece = null;
         this.canHold = true;
         this.wildcardNextPieceType = null;
@@ -50,19 +51,6 @@ export class PieceManager {
         this.core.callbacks.onGroundedChange(false);
         
         this.spawnPiece();
-    }
-
-    private _initDropSpeed(startLevel: number, adventureLevelConfig?: any): void {
-        if (this.core.mode === 'ZEN' || this.core.mode === 'PUZZLE') this.dropTime = 1000000;
-        else if (this.core.mode === 'MASTER') this.dropTime = 0;
-        else if (this.core.mode === 'ADVENTURE') {
-             const lvl = adventureLevelConfig ? adventureLevelConfig.index : 0;
-             this.dropTime = Math.max(100, Math.pow(0.95, lvl) * 1000);
-        }
-        else if (this.core.mode === 'BLITZ') {
-            this.dropTime = BLITZ_INITIAL_DROPTIME;
-        }
-        else this.dropTime = Math.max(100, Math.pow(0.8 - ((startLevel - 1) * 0.007), startLevel) * 1000);
     }
 
     public spawnPiece(): void {
@@ -122,6 +110,7 @@ export class PieceManager {
         this.dropCounter += deltaTime;
         let currentDropTime = this.dropTime;
         
+        // Apply transient speed modifiers here (Frenzy, Slow Time)
         if (this.core.scoreManager.frenzyActive) {
             currentDropTime /= this.core.scoreManager.frenzyMultiplier;
         }

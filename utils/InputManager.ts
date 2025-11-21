@@ -13,22 +13,32 @@ export class InputManager {
   private keyState: Record<string, { pressed: boolean; timer: number; lastActionTime: number }> = {};
   private actionListeners: Set<(action: KeyAction) => void> = new Set();
   private config: InputConfig;
+  private boundKeyDown: (e: KeyboardEvent) => void;
+  private boundKeyUp: (e: KeyboardEvent) => void;
+  private isDestroyed: boolean = false;
 
   constructor(config: InputConfig) {
     this.config = config;
-    window.addEventListener('keydown', this.handleKeyDown);
-    window.addEventListener('keyup', this.handleKeyUp);
+    // Bind methods once to ensure reference equality for add/remove
+    this.boundKeyDown = this.handleKeyDown.bind(this);
+    this.boundKeyUp = this.handleKeyUp.bind(this);
+    
+    window.addEventListener('keydown', this.boundKeyDown);
+    window.addEventListener('keyup', this.boundKeyUp);
   }
 
   public updateConfig(newConfig: Partial<InputConfig>): void {
+    if (this.isDestroyed) return;
     this.config = { ...this.config, ...newConfig };
   }
 
   public addActionListener(listener: (action: KeyAction) => void): void {
+    if (this.isDestroyed) return;
     this.actionListeners.add(listener);
   }
 
   private emitAction(action: KeyAction): void {
+    if (this.isDestroyed) return;
     this.actionListeners.forEach(listener => listener(action));
   }
 
@@ -48,6 +58,8 @@ export class InputManager {
   }
 
   private handleKeyDown = (e: KeyboardEvent): void => {
+    if (this.isDestroyed) return;
+    
     // Prevent default for all mapped keys
     for (const actionKeys of Object.values(this.config.keyMap)) {
       if (actionKeys.includes(e.key)) {
@@ -66,6 +78,7 @@ export class InputManager {
   };
 
   private handleKeyUp = (e: KeyboardEvent): void => {
+    if (this.isDestroyed) return;
     if (this.activeKeys.has(e.key)) {
       this.activeKeys.delete(e.key);
       delete this.keyState[e.key];
@@ -91,6 +104,8 @@ export class InputManager {
   }
 
   public update(deltaTime: number): void {
+    if (this.isDestroyed) return;
+
     const triggeredActions = new Set<KeyAction>();
 
     this.activeKeys.forEach(key => {
@@ -121,7 +136,12 @@ export class InputManager {
   }
 
   public destroy(): void {
-    window.removeEventListener('keydown', this.handleKeyDown);
-    window.removeEventListener('keyup', this.handleKeyUp);
+    if (this.isDestroyed) return;
+    this.isDestroyed = true;
+    
+    window.removeEventListener('keydown', this.boundKeyDown);
+    window.removeEventListener('keyup', this.boundKeyUp);
+    this.actionListeners.clear();
+    this.activeKeys.clear();
   }
 }
