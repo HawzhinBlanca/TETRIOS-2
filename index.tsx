@@ -13,10 +13,13 @@ interface ErrorBoundaryState {
 // Fix: Correctly extend React.Component with its generic types
 class ErrorBoundary extends React.Component<ErrorBoundaryProps, ErrorBoundaryState> {
   public state: ErrorBoundaryState;
+  // Explicitly declare props to satisfy TypeScript in some environments
+  readonly props: Readonly<ErrorBoundaryProps>;
 
   // Added constructor to ensure `this.props` is correctly initialized and typed.
   constructor(props: ErrorBoundaryProps) {
     super(props);
+    this.props = props;
     this.state = { hasError: false };
   }
 
