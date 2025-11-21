@@ -1,162 +1,166 @@
-import { createStage, createPuzzleStage, addGarbageLines, checkCollision, rotateMatrix, generateBag, getWallKicks, isTSpin } from './gameUtils';
-import { calculateScore } from './scoreRules';
-import { audioManager } from './audioManager';
-import { STAGE_WIDTH, STAGE_HEIGHT, SCORES, TETROMINOS, PUZZLE_LEVELS } from '../constants';
-import { Player, Board, GameState, TetrominoType, GameStats, GameMode, KeyMap, KeyAction, FloatingText } from '../types';
+
+import { createStage, createPuzzleStage, addGarbageLines, checkCollision, rotateMatrix, generateBag, getWallKicks, isTSpin, generateAdventureStage } from './gameUtils';
+import { calculateScore, ScoreResult } from './scoreRules';
+import { STAGE_WIDTH, STAGE_HEIGHT, SCORES, TETROMINOS, PUZZLE_LEVELS, DEFAULT_DAS, DEFAULT_ARR, DEFAULT_GAMESPEED, FRENZY_DURATION_MS, FRENZY_COMBO_THRESHOLD, MODIFIER_COLORS, LEVEL_PASS_COIN_REWARD, BLITZ_DURATION_MS, BLITZ_INITIAL_DROPTIME, BLITZ_SPEED_THRESHOLDS, BLITZ_POWERUP_SPAWN_CHANCE_MULTIPLIER } from '../constants';
+import { Player, Board, GameState, TetrominoType, GameStats, GameMode, KeyMap, KeyAction, FloatingText, TetrominoShape, AdventureLevelConfig, CellModifier, FloatingTextVariant, GameCallbacks, BoosterType, CellModifierType, LevelRewards } from '../types';
+import { AdventureManager } from './AdventureManager';
+import { BoosterManager } from './BoosterManager';
 
 const LOCK_DELAY_MS = 500;
 const MAX_MOVES_BEFORE_LOCK = 15;
-
-export interface GameCallbacks {
-    onStatsChange: (stats: GameStats) => void;
-    onQueueChange: (queue: TetrominoType[]) => void;
-    onHoldChange: (piece: TetrominoType | null, canHold: boolean) => void;
-    onVisualEffect: (type: 'SHAKE' | 'PARTICLE' | 'FLASH', payload?: any) => void;
-    onGameOver: (state: GameState) => void;
-    onAiTrigger: () => void;
-}
 
 export class GameCore {
     stage: Board = createStage();
     player: Player = {
         pos: { x: 0, y: 0 },
-        tetromino: { shape: [[0]], color: '0,0,0', type: 'I' },
+        tetromino: TETROMINOS[0],
         collided: false,
     };
-    stats: GameStats = { score: 0, rows: 0, level: 0, time: 0 };
+    stats: GameStats = { 
+        score: 0, rows: 0, level: 0, time: 0,
+        movesTaken: 0, gemsCollected: 0, bombsDefused: 0, tetrisesAchieved: 0, combosAchieved: 0,
+        isFrenzyActive: false, frenzyTimer: 0, slowTimeActive: false, slowTimeTimer: 0,
+        wildcardAvailable: false, bombBoosterReady: false, lineClearerActive: false,
+        flippedGravityActive: false, flippedGravityTimer: 0,
+    };
     mode: GameMode = 'MARATHON';
-    
     nextQueue: TetrominoType[] = [];
     heldPiece: TetrominoType | null = null;
     canHold = true;
     rotationState = 0;
-    
-    lockTimer: any = null;
+    lockTimer: ReturnType<typeof setTimeout> | null = null;
     lockStartTime = 0;
     lockDelayDuration = LOCK_DELAY_MS;
     movesOnGround = 0;
     lastMoveWasRotation = false;
-    
     comboCount = -1;
     isBackToBack = false;
-    
     dropCounter = 0;
     dropTime = 1000;
-    speedMultiplier = 1;
-    
-    das = 133; 
-    arr = 10;
-
+    speedMultiplier = DEFAULT_GAMESPEED;
+    das: number = DEFAULT_DAS;
+    arr: number = DEFAULT_ARR;
     battleTimer = 0;
     garbagePending = 0;
     puzzleIndex = 0;
-
     lockResetFlash = 0;
     tSpinFlash = 0;
     floatingTexts: FloatingText[] = [];
-    visualEffectsQueue: { type: 'SHAKE' | 'PARTICLE' | 'FLASH', payload?: any }[] = [];
-
-    // Input State
-    moveStack: string[] = [];
-    inputQueue: KeyAction[] = []; 
-    keyTimers: Record<string, number> = { left: 0, right: 0, down: 0 };
-    keys: Record<string, boolean> = { down: false, left: false, right: false };
     keyMap: KeyMap;
-
     callbacks: GameCallbacks;
+    pieceIsGrounded: boolean = false; 
+    
+    // Managers
+    adventureManager: AdventureManager;
+    boosterManager: BoosterManager;
+
+    flippedGravity: boolean = false;
+    initialFlippedGravityGimmick: boolean = false;
+
+    wildcardNextPieceType: TetrominoType | null = null;
+
+    // Frenzy Mode
+    frenzyActive: boolean = false;
+    frenzyTimer: number = 0;
+    frenzyMultiplier: number = 1;
+
+    // BLITZ Mode
+    blitzSpeedThresholdIndex: number = 0;
+    blitzLastSpeedUpScore: number = 0;
 
     constructor(callbacks: GameCallbacks, defaultKeyMap: KeyMap) {
         this.callbacks = callbacks;
         this.keyMap = JSON.parse(JSON.stringify(defaultKeyMap));
         this.nextQueue = generateBag();
+        this.adventureManager = new AdventureManager(this);
+        this.boosterManager = new BoosterManager(this);
     }
 
-    setGameConfig(config: { speed?: number, das?: number, arr?: number }) {
+    setGameConfig(config: { speed?: number, das?: number, arr?: number }): void {
         if (config.speed !== undefined) this.speedMultiplier = config.speed;
         if (config.das !== undefined) this.das = config.das;
-        if (config.arr !== undefined) this.arr = config.arr;
+        if (config.arr !== undefined) this.das = config.arr;
     }
 
-    spawnPiece() {
-        if (this.mode === 'PUZZLE' && this.nextQueue.length === 0) {
-            if (this.isBoardEmpty()) {
-                this.triggerGameOver('VICTORY', 4);
-            } else {
-                this.triggerGameOver('GAMEOVER');
-            }
+    spawnPiece(): void {
+        if (this.wildcardNextPieceType) {
+            const type = this.wildcardNextPieceType;
+            this.wildcardNextPieceType = null;
+            this.callbacks.onWildcardAvailableChange(false);
+            this._resetPlayerState(type);
+            this.callbacks.onAiTrigger();
             return;
         }
-        
-        if (this.mode !== 'PUZZLE') {
-          while (this.nextQueue.length < 7) {
-              this.nextQueue = [...this.nextQueue, ...generateBag()];
-          }
+
+        if (this.mode === 'PUZZLE' && this.nextQueue.length === 0) {
+            if (this.isBoardEmpty()) this.triggerGameOver('VICTORY', { coins: SCORES.POWERUP_NUKE_BONUS, stars: 3 });
+            else this.triggerGameOver('GAMEOVER');
+            return;
         }
-        
+        if (this.mode !== 'PUZZLE') {
+          while (this.nextQueue.length < 7) this.nextQueue = [...this.nextQueue, ...generateBag()];
+        }
         if (this.nextQueue.length === 0) return;
-
-        const type = this.nextQueue.shift()!;
+        const type: TetrominoType = this.nextQueue.shift()!;
         this.callbacks.onQueueChange([...this.nextQueue]);
-
-        this.resetPlayerState(type);
-        
-        if (checkCollision(this.player, this.stage, { x: 0, y: 0 })) {
-            if (this.mode === 'ZEN') {
-                this.resetZenMode();
-            } else {
-                this.triggerGameOver('GAMEOVER');
-            }
+        this._resetPlayerState(type);
+        if (checkCollision(this.player, this.stage, { x: 0, y: 0 }, this.flippedGravity)) {
+            if (this.mode === 'ZEN') this._resetZenMode();
+            else this.triggerGameOver('GAMEOVER');
         } else {
             this.callbacks.onAiTrigger();
         }
     }
 
-    private resetPlayerState(type: TetrominoType) {
+    private _resetPlayerState(type: TetrominoType): void {
+        const shapeHeight = TETROMINOS[type].shape.length;
         this.player = {
-            pos: { x: STAGE_WIDTH / 2 - 2, y: 0 },
+            pos: { 
+                x: STAGE_WIDTH / 2 - 2, 
+                y: this.flippedGravity ? STAGE_HEIGHT - shapeHeight : 0 
+            },
             tetromino: TETROMINOS[type], 
             collided: false
         };
         this.rotationState = 0;
         this.movesOnGround = 0;
         this.lastMoveWasRotation = false;
-        this.canHold = this.mode !== 'PUZZLE'; 
+        this.canHold = this.mode !== 'PUZZLE' || this.boosterManager.activeBoosters.includes('PIECE_SWAP_BOOSTER');
         this.callbacks.onHoldChange(this.heldPiece, this.canHold);
-        
-        this.lockResetFlash = 0;
-        this.tSpinFlash = 0;
-        this.clearLockTimer();
+        this._clearLockTimer();
+        this._setPieceGrounded(false);
     }
 
-    resetGame(mode: GameMode = 'MARATHON', startLevel = 0) {
+    resetGame(mode: GameMode = 'MARATHON', startLevel: number = 0, adventureLevelConfig: AdventureLevelConfig | undefined, assistRows: number = 0, activeBoosters: BoosterType[] = []): void {
         this.mode = mode;
-        this.initializeStage(startLevel);
-        this.initializeStats(startLevel);
-        this.initializeDropSpeed(startLevel);
         
-        this.heldPiece = null;
-        this.comboCount = -1;
-        this.isBackToBack = false;
-        this.floatingTexts = [];
-        this.visualEffectsQueue = [];
-        this.lockStartTime = 0;
-        this.battleTimer = 0;
-        this.garbagePending = 0;
+        this.initialFlippedGravityGimmick = adventureLevelConfig?.gimmicks?.some(g => g.type === 'FLIPPED_GRAVITY') || false;
+        this.flippedGravity = this.initialFlippedGravityGimmick;
+
+        this._initGameStage(startLevel, assistRows, adventureLevelConfig);
+        this._initGameStats(startLevel);
+        this._initDropSpeed(startLevel, adventureLevelConfig);
         
-        this.moveStack = [];
-        this.inputQueue = [];
-        this.keys = { down: false, left: false, right: false };
+        // Initialize Managers
+        this.adventureManager.reset(adventureLevelConfig);
+        this.boosterManager.reset(activeBoosters);
         
-        this.callbacks.onHoldChange(null, true);
+        this._initFrenzyState();
+        this._initBlitzState();
+        this._clearEphemeralStates();
+        
         this.spawnPiece();
-        audioManager.init();
+        this.callbacks.onFlippedGravityChange(this.flippedGravity);
     }
 
-    private initializeStage(startLevel: number) {
+    private _initGameStage(startLevel: number, assistRows: number, adventureLevelConfig?: AdventureLevelConfig): void {
         if (this.mode === 'PUZZLE') {
             this.puzzleIndex = startLevel;
             this.stage = createPuzzleStage(PUZZLE_LEVELS[startLevel]);
             this.nextQueue = [...PUZZLE_LEVELS[startLevel].bag];
+        } else if (this.mode === 'ADVENTURE' && adventureLevelConfig) {
+            this.stage = generateAdventureStage(adventureLevelConfig, assistRows);
+            this.nextQueue = generateBag();
         } else {
             this.stage = createStage();
             this.nextQueue = generateBag();
@@ -164,294 +168,424 @@ export class GameCore {
         this.callbacks.onQueueChange([...this.nextQueue]);
     }
 
-    private initializeStats(startLevel: number) {
+    private _initGameStats(startLevel: number): void {
         this.stats = { 
-            score: 0, 
-            rows: 0, 
-            level: (this.mode === 'TIME_ATTACK' || this.mode === 'SPRINT' || this.mode === 'PUZZLE') ? 0 : startLevel, 
-            time: this.mode === 'TIME_ATTACK' ? 180 : 0 
+            score: 0, rows: 0, 
+            level: (this.mode === 'TIME_ATTACK' || this.mode === 'SPRINT' || this.mode === 'PUZZLE' || this.mode === 'ADVENTURE' || this.mode === 'BLITZ') ? 0 : startLevel, 
+            time: (this.mode === 'TIME_ATTACK') ? 180 : (this.mode === 'BLITZ' ? BLITZ_DURATION_MS / 1000 : 0),
+            movesTaken: 0, gemsCollected: 0, bombsDefused: 0, tetrisesAchieved: 0, combosAchieved: 0,
+            isFrenzyActive: false, frenzyTimer: 0, slowTimeActive: false, slowTimeTimer: 0,
+            wildcardAvailable: false, bombBoosterReady: false, lineClearerActive: false,
+            flippedGravityActive: false, flippedGravityTimer: 0,
         };
         this.callbacks.onStatsChange(this.stats);
     }
 
-    private initializeDropSpeed(startLevel: number) {
-        if (this.mode === 'ZEN' || this.mode === 'PUZZLE') {
-            this.dropTime = 1000000; 
-        } else if (this.mode === 'MASTER') {
-            this.dropTime = 0; 
-        } else {
-            this.dropTime = Math.max(100, Math.pow(0.8 - ((startLevel - 1) * 0.007), startLevel) * 1000);
+    private _initDropSpeed(startLevel: number, adventureLevelConfig?: AdventureLevelConfig): void {
+        if (this.mode === 'ZEN' || this.mode === 'PUZZLE') this.dropTime = 1000000;
+        else if (this.mode === 'MASTER') this.dropTime = 0;
+        else if (this.mode === 'ADVENTURE') {
+             const lvl = adventureLevelConfig ? adventureLevelConfig.index : 0;
+             this.dropTime = Math.max(100, Math.pow(0.95, lvl) * 1000);
         }
+        else if (this.mode === 'BLITZ') {
+            this.dropTime = BLITZ_INITIAL_DROPTIME;
+        }
+        else this.dropTime = Math.max(100, Math.pow(0.8 - ((startLevel - 1) * 0.007), startLevel) * 1000);
+    }
+
+    private _initFrenzyState(): void {
+        this.frenzyActive = false;
+        this.frenzyTimer = 0;
+        this.frenzyMultiplier = 1;
+        this.stats.isFrenzyActive = false;
+        this.stats.frenzyTimer = 0;
+    }
+
+    private _initBlitzState(): void {
+        this.blitzSpeedThresholdIndex = 0;
+        this.blitzLastSpeedUpScore = 0;
+    }
+
+    private _clearEphemeralStates(): void {
+        this.heldPiece = null;
+        this.comboCount = -1;
+        this.isBackToBack = false;
+        this.callbacks.onComboChange(this.comboCount, this.isBackToBack);
+        this.garbagePending = 0;
+        this.callbacks.onGarbageChange(0);
+        this.floatingTexts = [];
+        this.lockStartTime = 0;
+        this.battleTimer = 0;
+        this.callbacks.onHoldChange(this.heldPiece, this.canHold);
+        this._setPieceGrounded(false);
+        this.wildcardNextPieceType = null;
+        this.boosterManager.isSelectingBombRows = false;
+        this.callbacks.onBombSelectionEnd();
+        this.boosterManager.isSelectingLine = false;
+        this.boosterManager.selectedLineToClear = null;
+        this.callbacks.onLineSelectionEnd();
     }
 
     private isBoardEmpty(): boolean {
-        return this.stage.every(row => row.every(cell => cell[1] === 'clear'));
+        return this.stage.every(row => row.every(cell => cell[1] === 'clear' && !cell[2]));
     }
 
-    private resetZenMode() {
+    private _resetZenMode(): void {
         this.stage = createStage();
-        audioManager.playClear(4);
+        this.callbacks.onAudio('CLEAR_4');
         this.addFloatingText('ZEN RESET', '#06b6d4');
     }
 
-    private triggerGameOver(state: GameState, soundLevel?: number) {
-        this.callbacks.onGameOver(state);
-        if (state === 'VICTORY') {
-            audioManager.playClear(soundLevel || 4);
-        } else {
-            audioManager.playGameOver();
-        }
+    public triggerGameOver(state: GameState, rewards?: LevelRewards): void {
+        this.callbacks.onGameOver(state, this.adventureManager.config?.id, rewards);
+        if (state === 'VICTORY') this.callbacks.onAudio('CLEAR_4');
+        else this.callbacks.onAudio('GAME_OVER');
     }
 
-    sweepRows(newStage: Board, isTSpin: boolean = false) {
-        const fullRowIndices: number[] = [];
-        newStage.forEach((row, y) => {
-            if (row.every(cell => cell[1] !== 'clear')) {
-                fullRowIndices.push(y);
-            }
-        });
+    sweepRows(newStage: Board, isTSpinDetected: boolean = false, manualClearedRows?: number[]): void {
+        let fullRowIndices: number[] = [];
+        if (manualClearedRows) {
+            fullRowIndices = manualClearedRows;
+        } else {
+            newStage.forEach((row, y) => { if (row.every(cell => cell[1] !== 'clear')) fullRowIndices.push(y); });
+        }
+        
+        const rowsCleared: number = fullRowIndices.length;
 
-        const rowsCleared = fullRowIndices.length;
+        this._processClearedRowModifiers(newStage, fullRowIndices);
 
-        if (rowsCleared === 0) {
-            if (isTSpin) {
-                this.applyScore({ score: SCORES.TSPIN });
-                this.addFloatingText('T-SPIN', '#d946ef', 0.7);
-            }
+        if (rowsCleared === 0 && !isTSpinDetected) {
             this.comboCount = -1;
             this.stage = newStage;
+            this.callbacks.onComboChange(this.comboCount, this.isBackToBack);
+            this.adventureManager.checkObjectives();
             return;
         }
-
-        const sweepedStage = newStage.filter((_, index) => !fullRowIndices.includes(index));
+        
+        const sweepedStage: Board = newStage.filter((_, index) => !fullRowIndices.includes(index));
         while (sweepedStage.length < STAGE_HEIGHT) {
-            sweepedStage.unshift(new Array(STAGE_WIDTH).fill([null, 'clear']));
+            const emptyRow = new Array(STAGE_WIDTH).fill([null, 'clear']);
+            if (this.flippedGravity) {
+                sweepedStage.push(emptyRow);
+            } else {
+                sweepedStage.unshift(emptyRow);
+            }
         }
         
-        this.comboCount += 1;
-        const result = calculateScore(rowsCleared, this.stats.level, isTSpin, this.isBackToBack, this.comboCount);
+        const result: ScoreResult = this._calculateClearOutcome(rowsCleared, isTSpinDetected);
         
-        this.isBackToBack = result.isBackToBack;
-        this.applyScore(result);
-        
+        this._handlePostClearVisualsAndAudio(result, fullRowIndices, rowsCleared);
+        this._updateStageAndAudio(sweepedStage);
+        this._applyGarbagePostClear();
+        this.adventureManager.checkObjectives();
+
+        if (this.comboCount >= FRENZY_COMBO_THRESHOLD) {
+            this._activateFrenzy();
+        }
+        this._checkPowerupSpawn(rowsCleared, isTSpinDetected);
+    }
+
+    private _processClearedRowModifiers(stage: Board, fullRowIndices: number[]): void {
         fullRowIndices.forEach(y => {
-             this.callbacks.onVisualEffect('PARTICLE', { isExplosion: true, y, color: 'white' });
+            stage[y].forEach((cell, x) => {
+                if (cell[2]?.type === 'GEM') {
+                    this.stats.gemsCollected = (this.stats.gemsCollected || 0) + 1;
+                    this.applyScore({ score: SCORES.GEM_COLLECT_BONUS });
+                    this.addFloatingText('GEM!', MODIFIER_COLORS.GEM, 0.5, 'gem');
+                } else if (cell[2]?.type === 'BOMB') {
+                    this.stats.bombsDefused = (this.stats.bombsDefused || 0) + 1;
+                    this.applyScore({ score: SCORES.BOMB_DEFUZE_BONUS });
+                    this.addFloatingText('BOMB DEFUZED!', '#4ade80', 0.5, 'bomb');
+                } else if (cell[2]?.type === 'WILDCARD_BLOCK') {
+                    this.boosterManager.wildcardAvailable = true;
+                    this.callbacks.onWildcardAvailableChange(true);
+                    this.addFloatingText('WILDCARD READY!', MODIFIER_COLORS.WILDCARD_BLOCK, 0.7, 'powerup');
+                    this.callbacks.onVisualEffect({type: 'POWERUP_ACTIVATE', payload: { type: 'WILDCARD_BLOCK', x, y, color: MODIFIER_COLORS.WILDCARD_BLOCK}});
+                } else if (cell[2]?.type === 'LASER_BLOCK') {
+                    this.clearBottomLine();
+                    this.addFloatingText('LASER CLEAR!', MODIFIER_COLORS.LASER_BLOCK, 0.7, 'powerup');
+                    this.callbacks.onVisualEffect({type: 'POWERUP_ACTIVATE', payload: { type: 'LASER_BLOCK', x, y, color: MODIFIER_COLORS.LASER_BLOCK}});
+                } else if (cell[2]?.type === 'NUKE_BLOCK') {
+                    this.nukeBoard();
+                    this.addFloatingText('NUKE!', MODIFIER_COLORS.NUKE_BLOCK, 1.0, 'powerup');
+                    this.applyScore({ score: SCORES.POWERUP_NUKE_BLOCK_BONUS });
+                    this.callbacks.onVisualEffect({type: 'POWERUP_ACTIVATE', payload: { type: 'NUKE_BLOCK', x, y, color: MODIFIER_COLORS.NUKE_BLOCK}});
+                }
+            });
         });
-        if (result.visualShake) this.callbacks.onVisualEffect('SHAKE', result.visualShake);
-        if (result.text) this.addFloatingText(result.text, isTSpin ? '#d946ef' : '#fff', isTSpin ? 0.9 : 0.5);
-        
-        audioManager.playClear(rowsCleared);
-        this.handleLevelProgression(rowsCleared, sweepedStage);
-        this.stage = sweepedStage;
-        
-        if (this.garbagePending > 0) {
-            this.applyGarbage();
+    }
+
+    private _checkPowerupSpawn(rowsCleared: number, isTSpin: boolean): void {
+        let spawnChance = 0.3;
+        if (this.mode === 'BLITZ') {
+            spawnChance *= BLITZ_POWERUP_SPAWN_CHANCE_MULTIPLIER;
+        }
+
+        if ((rowsCleared === 4 || (isTSpin && rowsCleared >= 2)) && Math.random() < spawnChance) {
+            this.addFloatingText('POWERUP SPAWN!', '#fff', 0.6, 'powerup');
+            const powerupTypes: CellModifierType[] = ['WILDCARD_BLOCK', 'LASER_BLOCK'];
+            if (this.mode === 'BLITZ') {
+                powerupTypes.push('NUKE_BLOCK');
+            }
+            const randomPowerupType = powerupTypes[Math.floor(Math.random() * powerupTypes.length)];
+            const modifier: CellModifier = { type: randomPowerupType };
+            if (randomPowerupType === 'BOMB') modifier.timer = 10; 
+            if (randomPowerupType === 'ICE') modifier.hits = 2;
+
+            if (this.fillRandomClearCellExcludingPlayer(modifier)) {
+                if (randomPowerupType === 'WILDCARD_BLOCK') {
+                    this.boosterManager.wildcardAvailable = true;
+                    this.callbacks.onWildcardAvailableChange(true);
+                }
+            }
         }
     }
 
-    private applyScore(result: { score: number }) {
-        if (this.mode !== 'ZEN' && this.mode !== 'PUZZLE') {
-            this.stats.score += result.score;
+    private fillRandomClearCellExcludingPlayer(modifier: CellModifier, attempts: number = 100): boolean {
+        for (let i = 0; i < attempts; i++) {
+            const y = Math.floor(Math.random() * STAGE_HEIGHT);
+            const x = Math.floor(Math.random() * STAGE_WIDTH);
+
+            let isPlayerCell = false;
+            this.player.tetromino.shape.forEach((row, r) => {
+                row.forEach((cellType, c) => {
+                    if (cellType !== 0 && (this.player.pos.y + r === y) && (this.player.pos.x + c === x)) {
+                        isPlayerCell = true;
+                    }
+                });
+            });
+
+            if (this.stage[y][x][1] === 'clear' && !this.stage[y][x][2] && !isPlayerCell) {
+                this.stage[y][x][2] = modifier;
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private _calculateClearOutcome(rowsCleared: number, isTSpinDetected: boolean): ScoreResult {
+        this.comboCount += 1;
+        this.stats.combosAchieved = Math.max(this.stats.combosAchieved || 0, this.comboCount + 1);
+        return calculateScore(rowsCleared, this.stats.level, isTSpinDetected, this.isBackToBack, this.comboCount);
+    }
+
+    private _handlePostClearVisualsAndAudio(result: ScoreResult, fullRowIndices: number[], rowsCleared: number): void {
+        this.isBackToBack = result.isBackToBack;
+        if (rowsCleared === 4) this.stats.tetrisesAchieved = (this.stats.tetrisesAchieved || 0) + 1;
+        this.callbacks.onComboChange(this.comboCount, this.isBackToBack);
+        this.applyScore(result);
+        
+        fullRowIndices.forEach(y => this.callbacks.onVisualEffect({type: 'PARTICLE', payload: { isExplosion: true, y, color: 'white' }}));
+        if (result.visualShake) this.callbacks.onVisualEffect({type: 'SHAKE', payload: result.visualShake});
+        if (result.text) this.addFloatingText(result.text, '#fff', 0.5);
+        
+        // Emit audio event based on lines cleared
+        if (rowsCleared === 1) this.callbacks.onAudio('CLEAR_1');
+        else if (rowsCleared === 2) this.callbacks.onAudio('CLEAR_2');
+        else if (rowsCleared === 3) this.callbacks.onAudio('CLEAR_3');
+        else if (rowsCleared >= 4) this.callbacks.onAudio('CLEAR_4');
+
+        this._handleLevelProgression(rowsCleared);
+    }
+
+    private _updateStageAndAudio(sweepedStage: Board): void {
+        this.stage = sweepedStage;
+        // No direct audio manager call here. Filtering is a side effect that can stay in UI or be removed if not critical.
+        // Keeping it clean for now.
+    }
+
+    private _applyGarbagePostClear(): void {
+        if (this.garbagePending > 0) this.applyGarbage();
+    }
+
+    private _activateFrenzy(): void {
+        if (!this.frenzyActive) {
+            this.frenzyActive = true;
+            this.frenzyMultiplier = SCORES.FRENZY_MULTIPLIER;
+            this.callbacks.onVisualEffect({ type: 'FRENZY_START' });
+            this.addFloatingText('FRENZY!', '#ffd700', 0.9, 'frenzy');
+        }
+        this.frenzyTimer = Math.max(this.frenzyTimer, FRENZY_DURATION_MS);
+        this.stats.isFrenzyActive = true;
+        this.stats.frenzyTimer = this.frenzyTimer;
+        this.callbacks.onStatsChange(this.stats);
+    }
+
+    private _deactivateFrenzy(): void {
+        if (this.frenzyActive) {
+            this.frenzyActive = false;
+            this.frenzyMultiplier = 1;
+            this.callbacks.onVisualEffect({ type: 'FRENZY_END' });
+            this.addFloatingText('FRENZY END', '#888888', 0.6, 'frenzy');
+            this.stats.isFrenzyActive = false;
+            this.stats.frenzyTimer = 0;
             this.callbacks.onStatsChange(this.stats);
         }
     }
 
-    private handleLevelProgression(rowsCleared: number, currentStage: Board) {
-        this.stats.rows += rowsCleared;
+    public applyScore(result: { score: number }): void {
+        if (this.mode !== 'ZEN' && this.mode !== 'PUZZLE') {
+            this.stats.score += result.score * this.frenzyMultiplier;
+        }
+        this.adventureManager.applyBossDamage(result.score);
 
+        if (this.mode === 'BLITZ') {
+            this._checkBlitzSpeedUp();
+        }
+
+        this.callbacks.onStatsChange(this.stats);
+    }
+
+    private _checkBlitzSpeedUp(): void {
+        const currentScore = this.stats.score;
+        if (this.blitzSpeedThresholdIndex < BLITZ_SPEED_THRESHOLDS.length) {
+            const nextThreshold = BLITZ_SPEED_THRESHOLDS[this.blitzSpeedThresholdIndex];
+            if (currentScore >= nextThreshold.score && currentScore > this.blitzLastSpeedUpScore) {
+                this.dropTime *= nextThreshold.speedFactor;
+                this.addFloatingText(nextThreshold.message, '#ffa500', 0.9, 'frenzy');
+                this.callbacks.onBlitzSpeedUp?.(this.blitzSpeedThresholdIndex);
+                this.callbacks.onAudio('BLITZ_SPEEDUP');
+                this.blitzLastSpeedUpScore = currentScore;
+                this.blitzSpeedThresholdIndex++;
+            }
+        }
+    }
+
+    private _handleLevelProgression(rowsCleared: number): void {
+        this.stats.rows += rowsCleared;
+        
         if (this.mode === 'MARATHON') {
-            const newLevel = Math.floor(this.stats.rows / 10);
+            const newLevel: number = Math.floor(this.stats.rows / 10);
             if (newLevel > this.stats.level) {
                 this.stats.level = newLevel;
                 this.dropTime = Math.max(100, 1000 * Math.pow(0.95, this.stats.level));
             }
         } else if (this.mode === 'SPRINT') {
-            if (this.stats.rows >= 40) {
-                this.triggerGameOver('VICTORY', 4);
-            }
+            if (this.stats.rows >= 40) this.triggerGameOver('VICTORY', { coins: LEVEL_PASS_COIN_REWARD, stars: 3 });
         } else if (this.mode === 'PUZZLE') {
-            const isClear = currentStage.every(row => row.every(c => c[1] === 'clear'));
-            if (isClear) {
-                this.triggerGameOver('VICTORY', 4);
-            }
+            if (this.isBoardEmpty()) this.triggerGameOver('VICTORY', { coins: LEVEL_PASS_COIN_REWARD, stars: 3 });
         }
         this.callbacks.onStatsChange(this.stats);
     }
 
-    private applyGarbage() {
-        this.stage = addGarbageLines(this.stage, this.garbagePending);
+    private applyGarbage(): void {
+        this.stage = addGarbageLines(this.stage, this.garbagePending, false, this.flippedGravity);
         this.garbagePending = 0;
-        this.callbacks.onVisualEffect('SHAKE', 'soft');
+        this.callbacks.onGarbageChange(this.garbagePending);
+        this.callbacks.onVisualEffect({type: 'SHAKE', payload: 'soft'});
         this.addFloatingText("WARNING!", "#ef4444");
     }
 
-    lockPiece() {
+    lockPiece(): void {
         const { player, stage } = this;
-        let tSpinDetected = false;
-
-        // Check T-Spin condition BEFORE locking
+        let tSpinDetected: boolean = false;
         if (player.tetromino.type === 'T' && this.lastMoveWasRotation) {
-             if (isTSpin(player, stage)) {
+             if (isTSpin(player, stage, this.rotationState)) {
                  tSpinDetected = true;
-                 this.triggerTSpinVisuals(player);
+                 this._triggerTSpinVisuals(player);
              }
         }
 
-        const newStage = stage.map(row => [...row]);
-        player.tetromino.shape.forEach((row, y) => {
+        const newStage: Board = stage.map(row => [...row]);
+        player.tetromino.shape.forEach((row: (TetrominoType | 0)[], y: number) => {
             row.forEach((value, x) => {
                 if (value !== 0) {
-                    const ny = y + player.pos.y;
-                    const nx = x + player.pos.x;
+                    const ny: number = y + player.pos.y;
+                    const nx: number = x + player.pos.x;
                     if (ny >= 0 && ny < STAGE_HEIGHT) {
-                        newStage[ny][nx] = [player.tetromino.type, 'merged'];
+                        if (newStage[ny][nx][2]?.type === 'ICE' || newStage[ny][nx][2]?.type === 'CRACKED_ICE') {
+                            newStage[ny][nx][2]!.hits = (newStage[ny][nx][2]!.hits || 0) - 1;
+                            if (newStage[ny][nx][2]!.hits! <= 0) {
+                                newStage[ny][nx] = [player.tetromino.type, 'merged'];
+                            } else {
+                                newStage[ny][nx][2]!.type = 'CRACKED_ICE';
+                                newStage[ny][nx][1] = 'merged';
+                            }
+                        }
+                        else {
+                            newStage[ny][nx] = [player.tetromino.type, 'merged'];
+                        }
                     }
                 }
             });
         });
 
+        for (let y = 0; y < STAGE_HEIGHT; y++) {
+            for (let x = 0; x < STAGE_WIDTH; x++) {
+                if (newStage[y][x][2]?.type === 'BOMB') {
+                    newStage[y][x][2]!.timer = (newStage[y][x][2]!.timer || 0) - 1;
+                }
+            }
+        }
+
         this.stage = newStage;
-        this.callbacks.onVisualEffect('SHAKE', 'soft');
-        audioManager.playLock();
-        
+        this.callbacks.onVisualEffect({type: 'SHAKE', payload: 'soft'});
+        this.callbacks.onAudio('LOCK');
         this.sweepRows(this.stage, tSpinDetected);
         this.spawnPiece(); 
+        this._setPieceGrounded(false);
+        this.stats.movesTaken = (this.stats.movesTaken || 0) + 1;
+        this.callbacks.onStatsChange(this.stats);
+        this.adventureManager.checkObjectives();
     }
 
-    private triggerTSpinVisuals(player: Player) {
+    private _triggerTSpinVisuals(player: Player): void {
          this.tSpinFlash = 1.0;
-         this.callbacks.onVisualEffect('FLASH', { color: '#d946ef', duration: 300 });
-         this.callbacks.onVisualEffect('PARTICLE', { 
-             x: player.pos.x + 1, 
-             y: player.pos.y + 1, 
-             color: '#d946ef',
-             amount: 50,
-             isBurst: true
-         });
-         audioManager.playTSpin();
+         this.callbacks.onVisualEffect({type: 'FLASH', payload: { color: '#d946ef', duration: 300 }});
+         this.callbacks.onVisualEffect({type: 'PARTICLE', payload: { x: player.pos.x + 1, y: player.pos.y + 1, color: '#d946ef', amount: 50, isBurst: true }});
+         this.callbacks.onAudio('TSPIN');
     }
 
-    // --- INPUT HANDLING ---
+    handleAction(action: KeyAction): void {
+        if (this.boosterManager.isSelectingBombRows || this.boosterManager.isSelectingLine) return;
 
-    handleInput(action: KeyAction, isPressed: boolean) {
-        if (action === 'moveLeft' || action === 'moveRight') {
-            const dir = action === 'moveLeft' ? 'left' : 'right';
-            
-            if (isPressed) {
-                if (!this.keys[dir]) {
-                    this.keys[dir] = true;
-                    this.moveStack.push(dir);
-                    this.keyTimers[dir] = 0; 
-                }
-            } else {
-                this.keys[dir] = false;
-                this.moveStack = this.moveStack.filter(k => k !== dir);
-                this.keyTimers[dir] = 0;
-            }
-            return;
-        }
-
-        if (action === 'softDrop') {
-            this.keys.down = isPressed;
-            return;
-        }
-
-        if (isPressed) {
-            if (['rotateCW', 'rotateCCW', 'hold', 'hardDrop'].includes(action)) {
-                this.inputQueue.push(action);
-            }
-        }
-    }
-
-    private processInputs(deltaTime: number) {
-        // 1. Process Discrete Action Queue
-        while (this.inputQueue.length > 0) {
-            const action = this.inputQueue.shift();
-            switch (action) {
-                case 'rotateCW': this.rotate(1); break;
-                case 'rotateCCW': this.rotate(-1); break;
-                case 'hold': this.hold(); break;
-                case 'hardDrop': this.hardDrop(); break;
-            }
-        }
-
-        // 2. Process Continuous Movement (DAS / ARR)
-        const activeDir = this.moveStack[this.moveStack.length - 1];
-        if (activeDir) {
-            const delta = activeDir === 'left' ? -1 : 1;
-            
-            if (this.keyTimers[activeDir] === 0) {
-                // Initial Move (Instant)
-                this.move(delta);
-            }
-            
-            const previousTime = this.keyTimers[activeDir];
-            this.keyTimers[activeDir] += deltaTime;
-
-            if (this.keyTimers[activeDir] > this.das) {
-                const arrSpeed = this.arr;
-                if (arrSpeed === 0) {
-                    while(this.move(delta)) {}
-                } else {
-                    // Robust ARR Accumulator Logic (Tick-Based)
-                    // Ensures exact number of movements regardless of frame duration
-                    const timePastDasPrev = Math.max(0, previousTime - this.das);
-                    const timePastDasNow = this.keyTimers[activeDir] - this.das;
-                    
-                    const ticksPrev = Math.floor(timePastDasPrev / arrSpeed);
-                    const ticksNow = Math.floor(timePastDasNow / arrSpeed);
-                    
-                    const movesToExecute = ticksNow - ticksPrev;
-                    
-                    for(let i=0; i<movesToExecute; i++) {
-                        this.move(delta);
-                    }
-                }
-            }
-        }
-
-        // 3. Process Soft Drop
-        if (this.keys.down) {
-            this.softDrop();
+        switch (action) {
+            case 'moveLeft': this.move(-1); break;
+            case 'moveRight': this.move(1); break;
+            case 'softDrop': this.softDrop(); break;
+            case 'hardDrop': this.hardDrop(); break;
+            case 'rotateCW': this.rotate(1); break;
+            case 'rotateCCW': this.rotate(-1); break;
+            case 'hold': this.hold(); break;
         }
     }
 
     move(dir: number): boolean {
-        if (!checkCollision(this.player, this.stage, { x: dir, y: 0 })) {
+        if (!checkCollision(this.player, this.stage, { x: dir, y: 0 }, this.flippedGravity)) {
             this.player.pos.x += dir;
             this.lastMoveWasRotation = false;
-            this.updateLockTimerOnMove();
-            audioManager.playMove();
+            this._updateLockTimerOnMove();
+            this.callbacks.onAudio('MOVE');
             return true;
         }
         return false;
     }
 
-    rotate(dir: number) {
-        const rotatedShape = rotateMatrix(this.player.tetromino.shape, dir);
-        const clonedPlayer = { ...this.player, tetromino: { ...this.player.tetromino, shape: rotatedShape } };
-
+    rotate(dir: number): void {
+        const rotatedShape: TetrominoShape = rotateMatrix(this.player.tetromino.shape, dir);
+        const clonedPlayer: Player = { ...this.player, tetromino: { ...this.player.tetromino, shape: rotatedShape } };
         const kicks = getWallKicks(this.player.tetromino.type, this.rotationState, dir);
-        
         for (const offset of kicks) {
-            if (!checkCollision(clonedPlayer, this.stage, { x: offset[0], y: offset[1] })) {
+            if (!checkCollision(clonedPlayer, this.stage, { x: offset[0], y: offset[1] }, this.flippedGravity)) {
                 this.player.tetromino.shape = rotatedShape;
                 this.player.pos.x += offset[0];
                 this.player.pos.y += offset[1];
                 this.rotationState = (this.rotationState + dir + 4) % 4;
                 this.lastMoveWasRotation = true;
-                
-                this.updateLockTimerOnMove();
-                audioManager.playRotate();
+                this._updateLockTimerOnMove();
+                this.callbacks.onAudio('ROTATE');
                 this.callbacks.onAiTrigger();
+                this._setPieceGrounded(false);
                 return;
             }
         }
     }
 
     softDrop(): boolean {
-        if (!checkCollision(this.player, this.stage, { x: 0, y: 1 })) {
-            this.player.pos.y += 1;
+        const moveY = this.flippedGravity ? -1 : 1;
+        if (!checkCollision(this.player, this.stage, { x: 0, y: moveY }, this.flippedGravity)) {
+            this.player.pos.y += moveY;
             this.lastMoveWasRotation = false;
             if(this.mode !== 'ZEN' && this.mode !== 'PUZZLE') {
                 this.stats.score += SCORES.SOFT_DROP;
@@ -462,147 +596,185 @@ export class GameCore {
         return false;
     }
 
-    hardDrop() {
-        let dropped = 0;
-        while (!checkCollision(this.player, this.stage, { x: 0, y: 1 })) {
-            this.player.pos.y += 1;
+    hardDrop(): void {
+        let dropped: number = 0;
+        const moveY = this.flippedGravity ? -1 : 1;
+        while (!checkCollision(this.player, this.stage, { x: 0, y: moveY }, this.flippedGravity)) {
+            this.player.pos.y += moveY;
             dropped++;
         }
-        
         if(this.mode !== 'ZEN' && this.mode !== 'PUZZLE') {
             this.stats.score += dropped * SCORES.HARD_DROP;
             this.callbacks.onStatsChange(this.stats);
         }
-        
-        if (dropped > 0) {
-            this.lastMoveWasRotation = false;
-        }
-
-        this.callbacks.onVisualEffect('PARTICLE', { 
-            x: this.player.pos.x, 
-            y: this.player.pos.y, 
-            color: this.player.tetromino.color,
-            isExplosion: false 
-        });
-        
-        audioManager.playHardDrop();
+        if (dropped > 0) this.lastMoveWasRotation = false;
+        this.callbacks.onVisualEffect({type: 'PARTICLE', payload: { x: this.player.pos.x, y: this.player.pos.y, color: this.player.tetromino.color, isExplosion: false, amount: 20 }});
+        this.callbacks.onAudio('HARD_DROP');
         this.lockPiece();
     }
 
-    hold() {
+    hold(): void {
         if (!this.canHold) return;
-
-        const currentType = this.player.tetromino.type;
+        const currentType: TetrominoType = this.player.tetromino.type;
+        const currentShapeHeight = TETROMINOS[currentType].shape.length;
         if (this.heldPiece) {
             this.player.tetromino = TETROMINOS[this.heldPiece];
             this.heldPiece = currentType;
         } else {
             this.heldPiece = currentType;
-            this.spawnPiece(); 
+            this.spawnPiece();
         }
-        
         if (this.player.tetromino.type !== currentType || !this.heldPiece) { 
-             this.player.pos = { x: STAGE_WIDTH / 2 - 2, y: 0 };
+             this.player.pos = { 
+                x: STAGE_WIDTH / 2 - 2, 
+                y: this.flippedGravity ? STAGE_HEIGHT - currentShapeHeight : 0 
+            }; 
              this.rotationState = 0;
-             this.clearLockTimer();
+             this._clearLockTimer();
         }
-        
-        this.canHold = false;
-        this.callbacks.onHoldChange(this.heldPiece, false);
-        audioManager.playUiSelect();
+        this.canHold = this.boosterManager.activeBoosters.includes('PIECE_SWAP_BOOSTER');
+        this.callbacks.onHoldChange(this.heldPiece, this.canHold);
+        this.callbacks.onAudio('UI_SELECT');
+        this.callbacks.onAiTrigger();
+        this._setPieceGrounded(false);
+    }
+
+    activateLineClearerSelection(): void { this.boosterManager.activateLineClearerSelection(); }
+    executeLineClearer(selectedRow: number): void { this.boosterManager.executeLineClearer(selectedRow); }
+    activateBombBoosterSelection(): void { this.boosterManager.activateBombBoosterSelection(); }
+    executeBombBooster(startRow: number, numRows: number): void { this.boosterManager.executeBombBooster(startRow, numRows); }
+    
+    chooseWildcardPiece(type: TetrominoType): void {
+        if (!this.boosterManager.wildcardAvailable) return;
+        this.wildcardNextPieceType = type;
+        this.boosterManager.wildcardAvailable = false; 
+        this.callbacks.onWildcardAvailableChange(false);
+        this.spawnPiece();
+    }
+
+    private _clearLockTimer(): void {
+        if (this.lockTimer) {
+            clearTimeout(this.lockTimer);
+            this.lockTimer = null;
+        }
+        this.lockStartTime = 0;
+        this.movesOnGround = 0;
+    }
+
+    private _setPieceGrounded(grounded: boolean): void {
+        if (this.pieceIsGrounded !== grounded) {
+            this.pieceIsGrounded = grounded;
+            this.callbacks.onGroundedChange(grounded);
+            if (grounded) {
+                this.callbacks.onAudio('SOFT_LAND');
+                this._startLockTimer();
+            } else {
+                this._clearLockTimer();
+            }
+        }
+    }
+
+    private _startLockTimer(): void {
+        if (this.lockTimer) return; 
+        this.lockStartTime = Date.now();
+        this.lockTimer = setTimeout(() => {
+            this.lockPiece();
+        }, this.lockDelayDuration);
+    }
+
+    private _updateLockTimerOnMove(): void {
+        if (this.pieceIsGrounded) {
+            this.movesOnGround++;
+            if (this.movesOnGround < MAX_MOVES_BEFORE_LOCK) {
+                this._clearLockTimer();
+                this._startLockTimer();
+                this.lockResetFlash = 1.0; 
+            }
+        }
         this.callbacks.onAiTrigger();
     }
 
-    private updateLockTimerOnMove() {
-        if (this.lockTimer) {
-            this.movesOnGround++;
-            if(this.movesOnGround < MAX_MOVES_BEFORE_LOCK) {
-                this.clearLockTimer();
-                this.lockResetFlash = 0.5;
-            }
-        }
-    }
-
-    private clearLockTimer() {
-        if (this.lockTimer) clearTimeout(this.lockTimer);
-        this.lockTimer = null;
-        this.lockStartTime = 0;
-    }
-
-    addFloatingText(text: string, color: string = '#fff', scale: number = 0.5) {
+    addFloatingText(text: string, color: string, scale: number = 0.5, variant: FloatingTextVariant = 'default'): void {
+        const id = Date.now() + Math.random();
         this.floatingTexts.push({
-            id: Date.now() + Math.random(),
-            text,
-            x: this.player.pos.x + 1,
-            y: this.player.pos.y,
-            life: 1.0,
-            color,
-            scale
+            id, text, x: this.player.pos.x, y: this.player.pos.y, 
+            life: 1.0, color, scale, initialScale: scale, variant,
         });
     }
 
-    update(deltaTime: number) {
-        this.updateModeLogic(deltaTime);
-        this.updateGravity(deltaTime);
-        this.processInputs(deltaTime);
-        
-        for (let i = this.floatingTexts.length - 1; i >= 0; i--) {
-            this.floatingTexts[i].life -= deltaTime * 0.002;
-            this.floatingTexts[i].y -= deltaTime * 0.001;
-            if (this.floatingTexts[i].life <= 0) {
-                this.floatingTexts.splice(i, 1);
-            }
+    clearBottomLine(): void {
+        const bottomRowIndex = this.flippedGravity ? 0 : STAGE_HEIGHT - 1;
+        const tempStage = this.stage.map(row => [...row]);
+        if (tempStage[bottomRowIndex]) {
+            tempStage[bottomRowIndex].fill([null, 'clear']);
+            this.sweepRows(tempStage, false, [bottomRowIndex]);
         }
-
-        this.processVisualsQueue();
     }
 
-    private updateModeLogic(deltaTime: number) {
-        if (this.mode === 'TIME_ATTACK') {
-            this.stats.time -= deltaTime / 1000;
+    nukeBoard(): void {
+        const rowsToClear: number[] = [];
+        for (let y = 0; y < STAGE_HEIGHT; y++) {
+            rowsToClear.push(y);
+        }
+        const tempStage = createStage(); 
+        this.sweepRows(tempStage, false, rowsToClear);
+        this.callbacks.onVisualEffect({ type: 'SHAKE', payload: 'hard' });
+        this.callbacks.onVisualEffect({ type: 'FLASH', payload: { color: MODIFIER_COLORS.NUKE_BLOCK, duration: 500 } });
+        this.callbacks.onAudio('NUKE_CLEAR');
+    }
+
+    update(deltaTime: number): void {
+        this.adventureManager.update(deltaTime);
+        
+        if (this.mode === 'TIME_ATTACK' || this.mode === 'SPRINT') {
+            this.stats.time += (deltaTime / 1000);
+        } else if (this.mode === 'BLITZ') {
+            this.stats.time = Math.max(0, this.stats.time - (deltaTime / 1000));
             if (this.stats.time <= 0) {
-                this.stats.time = 0;
-                this.triggerGameOver('GAMEOVER');
-            }
-        } else if (this.mode === 'SPRINT') {
-            this.stats.time += deltaTime / 1000;
-        } else if (this.mode === 'BATTLE') {
-            this.battleTimer += deltaTime;
-            const interval = Math.max(2000, 8000 - (this.stats.rows * 100)); 
-            if (this.battleTimer > interval) {
-                const garbageAmount = 1 + Math.floor(Math.random() * 2); 
-                this.garbagePending += garbageAmount;
-                this.battleTimer = 0;
+                this.triggerGameOver('VICTORY', { coins: LEVEL_PASS_COIN_REWARD, stars: 3 }); 
             }
         }
-    }
+        this.callbacks.onStatsChange(this.stats);
+        this.adventureManager.checkObjectives();
 
-    private updateGravity(deltaTime: number) {
-        const effectiveGravity = ((this.mode === 'ZEN' || this.mode === 'PUZZLE') && !this.keys.down) ? Infinity : this.dropTime;
-        this.dropCounter += deltaTime * this.speedMultiplier;
-        
-        if (this.dropCounter > effectiveGravity) {
-            if (!checkCollision(this.player, this.stage, { x: 0, y: 1 })) {
-                this.player.pos.y += 1;
-                this.lastMoveWasRotation = false;
+        this.boosterManager.update(deltaTime);
+
+        if (this.frenzyActive) {
+            this.frenzyTimer -= deltaTime;
+            if (this.frenzyTimer <= 0) {
+                this._deactivateFrenzy();
             } else {
-                if (!this.lockTimer) {
-                    this.lockTimer = setTimeout(() => {
-                        if (checkCollision(this.player, this.stage, { x: 0, y: 1 })) {
-                            this.lockPiece();
-                        }
-                    }, LOCK_DELAY_MS);
-                    this.lockStartTime = Date.now();
+                this.stats.frenzyTimer = this.frenzyTimer;
+                this.callbacks.onStatsChange(this.stats);
+            }
+        }
+
+        // Update piece drop
+        this.dropCounter += deltaTime;
+        let currentDropTime = this.dropTime;
+        if (this.boosterManager.slowTimeActive) {
+            currentDropTime *= 2; 
+        }
+
+        if (this.dropCounter > currentDropTime) {
+            const moveY = this.flippedGravity ? -1 : 1;
+            if (!checkCollision(this.player, this.stage, { x: 0, y: moveY }, this.flippedGravity)) {
+                this.player.pos.y += moveY;
+            } else {
+                if (!this.pieceIsGrounded) {
+                    this._setPieceGrounded(true);
                 }
             }
             this.dropCounter = 0;
         }
+        this.updateEphemeralStates(deltaTime);
     }
 
-    private processVisualsQueue() {
-        while (this.visualEffectsQueue.length > 0) {
-            const effect = this.visualEffectsQueue.shift();
-            if (effect) this.callbacks.onVisualEffect(effect.type, effect.payload);
-        }
+    updateEphemeralStates(deltaTime: number): void {
+        this.floatingTexts = this.floatingTexts.filter(ft => {
+            ft.life -= deltaTime / 1000; 
+            ft.y += (this.flippedGravity ? 0.05 : -0.05) * (deltaTime / 1000); 
+            return ft.life > 0;
+        });
     }
 }

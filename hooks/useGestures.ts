@@ -8,7 +8,15 @@ interface GestureHandlers {
   onTap: () => void;
 }
 
-export const useGestures = (elementRef: React.RefObject<HTMLElement>, handlers: GestureHandlers) => {
+/**
+ * Custom React hook to detect touch gestures (swipes, flicks, taps) on a given HTML element.
+ * It provides a set of callback handlers for different gestures.
+ *
+ * @param {React.RefObject<HTMLElement>} elementRef A ref to the HTML element to attach listeners to.
+ * @param {GestureHandlers} handlers An object containing callback functions for various gestures.
+ * @returns {void}
+ */
+export const useGestures = (elementRef: React.RefObject<HTMLElement>, handlers: GestureHandlers): void => {
   const touchStartRef = useRef<{ x: number; y: number; time: number } | null>(null);
 
   useEffect(() => {
@@ -26,16 +34,16 @@ export const useGestures = (elementRef: React.RefObject<HTMLElement>, handlers: 
     const handleTouchEnd = (e: TouchEvent) => {
       if (!touchStartRef.current) return;
 
-      const endX = e.changedTouches[0].clientX;
-      const endY = e.changedTouches[0].clientY;
-      const endTime = Date.now();
+      const endX: number = e.changedTouches[0].clientX;
+      const endY: number = e.changedTouches[0].clientY;
+      const endTime: number = Date.now();
 
-      const dx = endX - touchStartRef.current.x;
-      const dy = endY - touchStartRef.current.y;
-      const dt = endTime - touchStartRef.current.time;
+      const dx: number = endX - touchStartRef.current.x;
+      const dy: number = endY - touchStartRef.current.y;
+      const dt: number = endTime - touchStartRef.current.time;
 
-      const absDx = Math.abs(dx);
-      const absDy = Math.abs(dy);
+      const absDx: number = Math.abs(dx);
+      const absDy: number = Math.abs(dy);
 
       // Tap detection
       if (absDx < 10 && absDy < 10 && dt < 200) {

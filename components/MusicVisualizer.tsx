@@ -13,16 +13,16 @@ const MusicVisualizer: React.FC = () => {
 
     let animationId: number;
 
-    const render = () => {
+    const render = (): void => {
       // Auto-resize to screen
       if (canvas.width !== window.innerWidth || canvas.height !== window.innerHeight) {
         canvas.width = window.innerWidth;
         canvas.height = window.innerHeight;
       }
 
-      const w = canvas.width;
-      const h = canvas.height;
-      const cy = h * 0.85; // Position line near bottom
+      const w: number = canvas.width;
+      const h: number = canvas.height;
+      const cy: number = h * 0.85; // Position line near bottom
       
       ctx.clearRect(0, 0, w, h);
 
@@ -33,10 +33,10 @@ const MusicVisualizer: React.FC = () => {
          return;
       }
 
-      const bufferLength = data.length;
+      const bufferLength: number = data.length;
       // We only care about the lower half of frequencies mostly for visuals
-      const usefulLength = Math.floor(bufferLength * 0.7);
-      const sliceWidth = (w / 2) / usefulLength;
+      const usefulLength: number = Math.floor(bufferLength * 0.7);
+      const sliceWidth: number = (w / 2) / usefulLength;
 
       // --- Left Channel (Mirrored) ---
       ctx.beginPath();
@@ -44,10 +44,10 @@ const MusicVisualizer: React.FC = () => {
       
       // Draw bass-heavy center out to high-freq edges
       for (let i = 0; i < usefulLength; i++) {
-        const v = data[i] / 255.0; // 0 to 1
-        const y = v * (h * 0.25); // Max height 25% of screen
+        const v: number = data[i] / 255.0; // 0 to 1
+        const y: number = v * (h * 0.25); // Max height 25% of screen
 
-        const x = (w / 2) - (i * sliceWidth);
+        const x: number = (w / 2) - (i * sliceWidth);
         // Use a curve for smoothness
         // Just using lineTo with high resolution is usually fine for FFT
         ctx.lineTo(x, cy - y);
@@ -59,18 +59,21 @@ const MusicVisualizer: React.FC = () => {
       // --- Right Channel (Mirrored) ---
       ctx.moveTo(w / 2, cy);
       for (let i = 0; i < usefulLength; i++) {
-        const v = data[i] / 255.0;
-        const y = v * (h * 0.25);
-        const x = (w / 2) + (i * sliceWidth);
+        const v: number = data[i] / 255.0;
+        const y: number = v * (h * 0.25);
+        const x: number = (w / 2) + (i * sliceWidth);
         ctx.lineTo(x, cy - y);
       }
       ctx.lineTo(w, h);
       ctx.lineTo(w / 2, h);
       
       // Fill Gradient
+      // Enhance visualizer with dynamic colors and increased responsiveness to sound
       const gradient = ctx.createLinearGradient(0, cy - h * 0.2, 0, h);
-      gradient.addColorStop(0, 'rgba(6, 182, 212, 0.8)'); // Cyan Top
-      gradient.addColorStop(0.5, 'rgba(217, 70, 239, 0.4)'); // Purple Mid
+      const hue1 = (Date.now() / 100) % 360; // Dynamic hue for first color
+      const hue2 = (Date.now() / 150 + 120) % 360; // Dynamic hue for second color, offset
+      gradient.addColorStop(0, `hsla(${hue1}, 80%, 70%, 0.8)`); // Vibrant Top
+      gradient.addColorStop(0.5, `hsla(${hue2}, 70%, 60%, 0.4)`); // Vibrant Mid
       gradient.addColorStop(1, 'rgba(0, 0, 0, 0)'); // Transparent Bottom
 
       ctx.fillStyle = gradient;
@@ -94,7 +97,7 @@ const MusicVisualizer: React.FC = () => {
   return (
     <canvas 
         ref={canvasRef} 
-        className="fixed inset-0 pointer-events-none z-0 mix-blend-screen opacity-60" 
+        className="fixed inset-0 pointer-events-none z-0 mix-blend-screen opacity-80" // Increased opacity for stronger effect
     />
   );
 };

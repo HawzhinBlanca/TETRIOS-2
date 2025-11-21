@@ -1,16 +1,18 @@
 
+
 import React from 'react';
-import { COLORS } from '../constants';
-import { TetrominoType } from '../types';
+import { COLORS, MODIFIER_COLORS } from '../constants';
+import { TetrominoType, GhostStyle, CellModifier, CellModifierType } from '../types';
 
 interface Props {
-  type: TetrominoType | 0 | 'I' | 'J' | 'L' | 'O' | 'S' | 'T' | 'Z' | null;
+  type: TetrominoType | 0 | null;
   isGhost?: boolean;
   isGhostWarning?: boolean;
   isRotating?: boolean;
+  modifier?: CellModifier; // Pass modifier for cell
   
   // Ghost Configuration
-  ghostStyle?: 'neon' | 'dashed' | 'solid';
+  ghostStyle?: GhostStyle;
   ghostOutline?: string;
   ghostAnimationDuration?: string;
   ghostShadow?: string;
@@ -22,6 +24,7 @@ const Cell: React.FC<Props> = ({
   isGhost, 
   isGhostWarning,
   isRotating,
+  modifier,
   
   ghostStyle = 'neon',
   ghostOutline = '2px', 
@@ -31,6 +34,65 @@ const Cell: React.FC<Props> = ({
 }) => {
   const color = type ? COLORS[type as TetrominoType] : null;
   
+  // Handle modifiers directly on the cell
+  if (modifier) {
+    let modifierColor: string = 'transparent';
+    let content: React.ReactNode = null;
+    const classList = ["w-full", "h-full", "relative", "transition-all", "duration-75", "rounded-[1px]", "flex", "items-center", "justify-center", "font-bold", "text-white", "text-xs"];
+    let pulseAnimation = '';
+
+    switch (modifier.type) {
+      case 'GEM':
+        modifierColor = MODIFIER_COLORS.GEM;
+        content = '💎';
+        classList.push('bg-pink-600', 'border', 'border-pink-400', 'shadow-[0_0_15px_rgba(236,72,153,0.7)]');
+        break;
+      case 'BOMB':
+        modifierColor = MODIFIER_COLORS.BOMB;
+        content = <span className="text-white text-lg font-mono">{modifier.timer}</span>;
+        classList.push('bg-red-800', 'border-2', 'border-red-500', 'shadow-[0_0_15px_rgba(239,68,68,0.9)]');
+        pulseAnimation = 'ghost-warning 0.5s infinite ease-in-out alternate'; // Using warning animation for bomb pulse
+        break;
+      case 'ICE':
+        modifierColor = MODIFIER_COLORS.ICE;
+        content = '🧊';
+        classList.push('bg-blue-700', 'border', 'border-blue-400', 'opacity-80');
+        break;
+      case 'CRACKED_ICE':
+        modifierColor = MODIFIER_COLORS.CRACKED_ICE;
+        content = 'แตก'; // Simplified representation for cracked
+        classList.push('bg-blue-600', 'border', 'border-blue-300', 'opacity-80');
+        break;
+      case 'WILDCARD_BLOCK':
+        modifierColor = MODIFIER_COLORS.WILDCARD_BLOCK;
+        content = '❓';
+        classList.push('bg-yellow-600', 'border', 'border-yellow-300', 'shadow-[0_0_15px_rgba(234,179,8,0.7)]', 'animate-pulse');
+        pulseAnimation = 'ghost-pulse 1.5s infinite ease-in-out'; // Custom pulse for wildcard
+        break;
+      case 'LASER_BLOCK':
+        modifierColor = MODIFIER_COLORS.LASER_BLOCK;
+        content = '⚡';
+        classList.push('bg-cyan-700', 'border', 'border-cyan-400', 'shadow-[0_0_15px_rgba(6,182,212,0.7)]', 'animate-pulse');
+        pulseAnimation = 'ghost-pulse 1s infinite ease-in-out'; // Custom pulse for laser
+        break;
+      case 'NUKE_BLOCK': // New: Nuke Block
+        modifierColor = MODIFIER_COLORS.NUKE_BLOCK;
+        content = '💥';
+        classList.push('bg-fuchsia-800', 'border', 'border-fuchsia-500', 'shadow-[0_0_15px_rgba(255,0,128,0.9)]', 'animate-pulse');
+        pulseAnimation = 'ghost-warning 0.8s infinite ease-in-out alternate'; // Intense pulse for Nuke
+        break;
+    }
+
+    return (
+      <div 
+        className={classList.join(' ')} 
+        style={{ animation: pulseAnimation || 'none', borderColor: modifierColor }}
+      >
+        {content}
+      </div>
+    );
+  }
+
   // --- GHOST RENDER LOGIC ---
   if (isGhost && color) {
     const rgb = color.match(/\d+/g)?.join(',') || '255,255,255';

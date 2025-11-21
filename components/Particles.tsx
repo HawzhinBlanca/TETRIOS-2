@@ -1,4 +1,3 @@
-
 import React, { useRef, useImperativeHandle, forwardRef, useEffect } from 'react';
 
 interface Particle {
@@ -22,14 +21,25 @@ interface Props {
     cellSize: number;
 }
 
+/**
+ * Renders a particle effects system on a canvas.
+ * Provides imperative handle methods to trigger different types of particle spawns.
+ */
 const Particles = forwardRef<ParticlesHandle, Props>(({ cellSize }, ref) => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const particles = useRef<Particle[]>([]);
   const animationFrameId = useRef<number>(0);
 
   useImperativeHandle(ref, () => ({
-    // Standard fountain effect (Hard Drop / Move)
-    spawn: (x: number, y: number, color: string, amount = 10) => {
+    /**
+     * Spawns a fountain-like particle effect (e.g., for hard drops).
+     * @param {number} x X-coordinate in game cells.
+     * @param {number} y Y-coordinate in game cells.
+     * @param {string} color CSS color string for particles.
+     * @param {number} [amount=10] Number of particles to spawn.
+     * @returns {void}
+     */
+    spawn: (x: number, y: number, color: string, amount: number = 10): void => {
       if (!canvasRef.current) return;
       const px = x * cellSize + (cellSize / 2);
       const py = y * cellSize + (cellSize / 2);
@@ -47,10 +57,16 @@ const Particles = forwardRef<ParticlesHandle, Props>(({ cellSize }, ref) => {
         });
       }
     },
-    // Row clear explosion (Horizontal line)
-    spawnExplosion: (y: number, color = 'white') => {
-        if (!canvasRef.current) return;
-        const w = canvasRef.current.width;
+    /**
+     * Spawns an explosion effect along a row (e.g., for line clears).
+     * @param {number} y Y-coordinate in game cells for the explosion center.
+     * @param {string} [color='white'] CSS color string for particles.
+     * @returns {void}
+     */
+    spawnExplosion: (y: number, color: string = 'white'): void => {
+        const canvas = canvasRef.current;
+        if (!canvas) return;
+        const w = canvas.width;
         const py = y * cellSize + (cellSize / 2);
         
         for (let i = 0; i < 40; i++) {
@@ -66,8 +82,15 @@ const Particles = forwardRef<ParticlesHandle, Props>(({ cellSize }, ref) => {
              });
         }
     },
-    // Radial Burst (T-Spin / Big Events)
-    spawnBurst: (x: number, y: number, color: string, amount = 30) => {
+    /**
+     * Spawns a radial burst effect (e.g., for T-Spins or big events).
+     * @param {number} x X-coordinate in game cells.
+     * @param {number} y Y-coordinate in game cells.
+     * @param {string} color CSS color string for particles.
+     * @param {number} [amount=30] Number of particles to spawn.
+     * @returns {void}
+     */
+    spawnBurst: (x: number, y: number, color: string, amount: number = 30): void => {
         if (!canvasRef.current) return;
         const px = x * cellSize + (cellSize / 2);
         const py = y * cellSize + (cellSize / 2);
@@ -106,7 +129,10 @@ const Particles = forwardRef<ParticlesHandle, Props>(({ cellSize }, ref) => {
     resizeObserver.observe(canvas);
 
     const render = () => {
-      if (!ctx || !canvas) return;
+      if (!ctx || !canvas) { // Ensure context and canvas are available
+        animationFrameId.current = requestAnimationFrame(render);
+        return;
+      }
       ctx.clearRect(0, 0, canvas.width, canvas.height);
 
       particles.current.forEach((p, index) => {
@@ -116,7 +142,7 @@ const Particles = forwardRef<ParticlesHandle, Props>(({ cellSize }, ref) => {
         p.life -= p.decay;
         p.size *= 0.96;
 
-        if (p.life <= 0) {
+        if (p.life <= 0 || p.size <= 0) { // Also remove if size becomes too small
             particles.current.splice(index, 1);
         } else {
             ctx.globalAlpha = p.life;
@@ -125,11 +151,11 @@ const Particles = forwardRef<ParticlesHandle, Props>(({ cellSize }, ref) => {
             ctx.shadowBlur = p.size * 2;
             ctx.shadowColor = p.color;
             ctx.fillRect(p.x, p.y, p.size, p.size);
-            ctx.shadowBlur = 0;
+            ctx.shadowBlur = 0; // Reset shadow blur
         }
       });
       
-      ctx.globalAlpha = 1;
+      ctx.globalAlpha = 1; // Reset global alpha
       animationFrameId.current = requestAnimationFrame(render);
     };
 
