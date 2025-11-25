@@ -7,7 +7,7 @@ import Display from './Display';
 import ComboIndicator from './ComboIndicator';
 import GarbageDisplay from './GarbageDisplay';
 import RhythmIndicator from './RhythmIndicator'; 
-import AbilityHUD from './AbilityHUD'; // Import
+import AbilityHUD from './AbilityHUD'; 
 import Particles, { ParticlesHandle } from './Particles';
 import { Settings as SettingsIcon, Volume2, VolumeX, Brain, Bomb, Sparkles, GripHorizontal, Lock, ArrowLeftRight, PauseCircle, Eye, Pause, Skull, Menu } from 'lucide-react';
 import { BoardRenderConfig, AdventureLevelConfig } from '../types';
@@ -210,7 +210,7 @@ const GameScreen: React.FC<GameScreenProps> = ({
     }, [currentWorld]);
 
     return (
-        <main id="main-app-content" className="w-full h-[100dvh] flex flex-col items-center justify-center relative z-10 transition-all duration-500 ease-out overflow-hidden">
+        <main id="main-app-content" className="w-full h-[100dvh] flex flex-col lg:items-center lg:justify-center justify-start pt-16 lg:pt-0 pb-safe relative z-10 transition-all duration-500 ease-out overflow-hidden">
             <A11yAnnouncer lastEvent={announcement} />
             
             {/* Zone Mode Global Overlay */}
@@ -265,11 +265,20 @@ const GameScreen: React.FC<GameScreenProps> = ({
                 </div>
             )}
 
-            {/* --- MAIN CONTENT GRID --- */}
-            <div className="w-full h-full flex flex-col lg:flex-row items-center justify-center gap-0 lg:gap-16 relative z-10">
+            {/* --- MAIN CONTENT GRID WITH PARALLAX --- */}
+            <div className="w-full h-full flex flex-col lg:flex-row items-center lg:justify-center justify-start gap-0 lg:gap-16 relative z-10"
+                 style={{
+                     perspective: '1500px',
+                     transformStyle: 'preserve-3d'
+                 }}
+            >
 
-                {/* Left Panel - Desktop Stats & Controls */}
-                <aside className={`hidden lg:flex flex-col flex-1 h-full justify-center items-end space-y-6 py-12 pt-32 animate-slide-in delay-100 max-w-[300px] relative z-20 transition-opacity duration-300 ${stats.isZoneActive ? 'opacity-80' : 'opacity-100'}`}>
+                {/* Left Panel - Stats - Reverse Depth */}
+                <aside className={`hidden lg:flex flex-col flex-1 h-full justify-center items-end space-y-6 py-12 pt-32 animate-slide-in delay-100 max-w-[300px] relative z-20 transition-opacity duration-300 ${stats.isZoneActive ? 'opacity-80' : 'opacity-100'}`}
+                    style={{
+                        transform: `rotateY(${cameraTransform.rotateY * 0.5}deg) rotateX(${cameraTransform.rotateX * 0.5}deg) translateZ(-50px)`
+                    }}
+                >
                     
                     <GlassPanel variant="default" intensity="high" className="w-full p-6 shadow-2xl group hover:border-white/10 transition-colors border-t-4 border-t-white/5 bg-black/40 backdrop-blur-2xl">
                         <div className="absolute inset-0 bg-gradient-to-br from-cyan-500/5 to-transparent pointer-events-none"></div>
@@ -316,8 +325,8 @@ const GameScreen: React.FC<GameScreenProps> = ({
                 </aside>
 
                 {/* Center - Board with Camera Rig */}
-                <section className="flex-shrink-0 relative z-10 flex justify-center items-center w-full h-full lg:py-8 lg:w-auto lg:h-auto" aria-label="Game Board" style={{
-                    transform: `perspective(1000px) rotateX(${cameraTransform.rotateX}deg) rotateY(${cameraTransform.rotateY}deg) translateY(${cameraTransform.y}px) scale(${cameraTransform.scale})`,
+                <section className="flex-shrink-0 relative z-10 flex justify-center items-start lg:items-center w-full h-full lg:py-8 lg:w-auto lg:h-auto" aria-label="Game Board" style={{
+                    transform: `rotateX(${cameraTransform.rotateX}deg) rotateY(${cameraTransform.rotateY}deg) translateY(${cameraTransform.y}px) scale(${cameraTransform.scale})`,
                     transition: 'transform 0.1s cubic-bezier(0.1, 0.5, 0.1, 1)'
                 }}>
                     {/* Mobile Stats Indicators (Combo) */}
@@ -367,8 +376,12 @@ const GameScreen: React.FC<GameScreenProps> = ({
                     </div>
                 </section>
 
-                {/* Right Panel - Desktop Next & Hold */}
-                <aside className={`hidden lg:flex flex-col flex-1 h-full justify-center items-start space-y-8 py-12 pt-32 animate-slide-in delay-200 max-w-[300px] relative z-20 transition-opacity duration-300 ${stats.isZoneActive ? 'opacity-80' : 'opacity-100'}`}>
+                {/* Right Panel - Next/Hold - Reverse Depth */}
+                <aside className={`hidden lg:flex flex-col flex-1 h-full justify-center items-start space-y-8 py-12 pt-32 animate-slide-in delay-200 max-w-[300px] relative z-20 transition-opacity duration-300 ${stats.isZoneActive ? 'opacity-80' : 'opacity-100'}`}
+                    style={{
+                        transform: `rotateY(${cameraTransform.rotateY * 0.5}deg) rotateX(${cameraTransform.rotateX * 0.5}deg) translateZ(-50px)`
+                    }}
+                >
                     <div className="w-full max-w-[240px] flex flex-col gap-6">
                         <GlassPanel variant="darker" className="overflow-hidden group border-2 border-white/5 relative shadow-2xl bg-black/60 backdrop-blur-xl rounded-2xl">
                             <div className="absolute inset-0 opacity-20 bg-[radial-gradient(#06b6d4_1px,transparent_1px)] [background-size:8px_8px]"></div>
@@ -460,7 +473,7 @@ const GameScreen: React.FC<GameScreenProps> = ({
 
             {/* Mobile Bottom Bar: If touch controls are disabled, show fallback controls */}
             {!enableTouchControls && isPlayingState && (
-                <div className="lg:hidden fixed bottom-0 left-0 right-0 bg-gray-950/95 backdrop-blur-xl p-5 pb-8 pb-safe border-t border-gray-800 z-50 flex justify-between items-center shadow-[0_-10px_40px_rgba(0,0,0,0.5)]" role="navigation" aria-label="Mobile Game Controls">
+                <div className="lg:hidden fixed bottom-0 left-0 right-0 bg-gray-950/95 backdrop-blur-xl p-5 pb-safe border-t border-gray-800 z-50 flex justify-between items-center shadow-[0_-10px_40px_rgba(0,0,0,0.5)]" role="navigation" aria-label="Mobile Game Controls">
                     <div className="flex gap-5">
                         <button onClick={() => { handleUiClick(); canHold && touchControls.hold(); }} disabled={!canHold} className={`w-14 h-14 flex items-center justify-center rounded-full transition-all border shadow-lg ${canHold ? 'bg-gray-800 text-cyan-400 border-cyan-900 active:scale-90 active:bg-cyan-900/50 hover:border-cyan-500' : 'bg-gray-900 text-gray-700 border-gray-800 cursor-not-allowed'}`} aria-label="Hold Piece"><ArrowLeftRight size={24} aria-hidden="true" /></button>
                         <button onClick={() => { handleUiClick(); setGameState('PAUSED'); }} className="w-14 h-14 flex items-center justify-center bg-gray-800 text-gray-400 border border-gray-700 rounded-full active:scale-90 active:bg-gray-700 hover:text-white hover:border-gray-500 shadow-lg transition-colors" aria-label="Pause Game"><PauseCircle size={24} aria-hidden="true"/></button>

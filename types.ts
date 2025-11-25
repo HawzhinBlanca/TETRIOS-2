@@ -11,7 +11,7 @@ export type TetrominoShape = (TetrominoType | 0)[][];
 
 export type CellState = 'clear' | 'merged' | 'zoned';
 
-export type CellModifierType = 'GEM' | 'BOMB' | 'ICE' | 'CRACKED_ICE' | 'WILDCARD_BLOCK' | 'LASER_BLOCK' | 'NUKE_BLOCK' | 'SOFT_BLOCK' | 'BEDROCK';
+export type CellModifierType = 'GEM' | 'BOMB' | 'ICE' | 'CRACKED_ICE' | 'WILDCARD_BLOCK' | 'LASER_BLOCK' | 'NUKE_BLOCK' | 'SOFT_BLOCK' | 'BEDROCK' | 'SLOW_BLOCK' | 'MULTIPLIER_BLOCK' | 'FREEZE_BLOCK' | 'DRILL_BLOCK';
 
 export interface CellModifier {
     type: CellModifierType;
@@ -98,6 +98,8 @@ export interface GameStats {
   zoneLines: number;
   slowTimeActive?: boolean;
   slowTimeTimer?: number;
+  timeFreezeActive?: boolean;
+  timeFreezeTimer?: number;
   wildcardAvailable?: boolean;
   bombBoosterReady?: boolean; 
   lineClearerActive?: boolean; 
@@ -109,6 +111,8 @@ export interface GameStats {
   lastClearColor?: string;
   colorClears?: Record<string, number>;
   abilities?: AbilityState[]; // Track ability cooldowns
+  scoreMultiplierActive?: boolean;
+  scoreMultiplierTimer?: number;
 }
 
 export interface MoveScore {
@@ -306,7 +310,7 @@ export interface AdventureWorld {
 }
 
 export interface Booster {
-    type: any;
+    type: BoosterType;
     name: string;
     description: string;
     icon: string;
@@ -332,7 +336,7 @@ export interface GameCallbacks {
     onFastScoreUpdate: (score: number, time: number) => void; // NEW: React-less HUD
 }
 
-export type InitialBoardModifierType = 'GEMS' | 'BOMBS' | 'ICE' | 'GARBAGE' | 'WILDCARD_BLOCK' | 'LASER_BLOCK' | 'NUKE_BLOCK' | 'PILLARS' | 'SOFT_BLOCKS' | 'BEDROCK';
+export type InitialBoardModifierType = 'GEMS' | 'BOMBS' | 'ICE' | 'GARBAGE' | 'WILDCARD_BLOCK' | 'LASER_BLOCK' | 'NUKE_BLOCK' | 'PILLARS' | 'SOFT_BLOCKS' | 'BEDROCK' | 'SLOW_BLOCK' | 'MULTIPLIER_BLOCK' | 'FREEZE_BLOCK' | 'DRILL_BLOCK';
 export type LevelObjectiveType = 'LINES' | 'SCORE' | 'TIME_SURVIVAL' | 'GEMS' | 'BOMBS' | 'TETRIS' | 'TSPIN' | 'COMBO' | 'BOSS' | 'MOVES' | 'B2B_CHAIN' | 'COLOR_MATCH';
 export type GameGimmickType = 'INVISIBLE_ROWS' | 'FLIPPED_GRAVITY';
 export interface StoryNode { id: string; speaker: string; text: string; side?: 'left' | 'right'; avatar?: string; }
@@ -355,4 +359,8 @@ export interface AbilityState {
     cooldownTimer: number; // 0 means ready
     isReady: boolean;
     totalCooldown: number;
+}
+
+export interface PuzzleDefinition {
+    layout: string[];
 }

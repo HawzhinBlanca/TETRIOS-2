@@ -19,6 +19,11 @@ export class ScoreManager {
     public frenzyTimer: number = 0;
     public frenzyMultiplier: number = 1;
 
+    // Powerup State
+    public scoreMultiplierActive: boolean = false;
+    public scoreMultiplierTimer: number = 0;
+    public powerupMultiplier: number = 1;
+
     // Blitz Mode State
     private blitzSpeedThresholdIndex: number = 0;
     private blitzLastSpeedUpScore: number = 0;
@@ -41,7 +46,9 @@ export class ScoreManager {
             flippedGravityActive: false, flippedGravityTimer: 0,
             focusGauge: 0, isZoneActive: false, zoneTimer: 0, zoneLines: 0,
             colorStreak: 0, lastClearColor: undefined,
-            colorClears: {}
+            colorClears: {},
+            scoreMultiplierActive: false,
+            scoreMultiplierTimer: 0
         };
     }
 
@@ -74,6 +81,9 @@ export class ScoreManager {
         this.frenzyMultiplier = 1;
         this.blitzSpeedThresholdIndex = 0;
         this.blitzLastSpeedUpScore = 0;
+        this.scoreMultiplierActive = false;
+        this.scoreMultiplierTimer = 0;
+        this.powerupMultiplier = 1;
         
         this.core.callbacks.onComboChange(this.comboCount, this.isBackToBack);
     }
@@ -119,6 +129,16 @@ export class ScoreManager {
                 this.stats.frenzyTimer = this.frenzyTimer;
             }
         }
+
+        // Score Multiplier Logic
+        if (this.scoreMultiplierActive) {
+            this.scoreMultiplierTimer -= deltaTime;
+            if (this.scoreMultiplierTimer <= 0) {
+                this._deactivateScoreMultiplier();
+            } else {
+                this.stats.scoreMultiplierTimer = this.scoreMultiplierTimer;
+            }
+        }
         
         // Zone Logic
         if (this.stats.isZoneActive) {
@@ -130,6 +150,23 @@ export class ScoreManager {
         
         // Sync stats to UI
         this.core.callbacks.onStatsChange(this.stats);
+    }
+
+    public activateScoreMultiplier(duration: number): void {
+        this.scoreMultiplierActive = true;
+        this.scoreMultiplierTimer = duration;
+        this.powerupMultiplier = 2; // Double Score
+        this.stats.scoreMultiplierActive = true;
+        this.stats.scoreMultiplierTimer = duration;
+        this.core.addFloatingText("DOUBLE SCORE!", "#ffd700", 0.9, 'powerup');
+        this.core.callbacks.onVisualEffect({ type: 'FLASH', payload: { color: '#ffd700', duration: 300 } });
+    }
+
+    private _deactivateScoreMultiplier(): void {
+        this.scoreMultiplierActive = false;
+        this.powerupMultiplier = 1;
+        this.stats.scoreMultiplierActive = false;
+        this.core.addFloatingText("MULTIPLIER END", "#888888", 0.6);
     }
 
     public handleLineClear(rowsCleared: number, isTSpinDetected: boolean, monoClearCount: number = 0, monoColor?: string, alternatingClearCount: number = 0): ScoreResult {
@@ -375,7 +412,8 @@ export class ScoreManager {
 
     public applyScore(amount: number): void {
         if (this.core.mode !== 'ZEN' && this.core.mode !== 'PUZZLE') {
-            this.stats.score += amount * this.frenzyMultiplier;
+            // Stack multipliers
+            this.stats.score += amount * this.frenzyMultiplier * this.powerupMultiplier;
         }
         this.core.adventureManager.applyBossDamage(amount);
 

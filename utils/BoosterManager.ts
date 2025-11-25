@@ -10,6 +10,9 @@ export class BoosterManager {
     public slowTimeActive: boolean = false;
     public slowTimeTimer: number = 0;
     
+    public timeFreezeActive: boolean = false;
+    public timeFreezeTimer: number = 0;
+    
     public flippedGravityActive: boolean = false;
     public flippedGravityTimer: number = 0;
     
@@ -30,6 +33,8 @@ export class BoosterManager {
         this.activeBoosters = activeBoosters;
         this.slowTimeActive = false;
         this.slowTimeTimer = 0;
+        this.timeFreezeActive = false;
+        this.timeFreezeTimer = 0;
         this.wildcardAvailable = false;
         this.lineClearerActive = false;
         this.isSelectingLine = false;
@@ -44,9 +49,7 @@ export class BoosterManager {
 
     private _initEffects(): void {
         if (this.activeBoosters.includes('SLOW_TIME_BOOSTER')) {
-            this.slowTimeActive = true;
-            this.slowTimeTimer = SLOW_TIME_BOOSTER_DURATION_MS;
-            this.core.addFloatingText('SLOW TIME!', '#818cf8', 0.8, 'powerup');
+            this.activateSlowTime(SLOW_TIME_BOOSTER_DURATION_MS);
         }
         
         if (this.activeBoosters.includes('PIECE_SWAP_BOOSTER')) {
@@ -84,6 +87,21 @@ export class BoosterManager {
         this.core.callbacks.onFlippedGravityTimerChange?.(this.flippedGravityActive, this.flippedGravityTimer);
     }
 
+    public activateSlowTime(duration: number): void {
+        this.slowTimeActive = true;
+        this.slowTimeTimer = duration;
+        this.core.addFloatingText('SLOW TIME!', '#818cf8', 0.8, 'powerup');
+        this.core.callbacks.onSlowTimeChange(true, duration);
+    }
+
+    public activateTimeFreeze(duration: number): void {
+        this.timeFreezeActive = true;
+        this.timeFreezeTimer = duration;
+        this.core.addFloatingText('GRAVITY FROZEN!', MODIFIER_COLORS.FREEZE_BLOCK, 1.0, 'powerup');
+        this.core.callbacks.onVisualEffect({ type: 'FLASH', payload: { color: MODIFIER_COLORS.FREEZE_BLOCK, duration: 500 } });
+        this.core.callbacks.onAudio('ZONE_START'); // Use zone sound for freeze impact
+    }
+
     public update(deltaTime: number): void {
         // Slow Time
         if (this.slowTimeActive) {
@@ -94,6 +112,15 @@ export class BoosterManager {
                 this.core.addFloatingText('SLOW TIME END', '#888888', 0.6, 'powerup');
             } else {
                 this.core.callbacks.onSlowTimeChange(true, this.slowTimeTimer);
+            }
+        }
+
+        // Time Freeze
+        if (this.timeFreezeActive) {
+            this.timeFreezeTimer -= deltaTime;
+            if (this.timeFreezeTimer <= 0) {
+                this.timeFreezeActive = false;
+                this.core.addFloatingText('GRAVITY RESUMED', '#888888', 0.6, 'powerup');
             }
         }
 

@@ -66,6 +66,8 @@ describe('GameCore Integration', () => {
         onLineSelectionEnd: jest.fn(),
         onAudio: jest.fn(),
         onStressChange: jest.fn(),
+        onFastScoreUpdate: jest.fn(),
+        onAchievementUnlocked: jest.fn(),
     };
 
     beforeEach(() => {
@@ -80,19 +82,16 @@ describe('GameCore Integration', () => {
         });
 
         // Override events with spies to verify calls
-        game.events.onAudio = mockCallbacks.onAudio;
-        game.events.onVisualEffect = mockCallbacks.onVisualEffect;
-        game.events.onGameOver = mockCallbacks.onGameOver;
+        // We replace the callbacks object with a merged object containing our mocks
+        // and the original callbacks for any we missed (to prevent crashes)
+        const originalCallbacks = { ...game.callbacks };
         
-        // We can also spy on callbacks getter proxy if needed for other callbacks
         Object.defineProperty(game, 'callbacks', {
-            get: () => ({
-                ...mockCallbacks,
-                onVisualEffect: game.events.onVisualEffect,
-                onGameOver: game.triggerGameOver.bind(game),
-                onAudio: game.playAudio.bind(game),
-                onStatsChange: mockCallbacks.onStatsChange,
-            })
+            value: {
+                ...originalCallbacks,
+                ...mockCallbacks
+            },
+            writable: true
         });
     });
 

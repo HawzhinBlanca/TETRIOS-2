@@ -1,6 +1,6 @@
 
 import { DEFAULT_GAMESPEED, BLITZ_INITIAL_DROPTIME, SURVIVAL_INITIAL_GARBAGE_INTERVAL, SURVIVAL_MIN_GARBAGE_INTERVAL, SURVIVAL_GARBAGE_DECREMENT, STAGE_HEIGHT } from '../constants';
-import { GameState, TetrominoType, GameMode, KeyAction, FloatingTextVariant, BoosterType, LevelRewards, AdventureLevelConfig, KeyMap, Board, MoveScore, GameSnapshot, GameCallbacks, Difficulty } from '../types';
+import { GameState, TetrominoType, GameMode, KeyAction, FloatingTextVariant, BoosterType, LevelRewards, AdventureLevelConfig, KeyMap, Board, MoveScore, GameSnapshot, GameCallbacks, Difficulty, Player } from '../types';
 import { AdventureManager } from './AdventureManager';
 import { BoosterManager } from './BoosterManager';
 import { ScoreManager } from './ScoreManager';
@@ -16,6 +16,7 @@ import { audioManager } from './audioManager';
 import { setRngSeed } from './gameUtils';
 import { replayManager } from './ReplayManager';
 import { useProfileStore } from '../stores/profileStore';
+import { EventManager } from './EventManager';
 
 export interface GameCoreConfig {
     keyMap: KeyMap;
@@ -39,6 +40,9 @@ export interface GameManagers {
 export class GameCore {
     mode: GameMode = 'MARATHON';
     
+    // Architecture Update: Event Bus
+    public events = new EventManager();
+
     stateManager: GameStateManager;
     adventureManager: AdventureManager;
     boosterManager: BoosterManager;
@@ -49,6 +53,10 @@ export class GameCore {
     inputManager: InputManager;
     collisionManager: CollisionManager;
     abilityManager: AbilityManager;
+
+    // Ghost System
+    public ghostPlayer: Player | null = null;
+    public ghostBoard: Board | null = null;
 
     flippedGravity: boolean = false;
     initialFlippedGravityGimmick: boolean = false;
@@ -93,14 +101,47 @@ export class GameCore {
         isZoneActive: false,
         missedOpportunity: null as MoveScore | null,
         isRewinding: false,
+        scoreMultiplierActive: false,
+        timeFreezeActive: false,
     };
 
-    public events = {
-        onVisualEffect: (effect: any) => {},
-        onGameOver: (state: GameState, id?: string, rewards?: LevelRewards) => {},
-        onAudio: (event: any, val?: number, type?: TetrominoType) => {},
-        onAchievementUnlocked: (id: string) => {},
-        onFastScoreUpdate: (score: number, time: number) => {} // NEW: React-less HUD
+    // Deprecated callback structure (kept for compatibility during refactor)
+    // In fully event-driven system, these would be listeners in UI components
+    public callbacks = {
+        onVisualEffect: (effect: any) => this.events.emit('VISUAL_EFFECT', effect),
+        onGameOver: (state: GameState, id?: string, rewards?: LevelRewards) => this.events.emit('GAME_OVER', { state, id, rewards }),
+        onAudio: (event: any, val?: number, type?: TetrominoType) => this.events.emit('AUDIO_EVENT', { event, val, type }),
+        onAchievementUnlocked: (id: string) => this.events.emit('ACHIEVEMENT', id),
+        onFastScoreUpdate: (score: number, time: number) => this.events.emit('FAST_SCORE', { score, time }),
+        
+        // Proxies for StateManager access
+        onStateChange: (newState: GameState, prevState: GameState) => engineStore.getState().setGameState(newState),
+        onStatsChange: (stats: any) => engineStore.getState().setStats(stats),
+        onQueueChange: (q: any) => engineStore.getState().setQueue(q),
+        onHoldChange: (p: any, c: any) => engineStore.getState().setHold(p, c),
+        onAiTrigger: () => {},
+        onComboChange: (combo: number, isB2B: boolean) => {},
+        onGarbageChange: (garbage: number) => {},
+        onGroundedChange: (isGrounded: boolean) => {},
+        onFlippedGravityChange: (flipped: boolean) => {},
+        onWildcardSelectionTrigger: () => {
+            engineStore.setState({ wildcardPieceActive: true });
+            this.stateManager.transitionTo('WILDCARD_SELECTION');
+        },
+        onWildcardAvailableChange: (avail: boolean) => engineStore.getState().setStats({ wildcardAvailable: avail }),
+        onSlowTimeChange: (active: boolean, timer: number) => engineStore.getState().setStats({ slowTimeActive: active, slowTimeTimer: timer }),
+        onBombBoosterReadyChange: (ready: boolean) => engineStore.getState().setStats({ bombBoosterReady: ready }),
+        onBombSelectionStart: (rows: number) => engineStore.setState({ isSelectingBombRows: true, bombRowsToClear: rows }),
+        onBombSelectionEnd: () => engineStore.setState({ isSelectingBombRows: false, bombRowsToClear: 0 }),
+        onLineClearerActiveChange: (active: boolean) => engineStore.getState().setStats({ lineClearerActive: active }),
+        onLineSelectionStart: () => engineStore.setState({ isSelectingLine: true }),
+        onLineSelectionEnd: () => engineStore.setState({ isSelectingLine: false, selectedLineToClear: null }),
+        onBlitzSpeedUp: (threshold: number) => this.events.emit('VISUAL_EFFECT', { type: 'BLITZ_SPEED_THRESHOLD', payload: { threshold } }),
+        onFlippedGravityTimerChange: (active: boolean, timer: number) => engineStore.getState().setStats({ flippedGravityActive: active, flippedGravityTimer: timer }),
+        onStressChange: (lvl: number) => {
+            audioManager.setIntensity(lvl);
+            audioManager.setTempo(110 + lvl * 50);
+        },
     };
 
     constructor(config: GameCoreConfig, managers?: GameManagers) {
@@ -112,7 +153,6 @@ export class GameCore {
         });
         
         this.inputManager.addActionListener((action) => {
-            // Only record/process inputs if NOT replaying
             if (!replayManager.isReplaying) {
                 replayManager.recordInput(action);
                 this.handleAction(action);
@@ -132,14 +172,22 @@ export class GameCore {
 
     destroy(): void {
         this.inputManager.destroy();
+        this.events.clear();
     }
 
     public syncState() {
         const currentStats = this.scoreManager.stats;
         const dangerLevel = this._calculateStressLevel();
         
-        // Trigger direct DOM update for smooth numbers
-        this.events.onFastScoreUpdate(currentStats.score, currentStats.time);
+        this.callbacks.onFastScoreUpdate(currentStats.score, currentStats.time);
+        
+        // Audio System Integration (Improvement #3)
+        audioManager.updateDynamicMix({
+            dangerLevel,
+            comboCount: this.scoreManager.comboCount,
+            isZoneActive: currentStats.isZoneActive,
+            isFrenzy: currentStats.isFrenzyActive
+        });
 
         if (
             currentStats.score !== this._lastSyncedState.score ||
@@ -157,8 +205,14 @@ export class GameCore {
             currentStats.focusGauge !== this._lastSyncedState.focusGauge ||
             currentStats.isZoneActive !== this._lastSyncedState.isZoneActive ||
             this.missedOpportunity !== this._lastSyncedState.missedOpportunity ||
-            this.isRewinding !== this._lastSyncedState.isRewinding
+            this.isRewinding !== this._lastSyncedState.isRewinding ||
+            currentStats.scoreMultiplierActive !== this._lastSyncedState.scoreMultiplierActive ||
+            this.boosterManager.timeFreezeActive !== this._lastSyncedState.timeFreezeActive
         ) {
+            // Update stats with latest booster states
+            currentStats.timeFreezeActive = this.boosterManager.timeFreezeActive;
+            currentStats.timeFreezeTimer = this.boosterManager.timeFreezeTimer;
+
             engineStore.setState({
                 stats: { ...currentStats, isRewinding: this.isRewinding }, 
                 garbagePending: this.boardManager.garbagePending,
@@ -188,12 +242,13 @@ export class GameCore {
                 focusGauge: currentStats.focusGauge,
                 isZoneActive: currentStats.isZoneActive,
                 missedOpportunity: this.missedOpportunity,
-                isRewinding: this.isRewinding
+                isRewinding: this.isRewinding,
+                scoreMultiplierActive: currentStats.scoreMultiplierActive,
+                timeFreezeActive: this.boosterManager.timeFreezeActive
             };
         }
     }
 
-    // ... existing methods ...
     setGameConfig(config: { speed?: number, das?: number, arr?: number }): void {
         if (config.speed !== undefined) {
             this.speedMultiplier = config.speed;
@@ -214,7 +269,7 @@ export class GameCore {
         this.flippedGravity = isFlipped;
         this.inputManager.updateConfig({ flippedGravity: isFlipped });
         engineStore.setState({ flippedGravity: isFlipped });
-        this.events.onVisualEffect({ type: isFlipped ? 'FLIPPED_GRAVITY_ACTIVATE' : 'FLIPPED_GRAVITY_END' });
+        this.callbacks.onVisualEffect({ type: isFlipped ? 'FLIPPED_GRAVITY_ACTIVATE' : 'FLIPPED_GRAVITY_END' });
     }
 
     resetGame(mode: GameMode = 'MARATHON', startLevel: number = 0, adventureLevelConfig: AdventureLevelConfig | undefined, assistRows: number = 0, activeBoosters: BoosterType[] = [], difficulty: Difficulty = 'MEDIUM'): void {
@@ -227,15 +282,14 @@ export class GameCore {
         this.historyBuffer = [];
         this.isRewinding = false;
         this.frameCount = 0;
+        this.ghostPlayer = null;
         
-        // SEEDED RNG & REPLAY SETUP
         const seed = mode === 'DAILY' ? new Date().toDateString() : Date.now().toString();
         setRngSeed(seed);
         
         if (!replayManager.isReplaying) {
             replayManager.startRecording(mode, difficulty, seed);
         } else {
-            // If replaying, use seed from recording
             const replaySeed = replayManager.getSeed();
             setRngSeed(replaySeed || seed);
         }
@@ -248,10 +302,9 @@ export class GameCore {
         this.boardManager.initialize(mode, startLevel, adventureLevelConfig, assistRows);
         this.fxManager.clear();
         
-        // Initialize Abilities from Profile
         const loadout = useProfileStore.getState().stats.equippedAbilities;
         this.abilityManager.initialize(loadout);
-        this.scoreManager.stats.abilities = this.abilityManager.abilities; // Sync initial state
+        this.scoreManager.stats.abilities = this.abilityManager.abilities; 
         
         this._clearEphemeralStates();
         
@@ -291,12 +344,11 @@ export class GameCore {
     public triggerGameOver(state: GameState, rewards?: LevelRewards): void {
         if (this.stateManager.currentState === 'GAMEOVER' || this.stateManager.currentState === 'VICTORY') return;
 
-        // Replay Finish
         if (!replayManager.isReplaying) {
             replayManager.finishRecording(this.scoreManager.stats.score);
         }
 
-        this.events.onGameOver(state, this.adventureManager.config?.id, rewards);
+        this.callbacks.onGameOver(state, this.adventureManager.config?.id, rewards);
         
         if (state === 'VICTORY') {
             this.stateManager.transitionTo('VICTORY');
@@ -413,23 +465,7 @@ export class GameCore {
     }
     
     public playAudio(event: any, val?: number, type?: TetrominoType) {
-        let pan = 0;
-        if (val !== undefined) {
-            pan = (val - 4.5) / 5.0;
-            pan = Math.max(-1, Math.min(1, pan));
-        }
-        
-        if (event === 'MOVE') audioManager.playMove(pan);
-        else if (event === 'ROTATE') audioManager.playRotate(pan);
-        else if (event === 'HARD_DROP') audioManager.playHardDrop(pan);
-        else if (event === 'LOCK') audioManager.playLock(pan, type);
-        else if (event === 'LEVEL_UP') audioManager.playLevelUp();
-        else if (event === 'ZONE_START') audioManager.playZoneStart();
-        else if (event === 'ZONE_END') audioManager.playZoneEnd();
-        else if (event === 'ZONE_CLEAR') audioManager.playZoneClear();
-        else if (event === 'REWIND') audioManager.playUiHover(); 
-        
-        this.events.onAudio(event, val, type);
+        this.callbacks.onAudio(event, val, type);
     }
 
     public getElapsedGameTime(): number {
@@ -442,7 +478,7 @@ export class GameCore {
     // --- REWIND SYSTEM ---
     private snapshotState(): void {
         const snapshot: GameSnapshot = {
-            board: this.boardManager.stage.map(row => row.map(cell => [...cell])), // Deep copy board
+            board: this.boardManager.stage.map(row => row.map(cell => [...cell])),
             player: JSON.parse(JSON.stringify(this.pieceManager.player)),
             score: this.scoreManager.stats.score,
             rows: this.scoreManager.stats.rows,
@@ -492,7 +528,6 @@ export class GameCore {
         this.pieceManager.heldPiece = snapshot.heldPiece;
         this.pieceManager.canHold = snapshot.canHold;
         
-        // Invalidate renderer cache
         this.boardManager.revision++;
     }
 
@@ -500,14 +535,12 @@ export class GameCore {
         if (this._gameLoopPaused) return;
 
         try {
-            // REPLAY INPUT INJECTION
             if (replayManager.isReplaying) {
                 const elapsed = this.getElapsedGameTime();
                 const actions = replayManager.getPlaybackInput(elapsed);
                 actions.forEach(action => this.handleAction(action));
             }
 
-            // Input Check for Rewind (Disabled during Replay)
             const isRewindHeld = !replayManager.isReplaying && this.inputManager.isRewindHeld(); 
             
             if (isRewindHeld && this.mode !== 'SURVIVAL' && this.mode !== 'BLITZ' && this.mode !== 'DAILY') { 
@@ -598,42 +631,5 @@ export class GameCore {
 
     updateEphemeralStates(deltaTime: number): void {
         this.fxManager.update(deltaTime);
-    }
-    
-    public get callbacks() {
-        return {
-            onStateChange: (newState: GameState, prevState: GameState) => engineStore.getState().setGameState(newState),
-            onStatsChange: (stats: any) => engineStore.getState().setStats(stats),
-            onQueueChange: (q: any) => engineStore.getState().setQueue(q),
-            onHoldChange: (p: any, c: any) => engineStore.getState().setHold(p, c),
-            onVisualEffect: this.events.onVisualEffect,
-            onGameOver: this.triggerGameOver.bind(this),
-            onAiTrigger: () => {},
-            onComboChange: (combo: number, isB2B: boolean) => {},
-            onGarbageChange: (garbage: number) => {},
-            onGroundedChange: (isGrounded: boolean) => {},
-            onFlippedGravityChange: (flipped: boolean) => {},
-            onWildcardSelectionTrigger: () => {
-                engineStore.setState({ wildcardPieceActive: true });
-                this.stateManager.transitionTo('WILDCARD_SELECTION');
-            },
-            onWildcardAvailableChange: (avail: boolean) => engineStore.getState().setStats({ wildcardAvailable: avail }),
-            onSlowTimeChange: (active: boolean, timer: number) => engineStore.getState().setStats({ slowTimeActive: active, slowTimeTimer: timer }),
-            onBombBoosterReadyChange: (ready: boolean) => engineStore.getState().setStats({ bombBoosterReady: ready }),
-            onBombSelectionStart: (rows: number) => engineStore.setState({ isSelectingBombRows: true, bombRowsToClear: rows }),
-            onBombSelectionEnd: () => engineStore.setState({ isSelectingBombRows: false, bombRowsToClear: 0 }),
-            onLineClearerActiveChange: (active: boolean) => engineStore.getState().setStats({ lineClearerActive: active }),
-            onLineSelectionStart: () => engineStore.setState({ isSelectingLine: true }),
-            onLineSelectionEnd: () => engineStore.setState({ isSelectingLine: false, selectedLineToClear: null }),
-            onBlitzSpeedUp: (threshold: number) => this.events.onVisualEffect({ type: 'BLITZ_SPEED_THRESHOLD', payload: { threshold } }),
-            onFlippedGravityTimerChange: (active: boolean, timer: number) => engineStore.getState().setStats({ flippedGravityActive: active, flippedGravityTimer: timer }),
-            onAudio: this.playAudio.bind(this),
-            onStressChange: (lvl: number) => {
-                audioManager.setIntensity(lvl);
-                audioManager.setTempo(110 + lvl * 50);
-            },
-            onAchievementUnlocked: this.events.onAchievementUnlocked,
-            onFastScoreUpdate: this.events.onFastScoreUpdate // Added binding
-        };
     }
 }

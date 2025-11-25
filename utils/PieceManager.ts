@@ -215,6 +215,11 @@ export class PieceManager {
     }
 
     public update(deltaTime: number): void {
+        if (this.core.boosterManager.timeFreezeActive) {
+            // Skip gravity update
+            return;
+        }
+
         this.dropCounter += deltaTime;
         let currentDropTime = this.dropTime;
         

@@ -1,6 +1,6 @@
 
-import { STAGE_HEIGHT, STAGE_WIDTH, TETROMINOS, KICKS, PuzzleDefinition, MODIFIER_COLORS, COLORS } from '../constants';
-import { Board, CellData, TetrominoType, Player, TetrominoShape, Position, CellModifier, AdventureLevelConfig, InitialBoardModifierType } from '../types';
+import { STAGE_HEIGHT, STAGE_WIDTH, TETROMINOS, KICKS, MODIFIER_COLORS, COLORS } from '../constants';
+import { Board, CellData, TetrominoType, Player, TetrominoShape, Position, CellModifier, AdventureLevelConfig, InitialBoardModifierType, PuzzleDefinition } from '../types';
 
 /**
  * Creates an empty game stage filled with 'clear' cells.

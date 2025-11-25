@@ -11,11 +11,10 @@ export const useResponsiveLayout = () => {
             const vw = window.innerWidth;
             
             // Apple-Grade Mobile Layout Optimization
-            // Minimal padding to allow "Fill Screen" feel.
-            // We allow the board to take up almost the entire height.
-            // Top Bar (50px) + Bottom Safe Area/Controls overlap
-            const MOBILE_VERTICAL_PADDING = 90; 
-            const MOBILE_HORIZONTAL_PADDING = 0; // Full width allowed
+            // Increased padding to ensure board sits ABOVE the bottom control deck.
+            // Top Bar (~60px) + Bottom Controls/Safe Area (~160px)
+            const MOBILE_VERTICAL_PADDING = 220; 
+            const MOBILE_HORIZONTAL_PADDING = 10; // Slight buffer for edge cases
 
             // Desktop: Needs space for header/margins and sidebars
             const DESKTOP_VERTICAL_PADDING = 140;
@@ -29,22 +28,22 @@ export const useResponsiveLayout = () => {
                 const availableHeight = vh - DESKTOP_VERTICAL_PADDING;
                 const availableWidth = vw - DESKTOP_HORIZONTAL_RESERVE;
                 
-                maxVerticalSize = Math.floor(Math.max(0, availableHeight) / 20);
-                maxHorizontalSize = Math.floor(Math.max(0, availableWidth) / 10);
+                maxVerticalSize = Math.floor(Math.max(0, availableHeight) / 22); // 22 rows high
+                maxHorizontalSize = Math.floor(Math.max(0, availableWidth) / 11); // 11 cols wide
             } else { 
                 // Mobile Layout
                 const availableHeight = vh - MOBILE_VERTICAL_PADDING;
                 const availableWidth = vw - MOBILE_HORIZONTAL_PADDING;
                 
-                maxVerticalSize = Math.floor(Math.max(0, availableHeight) / 20);
-                maxHorizontalSize = Math.floor(Math.max(0, availableWidth) / 10);
+                maxVerticalSize = Math.floor(Math.max(0, availableHeight) / 22);
+                maxHorizontalSize = Math.floor(Math.max(0, availableWidth) / 11);
             }
             
             // Choose the limiting dimension to ensure the board fits completely
             const idealSize = Math.min(maxVerticalSize, maxHorizontalSize);
             
             // Clamp size:
-            setCellSize(Math.max(16, Math.min(55, idealSize)));
+            setCellSize(Math.max(12, Math.min(55, idealSize)));
         };
         
         const resizeObserver = new ResizeObserver(() => requestAnimationFrame(handleResize));

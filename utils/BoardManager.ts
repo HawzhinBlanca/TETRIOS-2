@@ -331,6 +331,39 @@ export class BoardManager {
                     this.core.addFloatingText('NUKE!', MODIFIER_COLORS.NUKE_BLOCK, 1.0, 'powerup');
                     this.core.applyScore({ score: SCORES.POWERUP_NUKE_BLOCK_BONUS });
                     this.core.callbacks.onVisualEffect({ type: 'POWERUP_ACTIVATE', payload: { type: 'NUKE_BLOCK', x, y, color: MODIFIER_COLORS.NUKE_BLOCK } });
+                } else if (modifier.type === 'SLOW_BLOCK') {
+                    this.core.boosterManager.activateSlowTime(15000); // 15s slow time
+                    this.core.callbacks.onVisualEffect({ type: 'POWERUP_ACTIVATE', payload: { type: 'SLOW_BLOCK', x, y, color: MODIFIER_COLORS.SLOW_BLOCK } });
+                } else if (modifier.type === 'MULTIPLIER_BLOCK') {
+                    this.core.scoreManager.activateScoreMultiplier(15000); // 15s 2x score
+                    this.core.callbacks.onVisualEffect({ type: 'POWERUP_ACTIVATE', payload: { type: 'MULTIPLIER_BLOCK', x, y, color: MODIFIER_COLORS.MULTIPLIER_BLOCK } });
+                } else if (modifier.type === 'FREEZE_BLOCK') {
+                    this.core.boosterManager.activateTimeFreeze(10000); // 10s freeze
+                    this.core.callbacks.onVisualEffect({ type: 'POWERUP_ACTIVATE', payload: { type: 'FREEZE_BLOCK', x, y, color: MODIFIER_COLORS.FREEZE_BLOCK } });
+                } else if (modifier.type === 'DRILL_BLOCK') {
+                    // Drill Logic: Clear 3 vertical columns
+                    this.core.callbacks.onVisualEffect({ type: 'POWERUP_ACTIVATE', payload: { type: 'DRILL_BLOCK', x, y, color: MODIFIER_COLORS.DRILL_BLOCK } });
+                    
+                    // Clear current column + adjacent
+                    const colsToClear = [x-1, x, x+1].filter(c => c >= 0 && c < STAGE_WIDTH);
+                    
+                    colsToClear.forEach(cx => {
+                        this.core.callbacks.onVisualEffect({ 
+                            type: 'HARD_DROP_BEAM', 
+                            payload: { x: cx, startY: 0, endY: STAGE_HEIGHT, color: MODIFIER_COLORS.DRILL_BLOCK } 
+                        });
+                        
+                        for(let r=0; r<STAGE_HEIGHT; r++) {
+                            // Only clear if not bedrock
+                            if (stage[r][cx][2]?.type !== 'BEDROCK') {
+                                stage[r][cx] = [null, 'clear'];
+                            }
+                        }
+                    });
+                    
+                    this.core.addFloatingText('DRILL BLAST!', MODIFIER_COLORS.DRILL_BLOCK, 0.8, 'powerup');
+                    this.core.callbacks.onVisualEffect({ type: 'SHAKE', payload: 'hard' });
+                    this.core.callbacks.onAudio('LASER_CLEAR');
                 }
             });
         });
@@ -342,8 +375,12 @@ export class BoardManager {
             spawnChance *= 2; 
         }
 
-        if ((rowsCleared === 4 || (isTSpin && rowsCleared >= 2)) && Math.random() < spawnChance) {
-            const powerupTypes: CellModifierType[] = ['WILDCARD_BLOCK', 'LASER_BLOCK'];
+        // Increase chance for high-skill plays
+        if (rowsCleared >= 4) spawnChance += 0.1;
+        if (isTSpin) spawnChance += 0.1;
+
+        if ((rowsCleared >= 4 || (isTSpin && rowsCleared >= 1)) && Math.random() < spawnChance) {
+            const powerupTypes: CellModifierType[] = ['WILDCARD_BLOCK', 'LASER_BLOCK', 'SLOW_BLOCK', 'MULTIPLIER_BLOCK', 'FREEZE_BLOCK', 'DRILL_BLOCK'];
             if (this.core.mode === 'BLITZ') {
                 powerupTypes.push('NUKE_BLOCK');
             }

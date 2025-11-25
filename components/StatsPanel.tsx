@@ -34,7 +34,9 @@ const StatsPanel: React.FC<Props> = React.memo(({
       score, rows, level, time, movesTaken, gemsCollected, bombsDefused, 
       tetrisesAchieved, tspinsAchieved, combosAchieved, isFrenzyActive, frenzyTimer, 
       slowTimeActive, slowTimeTimer, flippedGravityActive, flippedGravityTimer, bossHp,
-      focusGauge, isZoneActive, zoneTimer, zoneLines, colorClears
+      focusGauge, isZoneActive, zoneTimer, zoneLines, colorClears,
+      scoreMultiplierActive, scoreMultiplierTimer,
+      timeFreezeActive, timeFreezeTimer
   } = gameStats;
 
   const scoreDelta = useAnimatedValue(score);
@@ -69,6 +71,8 @@ const StatsPanel: React.FC<Props> = React.memo(({
       if (isFrenzyActive) effects.push({ label: 'FRENZY', progress: frenzyTimer! / FRENZY_DURATION_MS, color: 'text-yellow-400', barColor: 'bg-yellow-500' });
       if (slowTimeActive) effects.push({ label: 'SLOW TIME', progress: slowTimeTimer! / 30000, color: 'text-indigo-400', barColor: 'bg-indigo-500' });
       if (flippedGravityActive) effects.push({ label: 'ANTI-GRAVITY', progress: flippedGravityTimer! / 15000, color: 'text-blue-400', barColor: 'bg-blue-500' });
+      if (scoreMultiplierActive) effects.push({ label: 'DOUBLE SCORE', progress: scoreMultiplierTimer! / 15000, color: 'text-yellow-300', barColor: 'bg-yellow-400' });
+      if (timeFreezeActive) effects.push({ label: 'TIME FREEZE', progress: timeFreezeTimer! / 10000, color: 'text-cyan-200', barColor: 'bg-cyan-200' });
       
       if (isZoneActive) {
           effects.push({ label: 'HYPER FOCUS', progress: zoneTimer / 15000, color: 'text-white', barColor: 'bg-white' }); 

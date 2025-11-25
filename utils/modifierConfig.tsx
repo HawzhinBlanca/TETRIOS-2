@@ -1,6 +1,6 @@
 
 import React from 'react';
-import { Bomb, Diamond, Zap, HelpCircle, Skull, Lock, Unlock, Box, Mountain } from 'lucide-react';
+import { Bomb, Diamond, Zap, HelpCircle, Skull, Lock, Unlock, Box, Mountain, Clock, Snowflake, ChevronDown } from 'lucide-react';
 import { MODIFIER_COLORS, ICE_PATTERN_SVG } from '../constants';
 import { CellModifier, CellModifierType } from '../types';
 
@@ -81,7 +81,6 @@ export const MODIFIER_CONFIG: Record<CellModifierType, ModifierVisualConfig> = {
         baseClass: "bg-cyan-900/30 border-2 border-dashed animate-pulse backdrop-blur-sm",
         iconClass: "text-cyan-200/80",
         getStyle: () => ({
-            // Distinct fracture pattern for Cracked Ice using CSS gradients
             backgroundImage: `
                 linear-gradient(45deg, transparent 48%, rgba(255,255,255,0.4) 50%, transparent 52%),
                 linear-gradient(-45deg, transparent 45%, rgba(255,255,255,0.3) 50%, transparent 55%),
@@ -142,5 +141,40 @@ export const MODIFIER_CONFIG: Record<CellModifierType, ModifierVisualConfig> = {
                 linear-gradient(to bottom, #334155, #1e293b)
             `
         })
+    },
+    SLOW_BLOCK: {
+        icon: Clock,
+        borderColor: MODIFIER_COLORS.SLOW_BLOCK,
+        baseClass: "bg-indigo-600/80 border shadow-[0_0_15px_rgba(99,102,241,0.6)]",
+        iconClass: "text-indigo-100 drop-shadow-md",
+        animation: "ghost-pulse 2s infinite ease-in-out",
+        getClass: (_, isClearing) => isClearing ? "brightness-200 scale-110 z-20 shadow-[0_0_30px_rgba(99,102,241,1)] border-white" : ""
+    },
+    MULTIPLIER_BLOCK: {
+        borderColor: MODIFIER_COLORS.MULTIPLIER_BLOCK,
+        baseClass: "bg-yellow-600/90 border-2 border-yellow-400 shadow-[0_0_20px_rgba(234,179,8,0.5)]",
+        animation: "ghost-pulse 1s infinite ease-in-out",
+        renderContent: (_, isClearing) => (
+            <div className="flex items-center justify-center w-full h-full">
+                <span className={`font-black font-mono italic text-yellow-100 drop-shadow-md ${isClearing ? 'scale-150' : 'scale-100'} transition-transform`}>2x</span>
+            </div>
+        ),
+        getClass: (_, isClearing) => isClearing ? "brightness-150 scale-110 shadow-[0_0_40px_rgba(234,179,8,1)] border-white z-20" : ""
+    },
+    FREEZE_BLOCK: {
+        icon: Snowflake,
+        borderColor: MODIFIER_COLORS.FREEZE_BLOCK,
+        baseClass: "bg-cyan-400/80 border-2 border-white shadow-[0_0_15px_rgba(165,243,252,0.8)]",
+        iconClass: "text-white drop-shadow-lg animate-[spin_3s_linear_infinite]",
+        animation: "ghost-pulse 1.5s infinite ease-in-out",
+        getClass: (_, isClearing) => isClearing ? "brightness-150 scale-125 shadow-[0_0_50px_rgba(165,243,252,1)] z-20" : ""
+    },
+    DRILL_BLOCK: {
+        icon: ChevronDown,
+        borderColor: MODIFIER_COLORS.DRILL_BLOCK,
+        baseClass: "bg-orange-600/90 border-2 border-orange-400 shadow-[0_0_15px_rgba(249,115,22,0.7)]",
+        iconClass: "text-white drop-shadow-md animate-bounce",
+        animation: "none",
+        getClass: (_, isClearing) => isClearing ? "brightness-150 scale-125 shadow-[0_0_40px_rgba(249,115,22,1)] z-20" : ""
     }
 };

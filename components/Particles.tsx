@@ -2,7 +2,7 @@
 import React, { useRef, useImperativeHandle, forwardRef, useEffect } from 'react';
 
 // Particle Pool Configuration
-const MAX_PARTICLES = 800; // Increased for intense effects including shockwaves
+const MAX_PARTICLES = 800;
 
 interface Particle {
   active: boolean;
@@ -32,11 +32,10 @@ interface Props {
 
 /**
  * Renders a particle effects system on a canvas using Object Pooling.
- * Optimized for "Spark" physics: high velocity, high drag, fast decay.
+ * Upgraded: "Bouncy" Physics for juice.
  */
 const Particles = forwardRef<ParticlesHandle, Props>(({ cellSize, paused }, ref) => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
-  // Pre-allocate particles
   const particlesRef = useRef<Particle[]>(
     Array.from({ length: MAX_PARTICLES }, () => ({
       active: false,
@@ -52,7 +51,6 @@ const Particles = forwardRef<ParticlesHandle, Props>(({ cellSize, paused }, ref)
   );
   const animationFrameId = useRef<number>(0);
 
-  // Helper to find inactive particles and activate them
   const spawnParticle = (x: number, y: number, vx: number, vy: number, color: string, size: number, decay: number) => {
     const pool = particlesRef.current;
     for (let i = 0; i < MAX_PARTICLES; i++) {
@@ -86,8 +84,8 @@ const Particles = forwardRef<ParticlesHandle, Props>(({ cellSize, paused }, ref)
           Math.cos(angle) * speed,
           Math.sin(angle) * speed,
           color,
-          Math.random() * 3 + 1, // Smaller sparks
-          0.03 + Math.random() * 0.03 // Fast decay
+          Math.random() * 3 + 1, 
+          0.03 + Math.random() * 0.03 
         );
       }
     },
@@ -101,7 +99,7 @@ const Particles = forwardRef<ParticlesHandle, Props>(({ cellSize, paused }, ref)
              spawnParticle(
                 w / 2, 
                 py,
-                (Math.random() - 0.5) * 40, // Wide spread
+                (Math.random() - 0.5) * 40, 
                 (Math.random() - 0.5) * 15,
                 color,
                 Math.random() * 4 + 1,
@@ -116,7 +114,7 @@ const Particles = forwardRef<ParticlesHandle, Props>(({ cellSize, paused }, ref)
 
         for (let i = 0; i < amount; i++) {
             const angle = Math.random() * Math.PI * 2;
-            const speed = Math.random() * 8 + 4; // Explosive
+            const speed = Math.random() * 8 + 4; 
             spawnParticle(
                 px,
                 py,
@@ -136,7 +134,7 @@ const Particles = forwardRef<ParticlesHandle, Props>(({ cellSize, paused }, ref)
 
         for (let i = 0; i < amount; i++) {
             const angle = (i / amount) * Math.PI * 2;
-            const speed = 8; // Fast expansion
+            const speed = 8; 
             spawnParticle(
                 px,
                 py,
@@ -144,7 +142,7 @@ const Particles = forwardRef<ParticlesHandle, Props>(({ cellSize, paused }, ref)
                 Math.sin(angle) * speed,
                 color,
                 Math.random() * 2 + 2,
-                0.03 // Uniform decay for ring effect
+                0.03 
             );
         }
     },
@@ -156,7 +154,7 @@ const Particles = forwardRef<ParticlesHandle, Props>(({ cellSize, paused }, ref)
 
         for (let i = 0; i < amount; i++) {
             const angle = (i / amount) * Math.PI * 2;
-            const speed = 15 + Math.random() * 5; // Very fast expansion
+            const speed = 15 + Math.random() * 5; 
             spawnParticle(
                 px,
                 py,
@@ -164,7 +162,7 @@ const Particles = forwardRef<ParticlesHandle, Props>(({ cellSize, paused }, ref)
                 Math.sin(angle) * speed,
                 color,
                 Math.random() * 3 + 2,
-                0.05 // Fast decay
+                0.05 
             );
         }
     },
@@ -173,16 +171,13 @@ const Particles = forwardRef<ParticlesHandle, Props>(({ cellSize, paused }, ref)
         const px = x * cellSize + (cellSize / 2);
         const py = y * cellSize + (cellSize / 2);
         
-        // Ring Effect
         for (let i = 0; i < 30; i++) {
             const angle = (i / 30) * Math.PI * 2;
             const speed = 6; 
             spawnParticle(px, py, Math.cos(angle) * speed, Math.sin(angle) * speed, color, 3, 0.04);
         }
-        // Cardinal Cross Burst (White Accents)
         for (let i = 0; i < 4; i++) {
              const angle = i * (Math.PI / 2);
-             // Fast streams in cardinal directions
              for(let j=0; j<5; j++) {
                  spawnParticle(px, py, Math.cos(angle) * (8+j), Math.sin(angle) * (8+j), '#ffffff', 2, 0.05);
              }
@@ -206,7 +201,6 @@ const Particles = forwardRef<ParticlesHandle, Props>(({ cellSize, paused }, ref)
     
     resizeObserver.observe(canvas);
 
-    // If paused, stop loop but do NOT clear canvas, effectively freezing the last frame.
     if (paused) {
         if (animationFrameId.current) cancelAnimationFrame(animationFrameId.current);
         return () => resizeObserver.disconnect();
@@ -219,10 +213,10 @@ const Particles = forwardRef<ParticlesHandle, Props>(({ cellSize, paused }, ref)
       }
       ctx.clearRect(0, 0, canvas.width, canvas.height);
       
-      // Intense additive blending for neon look
       ctx.globalCompositeOperation = 'lighter';
 
       const pool = particlesRef.current;
+      const floorY = canvas.height;
       
       for (let i = 0; i < MAX_PARTICLES; i++) {
         const p = pool[i];
@@ -230,11 +224,18 @@ const Particles = forwardRef<ParticlesHandle, Props>(({ cellSize, paused }, ref)
 
         p.x += p.vx;
         p.y += p.vy;
-        p.vy += 0.15; // Gravity
-        p.vx *= 0.92; // High Air Resistance (Sparks stop fast)
-        p.vy *= 0.92;
+        p.vy += 0.25; // Heavier Gravity
+        p.vx *= 0.96; // Drag
+        p.vy *= 0.96;
         p.life -= p.decay;
-        p.size *= 0.95;
+        p.size *= 0.96;
+
+        // Floor Bounce Physics
+        if (p.y > floorY - p.size) {
+            p.y = floorY - p.size;
+            p.vy *= -0.6; // Bounce with dampening
+            p.vx *= 0.8;  // Friction on bounce
+        }
 
         if (p.life <= 0 || p.size <= 0.1) {
             p.active = false;

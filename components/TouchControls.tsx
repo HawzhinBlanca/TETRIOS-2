@@ -53,13 +53,13 @@ const RepeatButton = ({ onAction, icon: Icon, className, label, rotate = 0, acti
             onMouseDown={start}
             onMouseUp={stop}
             onMouseLeave={stop}
-            className={`w-16 h-16 rounded-full bg-transparent backdrop-blur-[2px] border border-white/10 
-                hover:bg-white/5 ${activeClass} active:scale-95 active:backdrop-blur-md
+            className={`w-14 h-14 sm:w-16 sm:h-16 rounded-full bg-white/5 backdrop-blur-sm border border-white/10 
+                hover:bg-white/10 ${activeClass} active:scale-90 active:backdrop-blur-md
                 transition-all duration-100 flex items-center justify-center select-none touch-none ${className}`}
             aria-label={label}
             style={{ transform: `rotate(${rotate}deg)` }}
         >
-            <Icon size={32} className="text-white/80 drop-shadow-sm" strokeWidth={1.5} />
+            <Icon size={28} className="text-white/90 drop-shadow-sm" strokeWidth={2} />
         </button>
     );
 };
@@ -73,12 +73,11 @@ const TouchControls: React.FC<Props> = ({
 }) => {
     return (
         // Anchored to bottom with safe area padding support.
-        // The controls sit in a "Thin Line" area visually defined by spacing, but transparent.
-        // Ultra-minimalist see-through style.
-        <div className="fixed bottom-0 left-0 right-0 pb-safe pt-2 px-4 h-[180px] flex justify-between items-end z-[100] pointer-events-none bg-gradient-to-t from-black/40 to-transparent">
+        // Ultra-minimalist transparent style.
+        <div className="fixed bottom-0 left-0 right-0 pb-safe pt-4 px-4 h-[200px] flex justify-between items-end z-[100] pointer-events-none bg-gradient-to-t from-black/60 via-black/20 to-transparent">
             
             {/* Left Cluster: D-Pad (Movement & Drops) */}
-            <div className="pointer-events-auto grid grid-cols-3 gap-1 mb-4">
+            <div className="pointer-events-auto grid grid-cols-3 gap-2 mb-4">
                 {/* Hard Drop */}
                 <div className="col-start-2 flex justify-center">
                     <RepeatButton onAction={() => controller.hardDrop()} icon={ArrowUp} label="Hard Drop" rotate={flippedGravity ? 180 : 0} />
@@ -102,22 +101,22 @@ const TouchControls: React.FC<Props> = ({
 
             {/* Right Cluster: Action Buttons (Rotation, Hold, Zone) */}
             <div className="pointer-events-auto flex flex-col gap-4 items-end mb-6 mr-2">
-                <div className="flex gap-4 items-center">
+                <div className="flex gap-3 items-center">
                     {isZoneReady && onZone && (
-                        <button onClick={onZone} className="w-12 h-12 rounded-full bg-yellow-500/10 border border-yellow-400/30 flex items-center justify-center active:scale-95 active:bg-yellow-500/30 backdrop-blur-md transition-all shadow-[0_0_15px_rgba(234,179,8,0.2)]">
+                        <button onClick={onZone} className="w-12 h-12 rounded-full bg-yellow-500/20 border border-yellow-400/40 flex items-center justify-center active:scale-90 active:bg-yellow-500/40 backdrop-blur-md transition-all shadow-[0_0_15px_rgba(234,179,8,0.3)]">
                             <Eye size={20} className="text-yellow-200" />
                         </button>
                     )}
-                    <button onClick={() => controller.hold()} className="w-12 h-12 rounded-full bg-transparent border border-white/10 flex items-center justify-center active:scale-95 active:bg-white/10 backdrop-blur-[2px] transition-all hover:bg-white/5">
-                        <Archive size={20} className="text-gray-300" strokeWidth={1.5} />
+                    <button onClick={() => controller.hold()} className="w-12 h-12 rounded-full bg-white/5 border border-white/10 flex items-center justify-center active:scale-90 active:bg-white/20 backdrop-blur-sm transition-all">
+                        <Archive size={18} className="text-gray-300" strokeWidth={2} />
                     </button>
-                    <button onClick={() => controller.rotate(-1)} className="w-14 h-14 rounded-full bg-transparent border border-white/10 flex items-center justify-center active:scale-95 active:bg-white/10 backdrop-blur-[2px] transition-all hover:bg-white/5">
-                        <RotateCcw size={24} className="text-white/80" strokeWidth={1.5} />
+                    <button onClick={() => controller.rotate(-1)} className="w-14 h-14 rounded-full bg-white/5 border border-white/10 flex items-center justify-center active:scale-90 active:bg-white/20 backdrop-blur-sm transition-all">
+                        <RotateCcw size={24} className="text-white/90" strokeWidth={2} />
                     </button>
                 </div>
                 {/* Big Rotate CW Button */}
-                <button onClick={() => controller.rotate(1)} className="w-20 h-20 rounded-full bg-transparent border border-white/20 flex items-center justify-center active:scale-95 active:bg-white/10 active:border-white/40 backdrop-blur-[2px] transition-all shadow-sm hover:bg-white/5">
-                    <RotateCw size={36} className="text-white" strokeWidth={1.5} />
+                <button onClick={() => controller.rotate(1)} className="w-20 h-20 rounded-full bg-white/10 border border-white/20 flex items-center justify-center active:scale-90 active:bg-white/30 active:border-white/50 backdrop-blur-md transition-all shadow-lg hover:bg-white/15">
+                    <RotateCw size={40} className="text-white" strokeWidth={2} />
                 </button>
             </div>
         </div>
