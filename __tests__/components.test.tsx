@@ -11,6 +11,13 @@ import Modal from '../components/ui/Modal';
 import { MODIFIER_COLORS } from '../constants';
 import { GameStats } from '../types';
 
+declare var describe: any;
+declare var it: any;
+declare var expect: any;
+declare var jest: any;
+declare var beforeAll: any;
+declare var afterEach: any;
+
 // --- TEST SETUP & MOCKS ---
 
 // Mock Audio Manager to prevent errors during interactions
@@ -22,6 +29,17 @@ jest.mock('../utils/audioManager', () => ({
     playUiBack: jest.fn(),
     init: jest.fn(),
   }
+}));
+
+// Mock Profile Store to provide high scores
+jest.mock('../stores/profileStore', () => ({
+  useProfileStore: jest.fn(() => ({
+    stats: { 
+      highScores: { MARATHON: 5000 }, 
+      highScore: 5000, 
+      totalGamesPlayed: 10 
+    }
+  }))
 }));
 
 // Mock Canvas getContext for components that use canvas (like Preview/Particles if they were included, or internal logic)
@@ -47,14 +65,6 @@ beforeAll(() => {
     setLineDash: jest.fn(),
   }));
 });
-
-// Declare test globals to satisfy TypeScript in this environment
-declare const describe: (name: string, callback: () => void) => void;
-declare const it: (name: string, callback: () => void) => void;
-declare const expect: (actual: any) => any;
-declare const afterEach: (callback: () => void) => void;
-declare const jest: any;
-declare const beforeAll: (callback: () => void) => void;
 
 describe('Display Component', () => {
   afterEach(cleanup);
@@ -107,21 +117,21 @@ describe('MainMenu Component', () => {
   afterEach(cleanup);
 
   it('renders title and high score', () => {
-    render(<MainMenu onStart={jest.fn()} highScore={5000} />);
+    render(<MainMenu onStart={jest.fn()} />);
     expect(screen.getByText('TETRIOS')).toBeInTheDocument();
     expect(screen.getByText('5,000')).toBeInTheDocument();
   });
 
   it('triggers onStart when Initialize is clicked', () => {
     const onStart = jest.fn();
-    render(<MainMenu onStart={onStart} highScore={0} />);
+    render(<MainMenu onStart={onStart} />);
     const button = screen.getByLabelText('Initialize Game');
     fireEvent.click(button);
     expect(onStart).toHaveBeenCalled();
   });
 
   it('allows mode switching', () => {
-    render(<MainMenu onStart={jest.fn()} highScore={0} />);
+    render(<MainMenu onStart={jest.fn()} />);
     const blitzButton = screen.getByLabelText('Start Blitz mode');
     fireEvent.click(blitzButton);
     expect(screen.getByText('Blitz')).toBeInTheDocument();
@@ -134,7 +144,8 @@ describe('StatsPanel Component', () => {
   const mockStats: GameStats = {
     score: 1234, rows: 10, level: 1, time: 60,
     movesTaken: 0, gemsCollected: 0, bombsDefused: 0, 
-    tetrisesAchieved: 0, combosAchieved: 0
+    tetrisesAchieved: 0, combosAchieved: 0,
+    focusGauge: 0, isZoneActive: false, zoneTimer: 0, zoneLines: 0
   };
 
   it('renders score correctly in Marathon', () => {

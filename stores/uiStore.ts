@@ -1,6 +1,7 @@
 
 import { create } from 'zustand';
 import { persist, createJSONStorage } from 'zustand/middleware';
+import { safeStorage } from '../utils/safeStorage';
 
 interface UiState {
   isMuted: boolean;
@@ -21,10 +22,9 @@ export const useUiStore = create<UiState>()(
     }),
     {
       name: 'tetrios-ui-store',
-      version: 3, // Increment version due to schema change (removed showAi)
-      storage: createJSONStorage(() => localStorage),
+      version: 3, 
+      storage: createJSONStorage(() => safeStorage),
       migrate: (persistedState: any, currentVersion) => {
-        // Simply return the state as compatible since removed fields are just ignored by the new store
         return persistedState as UiState;
       },
     }

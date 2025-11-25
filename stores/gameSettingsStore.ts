@@ -1,7 +1,13 @@
 
 import { create } from 'zustand';
 import { persist, createJSONStorage } from 'zustand/middleware';
-import { GhostStyle } from '../types';
+import { GhostStyle, ColorblindMode, BlockSkin } from '../types';
+import { safeStorage } from '../utils/safeStorage';
+
+const isTouchDevice = () => {
+  if (typeof window === 'undefined') return false;
+  return ('ontouchstart' in window) || (navigator.maxTouchPoints > 0);
+};
 
 interface GameSettingsState {
   ghostStyle: GhostStyle;
@@ -13,6 +19,16 @@ interface GameSettingsState {
   showAi: boolean; // Moved from uiStore
   das: number; // Delayed Auto Shift
   arr: number; // Auto Repeat Rate
+  cameraShake: boolean;
+  enableTouchControls: boolean;
+  colorblindMode: ColorblindMode;
+  blockSkin: BlockSkin; // NEW
+  
+  // Audio Mixer Volumes
+  masterVolume: number;
+  musicVolume: number;
+  sfxVolume: number;
+  uiVolume: number;
 
   setGhostStyle: (style: GhostStyle) => void;
   setGhostOpacity: (val: number) => void;
@@ -23,6 +39,15 @@ interface GameSettingsState {
   toggleShowAi: () => void;
   setDas: (val: number) => void;
   setArr: (val: number) => void;
+  setCameraShake: (enabled: boolean) => void;
+  setEnableTouchControls: (enabled: boolean) => void;
+  setColorblindMode: (mode: ColorblindMode) => void;
+  setBlockSkin: (skin: BlockSkin) => void; // NEW
+  
+  setMasterVolume: (val: number) => void;
+  setMusicVolume: (val: number) => void;
+  setSfxVolume: (val: number) => void;
+  setUiVolume: (val: number) => void;
 }
 
 // Export the store hook
@@ -30,7 +55,7 @@ export const useGameSettingsStore = create<GameSettingsState>()(
   persist(
     (set) => ({
       // Default values
-      ghostStyle: 'dashed',
+      ghostStyle: 'neon',
       ghostOpacity: 0.5,
       ghostOutlineThickness: 2,
       ghostGlowIntensity: 1,
@@ -39,6 +64,15 @@ export const useGameSettingsStore = create<GameSettingsState>()(
       showAi: true,
       das: 133,
       arr: 10,
+      cameraShake: true,
+      enableTouchControls: isTouchDevice(),
+      colorblindMode: 'NORMAL',
+      blockSkin: 'NEON',
+      
+      masterVolume: 0.6,
+      musicVolume: 0.5,
+      sfxVolume: 0.7,
+      uiVolume: 0.6,
 
       // Actions
       setGhostStyle: (style) => set({ ghostStyle: style }),
@@ -50,11 +84,20 @@ export const useGameSettingsStore = create<GameSettingsState>()(
       toggleShowAi: () => set((state) => ({ showAi: !state.showAi })),
       setDas: (val) => set({ das: val }),
       setArr: (val) => set({ arr: val }),
+      setCameraShake: (enabled) => set({ cameraShake: enabled }),
+      setEnableTouchControls: (enabled) => set({ enableTouchControls: enabled }),
+      setColorblindMode: (mode) => set({ colorblindMode: mode }),
+      setBlockSkin: (skin) => set({ blockSkin: skin }),
+      
+      setMasterVolume: (val) => set({ masterVolume: val }),
+      setMusicVolume: (val) => set({ musicVolume: val }),
+      setSfxVolume: (val) => set({ sfxVolume: val }),
+      setUiVolume: (val) => set({ uiVolume: val }),
     }),
     {
       name: 'tetrios-game-settings-store', 
-      version: 3, // Explicit versioning
-      storage: createJSONStorage(() => localStorage),
+      version: 8, // Version increment for blockSkin
+      storage: createJSONStorage(() => safeStorage),
       partialize: (state) => ({
         ghostStyle: state.ghostStyle,
         ghostOpacity: state.ghostOpacity,
@@ -65,13 +108,18 @@ export const useGameSettingsStore = create<GameSettingsState>()(
         showAi: state.showAi,
         das: state.das,
         arr: state.arr,
+        cameraShake: state.cameraShake,
+        enableTouchControls: state.enableTouchControls,
+        colorblindMode: state.colorblindMode,
+        blockSkin: state.blockSkin,
+        masterVolume: state.masterVolume,
+        musicVolume: state.musicVolume,
+        sfxVolume: state.sfxVolume,
+        uiVolume: state.uiVolume,
       }),
       migrate: (persistedState: any, currentVersion) => {
-        if (currentVersion < 3) {
-           // Ensure showAi is initialized if migrating from older version
-           if (persistedState.showAi === undefined) {
-               persistedState.showAi = true;
-           }
+        if (currentVersion < 8) {
+            if (persistedState.blockSkin === undefined) persistedState.blockSkin = 'NEON';
         }
         return persistedState as GameSettingsState;
       },

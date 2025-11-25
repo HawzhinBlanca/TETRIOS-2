@@ -1,9 +1,5 @@
 
-
-
-
-
-export type TetrominoType = 'I' | 'J' | 'L' | 'O' | 'S' | 'T' | 'Z' | 'G' | 'WILDCARD_SHAPE'; // G for Garbage, WILDCARD_SHAPE for wildcard piece
+export type TetrominoType = 'I' | 'J' | 'L' | 'O' | 'S' | 'T' | 'Z' | 'G' | 'WILDCARD_SHAPE' | 'M1' | 'D2' | 'T3' | 'P5' | 'D2_H' | 'D2_V' | 'T3_L' | 'T3_I' | 'P5_P' | 'P5_X' | 'P5_F';
 
 export interface Tetromino {
   type: TetrominoType;
@@ -13,18 +9,18 @@ export interface Tetromino {
 
 export type TetrominoShape = (TetrominoType | 0)[][];
 
-export type CellState = 'clear' | 'merged';
+export type CellState = 'clear' | 'merged' | 'zoned';
 
-export type CellModifierType = 'GEM' | 'BOMB' | 'ICE' | 'CRACKED_ICE' | 'WILDCARD_BLOCK' | 'LASER_BLOCK' | 'NUKE_BLOCK';
+export type CellModifierType = 'GEM' | 'BOMB' | 'ICE' | 'CRACKED_ICE' | 'WILDCARD_BLOCK' | 'LASER_BLOCK' | 'NUKE_BLOCK' | 'SOFT_BLOCK' | 'BEDROCK';
 
 export interface CellModifier {
     type: CellModifierType;
-    timer?: number; // For bombs, turns remaining
-    hits?: number; // For ICE blocks, hits remaining
+    timer?: number;
+    hits?: number;
 }
 
-// Updated CellData to include optional modifier
-export type CellData = [TetrominoType | null, CellState, CellModifier?]; 
+// Added optional 4th element for Color Override
+export type CellData = [TetrominoType | null, CellState, CellModifier?, string?]; 
 
 export type Board = CellData[][];
 
@@ -37,28 +33,69 @@ export interface Player {
   pos: Position;
   tetromino: Tetromino;
   collided: boolean;
+  trail: Position[]; // NEW: For Motion Trails
+  colorOverride?: string; // Specific color for this instance
 }
 
-export type GameState = 'MENU' | 'PLAYING' | 'PAUSED' | 'GAMEOVER' | 'VICTORY' | 'MAP' | 'STORY' | 'BOOSTER_SELECTION' | 'WILDCARD_SELECTION' | 'BOMB_SELECTION' | 'LINE_SELECTION';
+export type GameState = 'MENU' | 'COUNTDOWN' | 'PLAYING' | 'PAUSED' | 'GAMEOVER' | 'VICTORY' | 'MAP' | 'STORY' | 'BOOSTER_SELECTION' | 'WILDCARD_SELECTION' | 'BOMB_SELECTION' | 'LINE_SELECTION' | 'REWINDING' | 'REPLAYING';
 
-export type GameMode = 'MARATHON' | 'TIME_ATTACK' | 'SPRINT' | 'ZEN' | 'MASTER' | 'PUZZLE' | 'BATTLE' | 'ADVENTURE' | 'BLITZ' | 'SURVIVAL' | 'COMBO_MASTER';
+export type GameMode = 'MARATHON' | 'TIME_ATTACK' | 'SPRINT' | 'ZEN' | 'MASTER' | 'PUZZLE' | 'BATTLE' | 'ADVENTURE' | 'BLITZ' | 'SURVIVAL' | 'COMBO_MASTER' | 'DAILY';
+
+export type Difficulty = 'EASY' | 'MEDIUM' | 'HARD';
+
+export type ColorblindMode = 'NORMAL' | 'PROTANOPIA' | 'DEUTERANOPIA' | 'TRITANOPIA';
+
+export type BlockSkin = 'NEON' | 'RETRO' | 'MINIMAL' | 'GELATIN' | 'CYBER';
+
+export interface GameSnapshot {
+    board: Board;
+    player: Player;
+    score: number;
+    rows: number;
+    level: number;
+    combo: number;
+    b2b: boolean;
+    nextQueue: TetrominoType[];
+    heldPiece: TetrominoType | null;
+    canHold: boolean;
+    timestamp: number;
+}
+
+export interface ReplayFrame {
+    time: number;
+    action: KeyAction;
+}
+
+export interface ReplayData {
+    seed: string;
+    mode: GameMode;
+    difficulty: Difficulty;
+    inputs: ReplayFrame[];
+    finalScore: number;
+    date: number;
+}
 
 export interface GameStats {
   score: number;
   rows: number;
   level: number;
-  time: number; // Used for elapsed time or remaining time depending on mode
-  objectiveProgress?: number; // Current progress towards adventure objective
-  // New adventure objective related stats
+  time: number;
+  objectiveProgress?: number;
   movesTaken?: number;
   gemsCollected?: number;
   bombsDefused?: number;
   tetrisesAchieved?: number;
+  tspinsAchieved?: number;
   combosAchieved?: number;
-  // Frenzy Mode stats
+  currentB2BChain?: number;
+  maxB2BChain?: number;
+  bossHp?: number;
   isFrenzyActive?: boolean;
   frenzyTimer?: number;
-  // Booster related stats
+  focusGauge: number;
+  isZoneActive: boolean;
+  zoneTimer: number;
+  zoneLines: number;
   slowTimeActive?: boolean;
   slowTimeTimer?: number;
   wildcardAvailable?: boolean;
@@ -66,37 +103,74 @@ export interface GameStats {
   lineClearerActive?: boolean; 
   flippedGravityActive?: boolean; 
   flippedGravityTimer?: number; 
+  isRewinding?: boolean;
+  finesseFaults?: number;
+  colorStreak?: number; // Track consecutive same-color clears
+  lastClearColor?: string;
+  colorClears?: Record<string, number>;
+  abilities?: AbilityState[]; // Track ability cooldowns
 }
 
-// AI Types
 export interface MoveScore {
-  r: number; // rotation (0-3)
-  x: number; // x position
-  y?: number; // calculated drop y position
+  r: number;
+  x: number;
+  y?: number;
   score: number;
+  type?: TetrominoType;
 }
 
-export type FloatingTextVariant = 'default' | 'gem' | 'bomb' | 'frenzy' | 'powerup';
+export interface AiEvaluationResult {
+    bestMove: MoveScore;
+    playerMoveScore: number;
+    isMissedOpportunity: boolean;
+}
+
+export interface WorkerInitPayload {
+    STAGE_WIDTH: number;
+    STAGE_HEIGHT: number;
+    TETROMINOS: Record<string, Tetromino>;
+    KICKS: any;
+}
+
+export interface WorkerRequest {
+    type?: 'INIT' | 'EVALUATE';
+    payload?: WorkerInitPayload;
+    id: number;
+    stage?: Board;
+    tetrominoType?: TetrominoType;
+    rotationState?: number;
+    flippedGravity?: boolean;
+    mode?: 'EVALUATE';
+    playerMove?: any;
+}
+
+export interface WorkerResponse {
+    id: number;
+    result?: MoveScore | null;
+    type?: 'EVALUATION';
+    bestMove?: MoveScore;
+}
+
+export type FloatingTextVariant = 'default' | 'gem' | 'bomb' | 'frenzy' | 'powerup' | 'zone' | 'coach' | 'achievement' | 'fault' | 'rhythm';
 
 export interface FloatingText {
   id: number;
   text: string;
   x: number;
   y: number;
-  life: number; // 0 to 1
+  life: number;
   color: string;
   scale: number;
-  initialScale: number; // Added for floating text animation
-  variant?: FloatingTextVariant; // Added for different visual styles
+  initialScale: number;
+  variant?: FloatingTextVariant;
 }
 
-export type KeyAction = 'moveLeft' | 'moveRight' | 'softDrop' | 'hardDrop' | 'rotateCW' | 'rotateCCW' | 'hold';
+export type KeyAction = 'moveLeft' | 'moveRight' | 'softDrop' | 'hardDrop' | 'rotateCW' | 'rotateCCW' | 'hold' | 'zone' | 'rewind' | 'ability1' | 'ability2' | 'ability3';
 
 export type KeyMap = Record<KeyAction, string[]>;
 
 export type GhostStyle = 'neon' | 'dashed' | 'solid';
 
-// Renderer Types
 export interface BoardRenderConfig {
     cellSize: number;
     ghostStyle: GhostStyle;
@@ -109,190 +183,176 @@ export interface BoardRenderConfig {
     aiHint?: MoveScore | null; 
     pieceIsGrounded: boolean;
     wildcardPieceAvailable: boolean; 
-    // Adventure mode specific rendering configs
-    gimmicks?: AdventureLevelConfig['gimmicks'];
-    flippedGravity: boolean; // Pass flipped gravity state to renderer
-    bombSelectionRows?: number[]; // Rows highlighted for bomb selection
-    lineClearerSelectedRow?: number | null; // New: Row highlighted for line clearer
-    bombBoosterTarget?: Position | null; // For 2x2 bomb selection
+    gimmicks?: any;
+    flippedGravity: boolean;
+    bombSelectionRows?: number[];
+    lineClearerSelectedRow?: number | null;
+    bombBoosterTarget?: Position | null;
+    colorblindMode: ColorblindMode;
+    isZoneActive: boolean;
+    zoneLines: number;
+    missedOpportunity: MoveScore | null;
+    blockSkin: BlockSkin;
 }
 
-// Visual Effect Types (Discriminated Union)
-interface ParticlePayload {
-  isExplosion?: boolean;
-  isBurst?: boolean;
-  clearedRows?: number[] | number;
-  y?: number;
-  x?: number;
-  color?: string;
-  amount?: number;
+export type VisualEffectType = 
+    | 'SHAKE' 
+    | 'PARTICLE' 
+    | 'FLASH' 
+    | 'FRENZY_START' 
+    | 'FRENZY_END' 
+    | 'POWERUP_ACTIVATE' 
+    | 'BLITZ_SPEED_THRESHOLD' 
+    | 'FLIPPED_GRAVITY_ACTIVATE' 
+    | 'FLIPPED_GRAVITY_END'
+    | 'HARD_DROP_BEAM'
+    | 'ROW_CLEAR'
+    | 'ZONE_START'
+    | 'ZONE_END'
+    | 'ZONE_CLEAR'
+    | 'SHOCKWAVE'
+    | 'TSPIN_CLEAR';
+
+export interface VisualEffectPayload {
+    type: VisualEffectType;
+    payload?: any;
 }
 
-interface FlashPayload {
-  color?: string;
-  duration?: number;
-}
+export type AudioEvent = 
+    | 'MOVE' | 'ROTATE' | 'SOFT_DROP' | 'HARD_DROP' | 'LOCK' | 'SOFT_LAND'
+    | 'TSPIN' | 'CLEAR_1' | 'CLEAR_2' | 'CLEAR_3' | 'CLEAR_4'
+    | 'GAME_OVER' | 'VICTORY'
+    | 'FRENZY_START' | 'FRENZY_END'
+    | 'ZONE_START' | 'ZONE_END' | 'ZONE_CLEAR'
+    | 'WILDCARD_SPAWN'
+    | 'LASER_CLEAR' | 'NUKE_CLEAR' | 'NUKE_SPAWN'
+    | 'BOMB_ACTIVATE' | 'LINE_CLEARER_ACTIVATE'
+    | 'BLITZ_SPEEDUP'
+    | 'GRAVITY_FLIP_START' | 'GRAVITY_FLIP_END'
+    | 'LEVEL_UP'
+    | 'UI_HOVER' | 'UI_CLICK' | 'UI_SELECT' | 'UI_BACK'
+    | 'BOSS_DAMAGE'
+    | 'COUNTDOWN'
+    | 'REWIND'
+    | 'COACH_WARN'
+    | 'ACHIEVEMENT_UNLOCK'
+    | 'FINESSE_FAULT'
+    | 'RHYTHM_CLEAR'
+    | 'ABILITY_READY' | 'ABILITY_ACTIVATE';
 
-interface ShakeVisualEffect { 
-  type: 'SHAKE'; 
-  payload?: 'hard' | 'soft'; 
+export interface LevelRewards {
+    coins: number;
+    stars: number;
+    boosterRewards?: { type: any; amount: number }[];
 }
-interface ParticleVisualEffect { 
-  type: 'PARTICLE'; 
-  payload?: ParticlePayload; 
-}
-interface FlashVisualEffect { 
-  type: 'FLASH'; 
-  payload?: FlashPayload; 
-}
-interface FrenzyVisualEffect {
-  type: 'FRENZY_START' | 'FRENZY_END';
-  payload?: { color?: string; };
-}
-interface PowerupActivateVisualEffect {
-  type: 'POWERUP_ACTIVATE';
-  payload?: { type: CellModifierType | BoosterType; x?: number; y?: number; color?: string; }; 
-}
-interface BlitzSpeedThresholdEffect { 
-  type: 'BLITZ_SPEED_THRESHOLD';
-  payload?: { threshold: number };
-}
-interface FlippedGravityVisualEffect { 
-  type: 'FLIPPED_GRAVITY_ACTIVATE' | 'FLIPPED_GRAVITY_END';
-  payload?: { color?: string; };
-}
-
-export type VisualEffectPayload = ShakeVisualEffect | ParticleVisualEffect | FlashVisualEffect | FrenzyVisualEffect | PowerupActivateVisualEffect | BlitzSpeedThresholdEffect | FlippedGravityVisualEffect;
-
-// Adventure Mode Types
-export interface StoryNode {
-    id: string;
-    speaker: string;
-    text: string;
-    avatar?: string; // Emoji or url
-    side?: 'left' | 'right';
-}
-
-export type LevelObjectiveType = 'LINES' | 'TIME_SURVIVAL' | 'SCORE' | 'BOSS' | 'GEMS' | 'BOMBS' | 'TETRIS' | 'MOVES' | 'COMBO';
-export type InitialBoardModifierType = 'GEMS' | 'BOMBS' | 'ICE' | 'GARBAGE' | 'WILDCARD_BLOCK' | 'LASER_BLOCK' | 'NUKE_BLOCK';
-export type GameGimmickType = 'INVISIBLE_ROWS' | 'FLIPPED_GRAVITY';
 
 export interface AdventureLevelConfig {
     id: string;
     index: number;
+    worldId: string;
     title: string;
     description: string;
-    worldId: string;
+    mapCoordinates?: { x: number; y: number };
     objective: {
         type: LevelObjectiveType;
-        target: number; // Lines count, seconds, score, Boss HP, Gems count, Tetris count, Combo count
+        target: number;
+        targetColor?: string; // For Color Linked Objectives
     };
     constraints?: {
-        movesLimit?: number; // Optional move limit (max moves)
-        timeLimit?: number; // Optional time limit (seconds)
+        movesLimit?: number;
+        timeLimit?: number;
     };
     initialBoard?: {
-        type: InitialBoardModifierType;
+        type: any;
         amount: number;
-        modifierProps?: { timer?: number; hits?: number; };
+        modifierProps?: { timer?: number; hits?: number };
+    }[];
+    gimmicks?: {
+        type: any;
+        config?: any;
     }[];
     boss?: {
         name: string;
-        ability: 'GARBAGE_RAIN' | 'SPEED_SURGE';
-        interval: number; // ms
+        ability: string;
+        interval: number;
+        maxHp?: number;
     };
-    gimmicks?: {
-        type: GameGimmickType;
-        config?: any; 
-    }[];
-    tutorialTip?: { text: string; }; 
-    storyStart?: StoryNode[];
-    storyEnd?: StoryNode[];
     style: {
         background: string;
         accentColor: string;
     };
+    storyStart?: StoryNode[];
+    storyEnd?: StoryNode[];
+    tutorialTip?: { text: string };
     rewards?: {
-        coins?: number;
-        boosters?: { type: BoosterType; amount: number; }[];
-    }
+        coins: number;
+        boosters?: { type: any; amount: number }[];
+    };
+    // Pro Features
+    piecePool?: TetrominoType[];
+    rules?: GameRule[];
 }
+
+export type GameRule = 'COLOR_CHAOS' | 'NO_HOLD';
 
 export interface AdventureWorld {
     id: string;
     name: string;
     description: string;
     themeColor: string;
+    backgroundGradient: string;
+    particleColor: string;
     levels: AdventureLevelConfig[];
 }
 
-// Boosters and Power-Ups
-export type BoosterType = 'BOMB_BOOSTER' | 'SLOW_TIME_BOOSTER' | 'PIECE_SWAP_BOOSTER' | 'LINE_CLEARER_BOOSTER' | 'FLIPPED_GRAVITY_BOOSTER';
-
 export interface Booster {
-    type: BoosterType;
+    type: any;
     name: string;
     description: string;
-    icon: string; // Emoji or asset URL
-    cost: number; // Coins
-    initialQuantity?: number; // For initial game setup
+    icon: string;
+    initialQuantity?: number;
+    cost: number;
 }
 
-export interface LevelRewards {
-    coins: number;
-    stars: number;
-    boosterRewards?: { type: BoosterType; amount: number; }[];
+export type BoosterType = 'BOMB_BOOSTER' | 'SLOW_TIME_BOOSTER' | 'PIECE_SWAP_BOOSTER' | 'LINE_CLEARER_BOOSTER' | 'FLIPPED_GRAVITY_BOOSTER';
+
+export interface Achievement {
+    id: string;
+    title: string;
+    description: string;
+    icon: string;
+    color: string;
 }
 
-export type AudioEvent = 
-  'MOVE' | 'ROTATE' | 'SOFT_DROP' | 'HARD_DROP' | 'LOCK' | 'SOFT_LAND' |
-  'CLEAR_1' | 'CLEAR_2' | 'CLEAR_3' | 'CLEAR_4' | 'TSPIN' | 
-  'GAME_OVER' | 'VICTORY' | 
-  'FRENZY_START' | 'FRENZY_END' | 
-  'WILDCARD_SPAWN' | 'LASER_CLEAR' | 'NUKE_CLEAR' | 'NUKE_SPAWN' | 
-  'BOMB_ACTIVATE' | 'LINE_CLEARER_ACTIVATE' | 
-  'BLITZ_SPEEDUP' | 'GRAVITY_FLIP_START' | 'GRAVITY_FLIP_END' | 'BOSS_DAMAGE' |
-  'UI_HOVER' | 'UI_CLICK' | 'UI_SELECT' | 'UI_BACK' | 'LEVEL_UP';
-
-// Callbacks for GameCore
 export interface GameCallbacks {
-    onStateChange: (newState: GameState, previousState: GameState) => void; // New FSM callback
-    onStatsChange: (stats: GameStats) => void;
-    onQueueChange: (queue: TetrominoType[]) => void;
-    onHoldChange: (piece: TetrominoType | null, canHold: boolean) => void;
-    onVisualEffect: (effect: VisualEffectPayload) => void;
+    onVisualEffect: (effect: any) => void;
+    onAudio: (event: any, val?: number, type?: TetrominoType) => void;
     onGameOver: (state: GameState, currentLevelId?: string, rewards?: LevelRewards) => void;
-    onAiTrigger: () => void;
-    onComboChange: (combo: number, isB2B: boolean) => void;
-    onGarbageChange: (garbage: number) => void;
-    onGroundedChange: (isGrounded: boolean) => void;
-    onFlippedGravityChange: (isFlipped: boolean) => void;
-    onWildcardSelectionTrigger: () => void; 
-    onWildcardAvailableChange: (available: boolean) => void; 
-    onSlowTimeChange: (active: boolean, timer: number) => void; 
-    onBombBoosterReadyChange: (ready: boolean) => void; 
-    onBombSelectionStart: (rowsToClear: number) => void; 
-    onBombSelectionEnd: () => void; 
-    onLineClearerActiveChange: (active: boolean) => void; 
-    onLineSelectionStart: () => void; 
-    onLineSelectionEnd: () => void; 
-    onBlitzSpeedUp?: (threshold: number) => void; 
-    onFlippedGravityTimerChange?: (active: boolean, timer: number) => void;
-    onAudio: (event: AudioEvent) => void;
+    onAchievementUnlocked: (id: string) => void;
+    onFastScoreUpdate: (score: number, time: number) => void; // NEW: React-less HUD
 }
 
-// Score Result Interface
-export interface ScoreResult {
-  score: number;
-  text: string;
-  isBackToBack: boolean;
-  soundLevel: number; // Represents the number of lines cleared for sound purposes
-  visualShake: 'hard' | 'soft' | null;
+export type InitialBoardModifierType = 'GEMS' | 'BOMBS' | 'ICE' | 'GARBAGE' | 'WILDCARD_BLOCK' | 'LASER_BLOCK' | 'NUKE_BLOCK' | 'PILLARS' | 'SOFT_BLOCKS' | 'BEDROCK';
+export type LevelObjectiveType = 'LINES' | 'SCORE' | 'TIME_SURVIVAL' | 'GEMS' | 'BOMBS' | 'TETRIS' | 'TSPIN' | 'COMBO' | 'BOSS' | 'MOVES' | 'B2B_CHAIN' | 'COLOR_MATCH';
+export type GameGimmickType = 'INVISIBLE_ROWS' | 'FLIPPED_GRAVITY';
+export interface StoryNode { id: string; speaker: string; text: string; side?: 'left' | 'right'; avatar?: string; }
+export interface ScoreResult { score: number; text: string; isBackToBack: boolean; soundLevel: number; visualShake: 'hard' | 'soft' | null; }
+
+// --- ABILITIES ---
+export type AbilityType = 'COLOR_SWAP' | 'COLUMN_NUKE' | 'PIECE_SCULPT';
+
+export interface AbilityConfig {
+    id: AbilityType;
+    name: string;
+    description: string;
+    icon: any; // Lucide icon name
+    cooldownMs: number;
+    color: string;
 }
 
-// Extend Window interface for webkitAudioContext
-declare global {
-  interface Window {
-    webkitAudioContext?: typeof AudioContext;
-  }
+export interface AbilityState {
+    id: AbilityType;
+    cooldownTimer: number; // 0 means ready
+    isReady: boolean;
+    totalCooldown: number;
 }

@@ -1,66 +1,106 @@
-import React, { useEffect, useState } from 'react';
+
+import React from 'react';
+import GlassPanel from './ui/GlassPanel';
+import ProgressBar from './ui/ProgressBar';
+import { Label, Value } from './ui/Text';
+import { useAnimatedValue } from '../hooks/useAnimatedValue';
+import { Delta } from './ui/Delta';
+import PanelHeader from './ui/PanelHeader';
 
 interface Props {
   label: string;
-  text: string | number;
+  text?: string | number;
   progress?: number; // 0 to 1
-  icon?: React.ReactNode; // Optional icon for the label
+  icon?: React.ElementType; // Changed to ElementType for consistency with other UI components
   className?: string;
+  labelClassName?: string;
+  variant?: 'default' | 'mobile';
+  align?: 'left' | 'right' | 'center';
 }
 
-const Display: React.FC<Props> = React.memo(({ label, text, progress, icon, className = '' }) => {
-  const [prevText, setPrevText] = useState(text);
-  const [delta, setDelta] = useState<string | null>(null);
+const Display: React.FC<Props> = React.memo(({ 
+    label, 
+    text, 
+    progress, 
+    icon, 
+    className = '', 
+    labelClassName = 'text-cyan-400/90',
+    variant = 'default',
+    align = 'left'
+}) => {
+  const delta = useAnimatedValue(text || 0);
 
-  useEffect(() => {
-     if (typeof text === 'number' && typeof prevText === 'number') {
-         const diff = text - prevText;
-         if (diff > 0) {
-             setDelta(`+${diff}`);
-             setTimeout(() => setDelta(null), 1500);
-         }
-     }
-     setPrevText(text);
-  }, [text]);
+  const alignmentClasses = {
+      left: 'items-start text-left',
+      right: 'items-end text-right',
+      center: 'items-center text-center',
+  };
+
+  if (variant === 'mobile') {
+      return (
+        <GlassPanel 
+            variant="darker" 
+            intensity="high" 
+            className={`px-4 py-2.5 flex flex-col justify-center min-w-[90px] pointer-events-auto shadow-lg ${alignmentClasses[align]} ${className}`}
+            role="status" 
+            aria-label={`${label} display`}
+        >
+            <Label className={`mb-1.5 flex items-center gap-1 ${labelClassName}`}>
+                {icon && React.createElement(icon, { size: 12, className: "inline-block align-text-bottom" })}
+                {label}
+            </Label>
+            <div className="relative w-full">
+                {text !== undefined && <Value size="lg" glow>{text}</Value>}
+                <Delta value={delta} className="absolute top-0 right-0" />
+            </div>
+            {progress !== undefined && (
+                <ProgressBar 
+                    progress={progress} 
+                    height="h-1.5" 
+                    fillClassName="bg-cyan-500" 
+                    className="mt-1"
+                />
+            )}
+        </GlassPanel>
+      );
+  }
 
   return (
-    <div className={`relative flex flex-col mb-4 group select-none transition-transform duration-300 hover:scale-[1.02] ${className}`} role="status" aria-label={`${label} display`}>
-      {/* Glass Background */}
-      <div className="absolute inset-0 bg-gray-900/40 backdrop-blur-md border border-white/10 rounded-2xl shadow-lg transition-colors duration-300 group-hover:bg-gray-900/50 group-hover:border-white/20" aria-hidden="true"></div>
-      
+    <GlassPanel 
+        interactive 
+        className={`flex flex-col mb-4 ${className}`} 
+        role="status" 
+        aria-label={`${label} display`}
+    >
       <div className="relative z-10 p-5 flex flex-col w-full min-w-[180px]">
-          {/* Header */}
-          <div className="flex justify-between w-full items-center mb-2">
-              <span className="text-cyan-400/90 text-[10px] uppercase tracking-[0.2em] font-bold flex items-center gap-2">
-                  {icon && <span className="text-cyan-300">{icon}</span>}
-                  {label}
-              </span>
-          </div>
+          <PanelHeader 
+            title={label} 
+            icon={icon} 
+            className="mb-2 w-full" 
+            textColor={labelClassName}
+          />
           
           {/* Main Value */}
           <div className="relative flex items-baseline justify-end gap-2 overflow-hidden">
-             {/* Delta Animation */}
-             {delta && (
-                  <span className="text-xs font-bold text-emerald-400 animate-in fade-in slide-in-from-bottom-2 duration-500" aria-hidden="true">
-                      {delta}
-                  </span>
-              )}
-              <span className="text-white text-3xl font-mono font-bold tracking-tight drop-shadow-md tabular-nums leading-none">
+             <Delta value={delta} />
+             <Value size="3xl" className="tracking-tight drop-shadow-md" glow>
                   {text}
-              </span>
+             </Value>
           </div>
 
-          {/* Progress Bar - Sleek */}
+          {/* Progress Bar */}
           {progress !== undefined && (
-              <div className="w-full h-1 bg-gray-700/30 mt-3 rounded-full overflow-hidden">
-                  <div 
-                      className="h-full bg-gradient-to-r from-cyan-500 to-blue-500 shadow-[0_0_10px_rgba(6,182,212,0.4)]" 
-                      style={{ width: `${Math.min(100, Math.max(0, progress * 100))}%`, transition: 'width 0.6s cubic-bezier(0.22, 1, 0.36, 1)' }}
+              <div className="mt-3">
+                  <ProgressBar 
+                      progress={progress} 
+                      height="h-1" 
+                      trackClassName="bg-gray-700/30" 
+                      fillClassName="bg-gradient-to-r from-cyan-500 to-blue-500 shadow-[0_0_10px_rgba(6,182,212,0.4)]" 
                   />
               </div>
           )}
       </div>
-    </div>
+    </GlassPanel>
   );
 });
 

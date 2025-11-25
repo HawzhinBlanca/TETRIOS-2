@@ -1,8 +1,8 @@
 
-import { GameCore } from './GameCore';
-import { Board, CellModifier, CellModifierType, TetrominoType, AdventureLevelConfig, FloatingTextVariant } from '../types';
+import type { GameCore } from './GameCore';
+import { Board, CellModifier, CellModifierType, TetrominoType, AdventureLevelConfig, FloatingTextVariant, CellState, CellData } from '../types';
 import { createStage, createPuzzleStage, generateAdventureStage, addGarbageLines } from './gameUtils';
-import { STAGE_WIDTH, STAGE_HEIGHT, MODIFIER_COLORS, SCORES, PUZZLE_LEVELS } from '../constants';
+import { STAGE_WIDTH, STAGE_HEIGHT, MODIFIER_COLORS, SCORES, PUZZLE_LEVELS, COLORS } from '../constants';
 
 export class BoardManager {
     private core: GameCore;
@@ -31,6 +31,24 @@ export class BoardManager {
         return this.stage.every(row => row.every(cell => cell[1] === 'clear' && !cell[2]));
     }
 
+    public getHighestBlockY(): number {
+        if (!this.core.flippedGravity) {
+            // Standard: Stack grows from bottom (20) up to 0.
+            // Find the minimum Y that has a block.
+            for(let y=0; y<STAGE_HEIGHT; y++) {
+                if (this.stage[y].some(c => c[1] !== 'clear')) return y;
+            }
+            return STAGE_HEIGHT; // Board is empty
+        } else {
+            // Flipped: Stack grows from top (0) down to 20.
+            // Find the maximum Y that has a block.
+            for(let y=STAGE_HEIGHT-1; y>=0; y--) {
+                if (this.stage[y].some(c => c[1] !== 'clear')) return y;
+            }
+            return -1; // Board is empty
+        }
+    }
+
     public resetZenMode(): void {
         this.stage = createStage();
         this.revision++;
@@ -40,6 +58,8 @@ export class BoardManager {
 
     public addGarbage(amount: number): void {
         this.garbagePending += amount;
+        // Ensure garbage pending doesn't go negative (e.g. from P5 crush)
+        if (this.garbagePending < 0) this.garbagePending = 0;
         this.core.callbacks.onGarbageChange(this.garbagePending);
     }
 
@@ -75,50 +95,215 @@ export class BoardManager {
         this.core.callbacks.onAudio('NUKE_CLEAR');
     }
 
+    /**
+     * Resolve all 'zoned' rows at the end of Zone mode.
+     * Removes them and collapses the board.
+     * @returns Number of lines cleared
+     */
+    public endZone(): number {
+        let zonedLinesCount = 0;
+        const newStage = this.stage.filter(row => {
+            const isZoned = row.some(cell => cell[1] === 'zoned');
+            if (isZoned) zonedLinesCount++;
+            return !isZoned;
+        });
+
+        // Refill with empty rows at top/bottom based on gravity
+        while (newStage.length < STAGE_HEIGHT) {
+            const emptyRow = new Array(STAGE_WIDTH).fill([null, 'clear']);
+            if (this.core.flippedGravity) {
+                newStage.push(emptyRow);
+            } else {
+                newStage.unshift(emptyRow);
+            }
+        }
+
+        this.stage = newStage;
+        this.revision++;
+        return zonedLinesCount;
+    }
+
     public sweepRows(newStage: Board, isTSpinDetected: boolean = false, manualClearedRows?: number[]): void {
         let fullRowIndices: number[] = [];
+        const isZoneActive = this.core.scoreManager.stats.isZoneActive;
+
         if (manualClearedRows) {
             fullRowIndices = manualClearedRows;
         } else {
-            newStage.forEach((row, y) => { if (row.every(cell => cell[1] !== 'clear')) fullRowIndices.push(y); });
+            newStage.forEach((row, y) => { 
+                // BEDROCK LOGIC: If a row contains BEDROCK, it is structural and cannot be cleared by normal means.
+                // It breaks the line clear.
+                const hasBedrock = row.some(cell => cell[2]?.type === 'BEDROCK');
+                if (hasBedrock) return;
+
+                // In Zone, we only check merged lines, ignore already zoned lines (which should be at bottom)
+                const isFull = row.every(cell => cell[1] !== 'clear' && cell[1] !== 'zoned');
+                if (isFull) fullRowIndices.push(y); 
+            });
         }
 
-        const rowsCleared: number = fullRowIndices.length;
+        const clearingRowIndices: number[] = [];
+        const frozenRowIndices: number[] = [];
+        
+        // Pattern Tracking
+        let monoClearCount = 0;
+        let alternatingClearCount = 0;
+        let lastMonoColor: string | undefined;
 
-        this._processClearedRowModifiers(newStage, fullRowIndices);
+        fullRowIndices.forEach(y => {
+            let isFrozen = false;
+            let rowColor: string | null = null;
+            let rowColors: string[] = [];
+            let isMono = true;
 
-        if (rowsCleared === 0 && !isTSpinDetected) {
-            this.core.scoreManager.resetCombo();
+            for(let x = 0; x < STAGE_WIDTH; x++) {
+                const cell = newStage[y][x];
+                // Check Modifiers
+                if (cell[2]?.type === 'ICE') {
+                    cell[2].hits = (cell[2].hits || 2) - 1;
+                    if ((cell[2].hits || 0) > 0) {
+                        isFrozen = true;
+                        cell[2].type = 'CRACKED_ICE'; 
+                        this.core.addFloatingText('FROZEN!', MODIFIER_COLORS.ICE, 0.6, 'default');
+                        this.core.callbacks.onVisualEffect({ type: 'PARTICLE', payload: { x, y, color: MODIFIER_COLORS.ICE, amount: 8 }});
+                    } else {
+                        cell[2] = undefined; 
+                        this.core.addFloatingText('SHATTERED!', '#fff', 0.7, 'default');
+                        this.core.callbacks.onVisualEffect({ type: 'PARTICLE', payload: { x, y, color: '#a5f3fc', amount: 15 }});
+                    }
+                } 
+                
+                // Check Color for Pattern Bonus
+                const type = cell[0] as TetrominoType;
+                const cellColor = cell[3] || (type ? COLORS[type] : null);
+                
+                if (cellColor) {
+                    rowColors.push(cellColor);
+                    if (rowColor === null) rowColor = cellColor;
+                    else if (rowColor !== cellColor) isMono = false;
+                } else {
+                    isMono = false;
+                    rowColors.push('none'); // Break patterns on garbage or special blocks
+                }
+            }
+
+            if (isFrozen) {
+                frozenRowIndices.push(y);
+                // PARTIAL CLEAR LOGIC (Ice cracks but row doesn't vanish)
+                for(let x = 0; x < STAGE_WIDTH; x++) {
+                    const cell = newStage[y][x];
+                    if (cell[2]?.type !== 'CRACKED_ICE' && cell[2]?.type !== 'ICE') {
+                         newStage[y][x] = [null, 'clear'];
+                    }
+                }
+                this.core.callbacks.onAudio('HARD_DROP'); 
+                this.core.callbacks.onVisualEffect({ type: 'SHAKE', payload: 'soft' });
+            } else {
+                clearingRowIndices.push(y);
+                
+                // Pattern Detection
+                if (isMono && rowColor) {
+                    monoClearCount++;
+                    lastMonoColor = rowColor;
+                } else if (rowColors.length === STAGE_WIDTH && !rowColors.includes('none')) {
+                    // Check Alternating
+                    const unique = new Set(rowColors);
+                    if (unique.size === 2) {
+                        let isAlt = true;
+                        for(let i=1; i<rowColors.length; i++) {
+                            if (rowColors[i] === rowColors[i-1]) {
+                                isAlt = false;
+                                break;
+                            }
+                        }
+                        if (isAlt) alternatingClearCount++;
+                    }
+                }
+            }
+        });
+
+        const rowsCleared: number = clearingRowIndices.length;
+        this._processClearedRowModifiers(newStage, clearingRowIndices);
+
+        // If only frozen lines were hit, no sweep needed
+        if (rowsCleared === 0 && !isTSpinDetected && frozenRowIndices.length > 0) {
             this.stage = newStage;
             this.revision++;
+            this.core.scoreManager.resetCombo();
             this.core.adventureManager.checkObjectives();
             return;
         }
 
-        const sweepedStage: Board = newStage.filter((_, index) => !fullRowIndices.includes(index));
-        while (sweepedStage.length < STAGE_HEIGHT) {
-            const emptyRow = new Array(STAGE_WIDTH).fill([null, 'clear']);
+        let finalStage: Board;
+
+        if (isZoneActive && rowsCleared > 0) {
+            // --- ZONE LOGIC: DEFER CLEAR ---
+            // 1. Extract cleared rows and convert to 'zoned'
+            const zoneRows = newStage.filter((_, index) => clearingRowIndices.includes(index)).map(row => {
+                return row.map(cell => [cell[0], 'zoned', cell[2], cell[3]] as CellData);
+            });
+            
+            // 2. Keep remaining rows (non-cleared)
+            const remainingRows = newStage.filter((_, index) => !clearingRowIndices.includes(index));
+            
+            // 3. Reassemble: [Empty, ActiveStack, ZonedRows]
+            //    Zoned rows act as a "floor" that grows.
+            
+            finalStage = [];
+            
+            // Add empty rows to top
+            const emptyNeeded = STAGE_HEIGHT - remainingRows.length - zoneRows.length;
+            for(let i=0; i<emptyNeeded; i++) finalStage.push(new Array(STAGE_WIDTH).fill([null, 'clear']));
+            
+            // Add remaining active stack
+            finalStage.push(...remainingRows);
+            
+            // Add zoned rows to bottom
+            finalStage.push(...zoneRows);
+
+            // Handle Flipped Gravity Reversal of this logic
             if (this.core.flippedGravity) {
-                sweepedStage.push(emptyRow);
-            } else {
-                sweepedStage.unshift(emptyRow);
+                // Logic is flipped: Zoned at Top (0), Stack below, Empty at Bottom
+                finalStage = [];
+                finalStage.push(...zoneRows);
+                finalStage.push(...remainingRows);
+                for(let i=0; i<emptyNeeded; i++) finalStage.push(new Array(STAGE_WIDTH).fill([null, 'clear']));
+            }
+
+        } else {
+            // --- STANDARD LOGIC ---
+            finalStage = newStage.filter((_, index) => !clearingRowIndices.includes(index));
+            while (finalStage.length < STAGE_HEIGHT) {
+                const emptyRow = new Array(STAGE_WIDTH).fill([null, 'clear']);
+                if (this.core.flippedGravity) {
+                    finalStage.push(emptyRow);
+                } else {
+                    finalStage.unshift(emptyRow);
+                }
             }
         }
 
-        const result = this.core.scoreManager.handleLineClear(rowsCleared, isTSpinDetected);
+        const result = this.core.scoreManager.handleLineClear(rowsCleared, isTSpinDetected, monoClearCount, lastMonoColor, alternatingClearCount);
 
-        this._handlePostClearVisualsAndAudio(result, fullRowIndices, rowsCleared);
+        this._handlePostClearVisualsAndAudio(result, clearingRowIndices, rowsCleared);
+        
+        // Only show row clear effect if NOT in Zone (Zone clears happen at end)
+        if (!isZoneActive) {
+            this.core.callbacks.onVisualEffect({ type: 'ROW_CLEAR', payload: { rows: clearingRowIndices } });
+        }
 
-        this.stage = sweepedStage;
+        this.stage = finalStage;
         this.revision++;
-        this.processGarbage();
+        
+        if (!isZoneActive) {
+            this.processGarbage();
+        }
+        
         this.core.adventureManager.checkObjectives();
-
         this._checkPowerupSpawn(rowsCleared, isTSpinDetected);
     }
 
     private _processClearedRowModifiers(stage: Board, fullRowIndices: number[]): void {
-        let modified = false;
         fullRowIndices.forEach(y => {
             stage[y].forEach((cell, x) => {
                 const modifier = cell[2];
@@ -128,36 +313,27 @@ export class BoardManager {
                     this.core.scoreManager.stats.gemsCollected = (this.core.scoreManager.stats.gemsCollected || 0) + 1;
                     this.core.applyScore({ score: SCORES.GEM_COLLECT_BONUS });
                     this.core.addFloatingText('GEM!', MODIFIER_COLORS.GEM, 0.5, 'gem');
-                    modified = true;
                 } else if (modifier.type === 'BOMB') {
                     this.core.scoreManager.stats.bombsDefused = (this.core.scoreManager.stats.bombsDefused || 0) + 1;
                     this.core.applyScore({ score: SCORES.BOMB_DEFUZE_BONUS });
                     this.core.addFloatingText('BOMB DEFUZED!', '#4ade80', 0.5, 'bomb');
-                    modified = true;
                 } else if (modifier.type === 'WILDCARD_BLOCK') {
                     this.core.boosterManager.wildcardAvailable = true;
                     this.core.callbacks.onWildcardAvailableChange(true);
                     this.core.addFloatingText('WILDCARD READY!', MODIFIER_COLORS.WILDCARD_BLOCK, 0.7, 'powerup');
                     this.core.callbacks.onVisualEffect({ type: 'POWERUP_ACTIVATE', payload: { type: 'WILDCARD_BLOCK', x, y, color: MODIFIER_COLORS.WILDCARD_BLOCK } });
-                    modified = true;
                 } else if (modifier.type === 'LASER_BLOCK') {
-                    // Use timeout to avoid state update conflict during render/sweep
                     setTimeout(() => this.clearBottomLine(), 50);
                     this.core.addFloatingText('LASER CLEAR!', MODIFIER_COLORS.LASER_BLOCK, 0.7, 'powerup');
                     this.core.callbacks.onVisualEffect({ type: 'POWERUP_ACTIVATE', payload: { type: 'LASER_BLOCK', x, y, color: MODIFIER_COLORS.LASER_BLOCK } });
-                    modified = true;
                 } else if (modifier.type === 'NUKE_BLOCK') {
                     setTimeout(() => this.nukeBoard(), 50);
                     this.core.addFloatingText('NUKE!', MODIFIER_COLORS.NUKE_BLOCK, 1.0, 'powerup');
                     this.core.applyScore({ score: SCORES.POWERUP_NUKE_BLOCK_BONUS });
                     this.core.callbacks.onVisualEffect({ type: 'POWERUP_ACTIVATE', payload: { type: 'NUKE_BLOCK', x, y, color: MODIFIER_COLORS.NUKE_BLOCK } });
-                    modified = true;
                 }
             });
         });
-        // No need to increment revision here as sweepRows will likely handle the main stage update, 
-        // but if modifiers are removed from rows that aren't cleared (edge cases), we might need to.
-        // In sweepRows, we process newStage which is then assigned to this.stage.
     }
 
     private _checkPowerupSpawn(rowsCleared: number, isTSpin: boolean): void {
@@ -167,17 +343,15 @@ export class BoardManager {
         }
 
         if ((rowsCleared === 4 || (isTSpin && rowsCleared >= 2)) && Math.random() < spawnChance) {
-            this.core.addFloatingText('POWERUP SPAWN!', '#fff', 0.6, 'powerup');
             const powerupTypes: CellModifierType[] = ['WILDCARD_BLOCK', 'LASER_BLOCK'];
             if (this.core.mode === 'BLITZ') {
                 powerupTypes.push('NUKE_BLOCK');
             }
             const randomPowerupType = powerupTypes[Math.floor(Math.random() * powerupTypes.length)];
             const modifier: CellModifier = { type: randomPowerupType };
-            if (randomPowerupType === 'BOMB') modifier.timer = 10;
-            if (randomPowerupType === 'ICE') modifier.hits = 2;
-
+            
             if (this.fillRandomClearCellExcludingPlayer(modifier)) {
+                this.core.addFloatingText('POWERUP SPAWN!', '#fff', 0.6, 'powerup');
                 if (randomPowerupType === 'WILDCARD_BLOCK') {
                     this.core.boosterManager.wildcardAvailable = true;
                     this.core.callbacks.onWildcardAvailableChange(true);
@@ -192,14 +366,7 @@ export class BoardManager {
             const y = Math.floor(Math.random() * STAGE_HEIGHT);
             const x = Math.floor(Math.random() * STAGE_WIDTH);
 
-            let isPlayerCell = false;
-            player.tetromino.shape.forEach((row, r) => {
-                row.forEach((cellType, c) => {
-                    if (cellType !== 0 && (player.pos.y + r === y) && (player.pos.x + c === x)) {
-                        isPlayerCell = true;
-                    }
-                });
-            });
+            const isPlayerCell = this.core.collisionManager.checkOverlap(player, x, y);
 
             if (this.stage[y][x][1] === 'clear' && !this.stage[y][x][2] && !isPlayerCell) {
                 this.stage[y][x][2] = modifier;
@@ -211,13 +378,37 @@ export class BoardManager {
     }
 
     private _handlePostClearVisualsAndAudio(result: any, fullRowIndices: number[], rowsCleared: number): void {
-        fullRowIndices.forEach(y => this.core.callbacks.onVisualEffect({ type: 'PARTICLE', payload: { isExplosion: true, y, color: 'white' } }));
-        if (result.visualShake) this.core.callbacks.onVisualEffect({ type: 'SHAKE', payload: result.visualShake });
-        if (result.text) this.core.addFloatingText(result.text, '#fff', 0.5);
+        const isTetris = rowsCleared >= 4;
+        const isTSpin = result.text && result.text.includes('T-SPIN');
+        const particleColor = isTetris ? '#06b6d4' : (isTSpin ? '#d946ef' : '#ffffff');
+        const particleAmount = isTetris ? 60 : 30;
 
-        if (rowsCleared === 1) this.core.callbacks.onAudio('CLEAR_1');
-        else if (rowsCleared === 2) this.core.callbacks.onAudio('CLEAR_2');
-        else if (rowsCleared === 3) this.core.callbacks.onAudio('CLEAR_3');
-        else if (rowsCleared >= 4) this.core.callbacks.onAudio('CLEAR_4');
+        fullRowIndices.forEach(y => {
+            this.core.callbacks.onVisualEffect({ 
+                type: 'PARTICLE', 
+                payload: { 
+                    isExplosion: true, 
+                    y, 
+                    color: particleColor, 
+                    amount: particleAmount 
+                } 
+            });
+        });
+
+        if (result.visualShake) this.core.callbacks.onVisualEffect({ type: 'SHAKE', payload: result.visualShake });
+        
+        if (result.text) {
+            const isB2B = result.text.includes('B2B');
+            const color = isB2B ? '#fbbf24' : '#fff';
+            const scale = isB2B ? 0.7 : 0.5;
+            this.core.addFloatingText(result.text, color, scale);
+        }
+
+        if (!this.core.scoreManager.stats.isZoneActive) {
+            if (rowsCleared === 1) this.core.callbacks.onAudio('CLEAR_1');
+            else if (rowsCleared === 2) this.core.callbacks.onAudio('CLEAR_2');
+            else if (rowsCleared === 3) this.core.callbacks.onAudio('CLEAR_3');
+            else if (rowsCleared >= 4) this.core.callbacks.onAudio('CLEAR_4');
+        }
     }
 }

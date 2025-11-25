@@ -1,5 +1,5 @@
 
-import { GameCore } from './GameCore';
+import type { GameCore } from './GameCore';
 import { FloatingText, FloatingTextVariant } from '../types';
 
 export class FXManager {

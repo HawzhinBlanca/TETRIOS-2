@@ -1,50 +1,47 @@
 
-import { useState, useCallback, useEffect, useRef, useMemo } from 'react';
+import { useCallback, useEffect, useRef, useMemo } from 'react';
 import { GameCore } from '../utils/GameCore';
 import { createAiWorker } from '../utils/aiWorker';
-import { GameState, GameStats, MoveScore, GameMode, TetrominoType, AdventureLevelConfig, BoosterType, LevelRewards } from '../types';
-import { useUiStore } from '../stores/uiStore';
+import { GameMode, TetrominoType, AdventureLevelConfig, BoosterType, LevelRewards, Difficulty } from '../types';
 import { useEffectStore } from '../stores/effectStore';
 import { useAdventureStore } from '../stores/adventureStore';
 import { useBoosterStore } from '../stores/boosterStore';
 import { useProfileStore } from '../stores/profileStore';
-import { DEFAULT_DAS, DEFAULT_ARR, DEFAULT_GAMESPEED } from '../constants';
+import { useGameSettingsStore } from '../stores/gameSettingsStore';
+import { DEFAULT_DAS, DEFAULT_ARR, DEFAULT_GAMESPEED, STAGE_WIDTH, STAGE_HEIGHT, TETROMINOS, KICKS, DIFFICULTY_SETTINGS, DEFAULT_CONTROLS } from '../constants';
 import { useGameLoop } from './useGameLoop';
 import { useGameAudio } from './useGameAudio';
-import { useGameInput, DEFAULT_CONTROLS } from './useGameInput';
+import { useGameInput } from './useGameInput';
+import { useEngineStore } from '../stores/engineStore';
 
 export const useTetrios = () => {
-  const [stats, setStats] = useState<GameStats>({ 
-    score: 0, rows: 0, level: 0, time: 0, movesTaken: 0, gemsCollected: 0, bombsDefused: 0, tetrisesAchieved: 0, combosAchieved: 0,
-    isFrenzyActive: false, frenzyTimer: 0, slowTimeActive: false, slowTimeTimer: 0,
-    wildcardAvailable: false, bombBoosterReady: false, lineClearerActive: false, flippedGravityActive: false, flippedGravityTimer: 0,
-  });
-  const [gameState, setGameStateLocal] = useState<GameState>('MENU'); 
-  const [nextQueue, setNextQueue] = useState<TetrominoType[]>([]);
-  const [heldPiece, setHeldPiece] = useState<TetrominoType | null>(null);
-  const [canHold, setCanHold] = useState(true);
-  const [aiHint, setAiHint] = useState<MoveScore | null>(null);
-  const [gameMode, setGameMode] = useState<GameMode>('MARATHON');
-  const [lastHoldTime, setLastHoldTime] = useState<number>(0);
-  const [comboCount, setComboCount] = useState<number>(-1);
-  const [isBackToBack, setIsBackToBack] = useState<boolean>(false);
-  const [garbagePending, setGarbagePending] = useState<number>(0);
-  const [pieceIsGrounded, setPieceIsGrounded] = useState<boolean>(false); 
-  const [flippedGravity, setFlippedGravity] = useState<boolean>(false); 
-  const [wildcardPieceActive, setWildcardPieceActive] = useState<boolean>(false); 
-  const [isSelectingBombRows, setIsSelectingBombRows] = useState<boolean>(false); 
-  const [bombRowsToClear, setBombRowsToClear] = useState<number>(0); 
-  const [isSelectingLine, setIsSelectingLine] = useState<boolean>(false); 
-  const [selectedLineToClear, setSelectedLineToClear] = useState<number | null>(null); 
-  const [blitzSpeedThresholdIndex, setBlitzSpeedThresholdIndex] = useState<number>(0); 
-  
-  // Config State
-  const [inputConfig, setInputConfig] = useState({ das: DEFAULT_DAS, arr: DEFAULT_ARR });
-  const [gameSpeedMultiplier, setGameSpeedMultiplier] = useState(DEFAULT_GAMESPEED);
+  // Select state directly from the reactive store
+  const stats = useEngineStore(state => state.stats);
+  const gameState = useEngineStore(state => state.gameState);
+  const nextQueue = useEngineStore(state => state.nextQueue);
+  const heldPiece = useEngineStore(state => state.heldPiece);
+  const canHold = useEngineStore(state => state.canHold);
+  const lastHoldTime = useEngineStore(state => state.lastHoldTime);
+  const gameMode = useEngineStore(state => state.gameMode);
+  const difficulty = useEngineStore(state => state.difficulty);
+  const comboCount = useEngineStore(state => state.comboCount);
+  const isBackToBack = useEngineStore(state => state.isBackToBack);
+  const garbagePending = useEngineStore(state => state.garbagePending);
+  const pieceIsGrounded = useEngineStore(state => state.pieceIsGrounded);
+  const flippedGravity = useEngineStore(state => state.flippedGravity);
+  const wildcardPieceActive = useEngineStore(state => state.wildcardPieceActive);
+  const isSelectingBombRows = useEngineStore(state => state.isSelectingBombRows);
+  const bombRowsToClear = useEngineStore(state => state.bombRowsToClear);
+  const isSelectingLine = useEngineStore(state => state.isSelectingLine);
+  const selectedLineToClear = useEngineStore(state => state.selectedLineToClear);
+  const dangerLevel = useEngineStore(state => state.dangerLevel);
+  const aiHint = useEngineStore(state => state.aiHint);
+  const missedOpportunity = useEngineStore(state => state.missedOpportunity);
 
   // Refs
   const aiWorker = useRef<Worker | null>(null);
   const engine = useRef<GameCore>(null!);
+  const turnId = useRef<number>(0); // Track current turn to prevent stale AI results
 
   // External Stores
   const triggerVisualEffect = useEffectStore((state) => state.triggerVisualEffect);
@@ -54,148 +51,97 @@ export const useTetrios = () => {
 
   // Composed Hooks
   const { handleAudioEvent } = useGameAudio();
-  const { controls, setKeyBinding } = useGameInput();
+  const { controls, setKeyBinding, resetControls } = useGameInput();
 
-  const setGameState = useCallback((newState: GameState) => {
-      if (engine.current) {
-          engine.current.stateManager.transitionTo(newState);
-      } else {
-          setGameStateLocal(newState);
-      }
-  }, []);
-
-  // Initialize Game Engine
+  // Initialize Game Engine ONCE
   if (!engine.current) {
       engine.current = new GameCore({
-          onStateChange: (newState: GameState) => setGameStateLocal(newState),
-          onStatsChange: (s: GameStats) => setStats({...s}),
-          onQueueChange: (q: TetrominoType[]) => setNextQueue(q),
-          onHoldChange: (p: TetrominoType | null, c: boolean) => { setHeldPiece(p); setCanHold(c); if(!c) setLastHoldTime(Date.now()); },
-          onVisualEffect: (effect) => triggerVisualEffect(effect.type, effect.payload),
-          onGameOver: (s: GameState, currentLevelId?: string, rewards?: LevelRewards) => { 
-            if (s === 'GAMEOVER' && currentLevelId) {
-                trackFailedLevel(currentLevelId); 
-            } else if (s === 'VICTORY' && currentLevelId && rewards) {
-                clearFailedAttempts(currentLevelId); 
-                setStarsEarned(currentLevelId, rewards.stars); 
+          keyMap: DEFAULT_CONTROLS,
+          das: DEFAULT_DAS,
+          arr: DEFAULT_ARR
+      });
+      
+      // Wire up ephemeral events that don't fit in the store (Visuals/Audio)
+      engine.current.events.onVisualEffect = (effect) => triggerVisualEffect(effect.type, effect.payload);
+      engine.current.events.onAudio = handleAudioEvent;
+      engine.current.events.onGameOver = (s, levelId, rewards) => {
+            if (s === 'GAMEOVER' && levelId) {
+                trackFailedLevel(levelId); 
+            } else if (s === 'VICTORY' && levelId && rewards) {
+                clearFailedAttempts(levelId); 
+                setStarsEarned(levelId, rewards.stars); 
                 applyLevelRewards(rewards, engine.current.adventureManager.config || undefined);
             } else if ((s === 'GAMEOVER' || s === 'VICTORY') && rewards) { 
                 addCoins(rewards.coins); 
             }
             
             if (s === 'GAMEOVER' || s === 'VICTORY') {
-               updateStats({ score: engine.current.scoreManager.stats.score, rows: engine.current.scoreManager.stats.rows, level: engine.current.scoreManager.stats.level });
+               updateStats(
+                   { score: engine.current.scoreManager.stats.score, rows: engine.current.scoreManager.stats.rows, level: engine.current.scoreManager.stats.level },
+                   engine.current.mode
+               );
             }
-            
             resetActiveBoosters(); 
-          },
-          onAiTrigger: () => triggerAi(),
-          onComboChange: (c: number, b2b: boolean) => { setComboCount(c); setIsBackToBack(b2b); },
-          onGarbageChange: (g: number) => setGarbagePending(g),
-          onGroundedChange: (isGrounded: boolean) => setPieceIsGrounded(isGrounded),
-          onFlippedGravityChange: (isFlipped: boolean) => setFlippedGravity(isFlipped), 
-          onWildcardSelectionTrigger: () => {
-              setWildcardPieceActive(true);
-              engine.current.stateManager.transitionTo('WILDCARD_SELECTION');
-          },
-          onWildcardAvailableChange: (available: boolean) => setStats(prev => ({...prev, wildcardAvailable: available})),
-          onSlowTimeChange: (active: boolean, timer: number) => setStats(prev => ({...prev, slowTimeActive: active, slowTimeTimer: timer})), 
-          onBombBoosterReadyChange: (ready: boolean) => setStats(prev => ({...prev, bombBoosterReady: ready})), 
-          onBombSelectionStart: (rows: number) => { 
-            setIsSelectingBombRows(true); 
-            setBombRowsToClear(rows);
-            engine.current.stateManager.transitionTo('BOMB_SELECTION');
-          },
-          onBombSelectionEnd: () => { 
-            setIsSelectingBombRows(false);
-            setBombRowsToClear(0);
-            if (engine.current.stateManager.currentState === 'BOMB_SELECTION') {
-                engine.current.stateManager.transitionTo('PLAYING');
-            }
-          },
-          onLineClearerActiveChange: (active: boolean) => setStats(prev => ({...prev, lineClearerActive: active})), 
-          onLineSelectionStart: () => { 
-            setIsSelectingLine(true);
-            engine.current.stateManager.transitionTo('LINE_SELECTION');
-          },
-          onLineSelectionEnd: () => { 
-            setIsSelectingLine(false);
-            setSelectedLineToClear(null);
-            if (engine.current.stateManager.currentState === 'LINE_SELECTION') {
-                engine.current.stateManager.transitionTo('PLAYING');
-            }
-          },
-          onBlitzSpeedUp: (threshold: number) => triggerVisualEffect('BLITZ_SPEED_THRESHOLD', { threshold }), 
-          onFlippedGravityTimerChange: (active: boolean, timer: number) => setStats(prev => ({...prev, flippedGravityActive: active, flippedGravityTimer: timer})),
-          onAudio: handleAudioEvent,
-      }, {
-          keyMap: DEFAULT_CONTROLS,
-          das: DEFAULT_DAS,
-          arr: DEFAULT_ARR
-      });
+      };
   }
 
-  // Hook the game loop logic
-  useGameLoop(engine, gameState, {
-      das: inputConfig.das,
-      arr: inputConfig.arr
-  });
+  // --- Hook Game Loop ---
+  useGameLoop(engine, gameState, { das: DEFAULT_DAS, arr: DEFAULT_ARR });
 
-  const triggerAi = useCallback(() => {
-      if(aiWorker.current && engine.current.pieceManager.player.tetromino.type) {
-          aiWorker.current.postMessage({
-              stage: engine.current.boardManager.stage, 
-              type: engine.current.pieceManager.player.tetromino.type,
-              rotationState: engine.current.pieceManager.rotationState,
-              flippedGravity: engine.current.flippedGravity, 
-          });
-      }
-  }, [gameState]);
-
-  // Initialize Worker and Controls Sync
+  // --- AI Worker Setup ---
   useEffect(() => {
-    // Sync initial controls to engine
     engine.current.setInputConfig({ keyMap: controls });
-
-    aiWorker.current = createAiWorker();
-    aiWorker.current.onmessage = (e: MessageEvent<MoveScore | null>) => setAiHint(e.data);
-
-    return () => { 
-        aiWorker.current?.terminate(); 
-        engine.current?.destroy();
-    };
+    const worker = createAiWorker();
+    if (worker) {
+        aiWorker.current = worker;
+        aiWorker.current.postMessage({ type: 'INIT', payload: { STAGE_WIDTH, STAGE_HEIGHT, TETROMINOS, KICKS }});
+        aiWorker.current.onmessage = (e: MessageEvent) => {
+            // Race condition check: only accept results for the current turn
+            if (e.data && e.data.id === turnId.current) {
+                useEngineStore.setState({ aiHint: e.data.result });
+            }
+        };
+    }
+    return () => { aiWorker.current?.terminate(); engine.current?.destroy(); };
   }, []);
 
-  // Sync inputs effect when controls change
-  useEffect(() => {
-    engine.current.setInputConfig({ keyMap: controls });
-  }, [controls]);
-
-  const resetGame = useCallback((startLevel: number = 0, mode: GameMode = 'MARATHON', adventureLevelConfig: AdventureLevelConfig | undefined = undefined, assistRows: number = 0, activeBoosters: BoosterType[] = []) => {
+  // --- Actions ---
+  
+  const resetGame = useCallback((
+      startLevel: number = 0, 
+      mode: GameMode = 'MARATHON', 
+      adventureLevelConfig: AdventureLevelConfig | undefined = undefined, 
+      assistRows: number = 0, 
+      activeBoosters: BoosterType[] = [],
+      difficultySetting: Difficulty = 'MEDIUM'
+  ) => {
+      const diffConfig = DIFFICULTY_SETTINGS[difficultySetting];
+      const currentSettings = useGameSettingsStore.getState();
+      
+      // Apply Difficulty Settings to Engine (Handling Only)
+      // Use stored gameSpeed to allow user override via Settings
+      engine.current.setGameConfig({ 
+          speed: currentSettings.gameSpeed, 
+          das: diffConfig.das, 
+          arr: diffConfig.arr 
+      });
+      
       engine.current.resetGame(mode, startLevel, adventureLevelConfig, assistRows, activeBoosters);
-      setGameMode(mode);
-      setPieceIsGrounded(false); 
-      setFlippedGravity(false); 
-      setWildcardPieceActive(false); 
-      setIsSelectingBombRows(false); 
-      setIsSelectingLine(false); 
-      setSelectedLineToClear(null); 
-      setBlitzSpeedThresholdIndex(0); 
+      
+      // Sync Difficulty Settings to Global Store so Settings Menu reflects the active Difficulty Handling
+      // NOTE: We do NOT overwrite gameSpeed here to preserve user preference
+      const settingsStore = useGameSettingsStore.getState();
+      settingsStore.setDas(diffConfig.das);
+      settingsStore.setArr(diffConfig.arr);
+
+      useEngineStore.getState().setGameMode(mode, difficultySetting);
       consumeActiveBoosters(); 
   }, []);
 
-  const setGameConfig = useCallback((config: { speed?: number, das?: number, arr?: number }) => {
-      engine.current.setGameConfig(config);
-      
-      // Update local state for UI inputs if needed
-      if (config.speed !== undefined) setGameSpeedMultiplier(config.speed);
-      setInputConfig(prev => ({
-          das: config.das ?? prev.das,
-          arr: config.arr ?? prev.arr
-      }));
-  }, []);
+  const setGameState = useCallback((newState: any) => engine.current.stateManager.transitionTo(newState), []);
+  
+  const setGameConfig = useCallback((config: any) => engine.current.setGameConfig(config), []);
 
-  // Touch controls mapping
   const touchControls = useMemo(() => ({
       move: (dir: number) => engine.current.handleAction(dir === -1 ? 'moveLeft' : 'moveRight'),
       rotate: (dir: number) => engine.current.handleAction(dir === 1 ? 'rotateCW' : 'rotateCCW'),
@@ -205,92 +151,76 @@ export const useTetrios = () => {
       useLineClearer: (y: number) => engine.current.executeLineClearer(y), 
       triggerBombBooster: () => engine.current.activateBombBoosterSelection(),
       triggerLineClearer: () => engine.current.activateLineClearerSelection(),
-  }), [gameState]); 
+  }), []); 
 
-  const activateWildcardSelection = useCallback(() => {
-      setWildcardPieceActive(true);
-      setGameState('WILDCARD_SELECTION');
-  }, [setGameState]);
-
-  const chooseWildcardPiece = useCallback((type: TetrominoType) => {
-      engine.current.chooseWildcardPiece(type);
-      setWildcardPieceActive(false);
-      setGameState('PLAYING'); 
-  }, [setGameState]);
-
-  const triggerBombBoosterSelection = useCallback(() => {
-      if (stats.bombBoosterReady && gameState === 'PLAYING') {
-          engine.current.activateBombBoosterSelection();
+  // --- AI Trigger ---
+  useEffect(() => {
+      if(aiWorker.current && engine.current.pieceManager.player.tetromino.type) {
+          turnId.current++; // Increment turn ID to invalidate previous pending requests
+          aiWorker.current.postMessage({
+              id: turnId.current,
+              stage: engine.current.boardManager.stage, 
+              type: engine.current.pieceManager.player.tetromino.type,
+              rotationState: engine.current.pieceManager.rotationState,
+              flippedGravity: engine.current.flippedGravity, 
+          });
       }
-  }, [stats.bombBoosterReady, gameState]);
-
-  const confirmBombBooster = useCallback((startRow: number, numRows: number) => {
-      if (isSelectingBombRows) {
-          engine.current.executeBombBooster(startRow, numRows);
-      }
-  }, [isSelectingBombRows]);
-
-  const cancelBombBoosterSelection = useCallback(() => {
-      if (isSelectingBombRows) {
-          engine.current.callbacks.onBombSelectionEnd(); 
-          setGameState('PLAYING');
-      }
-  }, [isSelectingBombRows, setGameState]);
-
-  const triggerLineClearerSelection = useCallback(() => {
-      if (stats.lineClearerActive && gameState === 'PLAYING') {
-          engine.current.activateLineClearerSelection();
-      }
-  }, [stats.lineClearerActive, gameState]);
-
-  const confirmLineClearer = useCallback((selectedRow: number) => {
-      if (isSelectingLine) {
-          engine.current.executeLineClearer(selectedRow);
-      }
-  }, [isSelectingLine]);
-
-  const cancelLineClearerSelection = useCallback(() => {
-      if (isSelectingLine) {
-          engine.current.callbacks.onLineSelectionEnd(); 
-          setGameState('PLAYING');
-      }
-  }, [isSelectingLine, setGameState]);
+  }, [nextQueue, pieceIsGrounded, heldPiece]); // Trigger when queue changes, piece lands, OR piece is held
 
   return {
-      engine, 
-      stats, 
+      engine,
+      stats,
+      gameState,
       nextQueue,
       heldPiece,
       canHold,
       lastHoldTime,
-      resetGame,
-      setGameState,
-      gameState,
       gameMode,
-      touchControls,
-      aiHint,
-      setGameConfig,
-      controls,
-      setKeyBinding,
+      difficulty,
       comboCount,
       isBackToBack,
       garbagePending,
       pieceIsGrounded,
-      flippedGravity, 
-      activateWildcardSelection,
-      chooseWildcardPiece,
+      flippedGravity,
       wildcardPieceActive,
-      triggerBombBoosterSelection,
-      confirmBombBooster,
-      cancelBombBoosterSelection,
       isSelectingBombRows,
-      bombRowsToClear, 
-      triggerLineClearerSelection,
-      confirmLineClearer,
-      cancelLineClearerSelection,
+      bombRowsToClear,
       isSelectingLine,
-      selectedLineToClear, 
-      blitzSpeedThresholdIndex, 
-      activeBoosters: useBoosterStore.getState().activeBoosters 
+      selectedLineToClear,
+      dangerLevel,
+      aiHint,
+      missedOpportunity,
+      // Controls / Actions
+      resetGame,
+      setGameState,
+      setGameConfig,
+      controls,
+      setKeyBinding,
+      resetControls,
+      touchControls,
+      activateWildcardSelection: () => {
+          useEngineStore.setState({ wildcardPieceActive: true });
+          setGameState('WILDCARD_SELECTION');
+      },
+      chooseWildcardPiece: (type: TetrominoType) => {
+          engine.current.chooseWildcardPiece(type);
+          useEngineStore.setState({ wildcardPieceActive: false });
+          setGameState('PLAYING');
+      },
+      triggerBombBoosterSelection: () => engine.current.activateBombBoosterSelection(),
+      confirmBombBooster: (s: number, n: number) => engine.current.executeBombBooster(s, n),
+      cancelBombBoosterSelection: () => {
+          engine.current.callbacks.onBombSelectionEnd();
+          setGameState('PLAYING');
+      },
+      triggerLineClearerSelection: () => engine.current.activateLineClearerSelection(),
+      confirmLineClearer: (r: number) => engine.current.executeLineClearer(r),
+      cancelLineClearerSelection: () => {
+          engine.current.callbacks.onLineSelectionEnd();
+          setGameState('PLAYING');
+      },
+      blitzSpeedThresholdIndex: 0, 
+      activeBoosters: useBoosterStore.getState().activeBoosters,
+      previousGameState: null, 
   };
 };

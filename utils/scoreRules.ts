@@ -1,4 +1,6 @@
 
+
+
 import { SCORES } from '../constants';
 import { ScoreResult } from '../types'; 
 
@@ -38,6 +40,11 @@ export const calculateScore = (
     else if (rowsCleared === 1) text = 'T-SPIN SINGLE';
     else text = 'T-SPIN'; // T-Spin Zero
 
+    // T-Spin Doubles and Triples get a hard shake for impact
+    if (rowsCleared >= 2) {
+        visualShake = 'hard';
+    }
+
     // T-Spins (with lines) maintain/start B2B
     if (rowsCleared > 0) {
         newBackToBack = true;
@@ -64,7 +71,8 @@ export const calculateScore = (
   // AND the previous clear was also a difficult clear (status held in isBackToBack).
   if (isBackToBack && isDifficultClear) {
     score = Math.floor(score * SCORES.BACK_TO_BACK_MULTIPLIER);
-    if (text) text = `${text} B2B`; // Append B2B to text
+    if (text) text = `B2B ${text}`; // Prepend B2B to text for better readability
+    visualShake = 'hard'; // Upgrade shake effect for B2B actions
   }
 
   // 3. Combo Bonus (applies to any line clear when combo is active)

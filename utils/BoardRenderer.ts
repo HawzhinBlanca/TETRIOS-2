@@ -1,765 +1,565 @@
 
+import { STAGE_WIDTH, STAGE_HEIGHT, COLORS, MODIFIER_COLORS } from '../constants';
+import { BoardRenderConfig, Player, Board, CellModifier, TetrominoType, MoveScore, BlockSkin, CellState } from '../types';
 import { GameCore } from './GameCore';
-import { STAGE_WIDTH, STAGE_HEIGHT, COLORS, TETROMINOS, MODIFIER_COLORS } from '../constants';
-import { audioManager } from '../utils/audioManager';
-import { rotateMatrix } from './gameUtils';
-import { Board, Player, TetrominoType, FloatingText, MoveScore, TetrominoShape, GhostStyle, AdventureLevelConfig, CellModifier } from '../types';
+import { VISUAL_THEME } from './visualTheme';
+import { SpriteManager } from './SpriteManager';
 
-export interface RenderConfig {
-    cellSize: number;
-    ghostStyle: GhostStyle;
-    ghostOpacity: number;
-    ghostOutlineThickness: number;
-    ghostGlowIntensity: number;
-    ghostShadow?: string;
-    lockWarningEnabled: boolean;
-    showAi: boolean;
-    aiHint?: MoveScore | null; 
-    pieceIsGrounded: boolean; 
-    gimmicks?: AdventureLevelConfig['gimmicks'];
-    flippedGravity: boolean; 
-    bombSelectionRows?: number[]; 
-    lineClearerSelectedRow?: number | null;
-    wildcardPieceAvailable: boolean;
+export type RenderConfig = BoardRenderConfig;
+
+interface BeamEffect {
+    x: number;
+    startY: number;
+    endY: number;
+    color: string;
+    life: number;
+}
+
+interface ClearingRowEffect {
+    row: number;
+    life: number;
 }
 
 export class BoardRenderer {
     private staticCtx: CanvasRenderingContext2D;
     private dynamicCtx: CanvasRenderingContext2D;
+    private config: RenderConfig;
     private width: number = 0;
     private height: number = 0;
-    private rgbCache: Map<string, string> = new Map();
-    private config: RenderConfig;
+    private beams: BeamEffect[] = [];
+    private clearingRows: ClearingRowEffect[] = [];
     
-    private readonly DASHED_LINE_PATTERN = [0, 0]; 
-    private readonly EMPTY_LINE_PATTERN = [];
     private lastRenderedRevision: number = -1;
+    private lastRenderedGravity: boolean = false;
+    private lastRenderedSkin: BlockSkin = 'NEON';
 
-    constructor(staticCtx: CanvasRenderingContext2D, dynamicCtx: CanvasRenderingContext2D, initialConfig: RenderConfig) {
+    private spriteManager: SpriteManager;
+    
+    // Recoil Physics State
+    private recoilOffset: number = 0;
+
+    constructor(staticCtx: CanvasRenderingContext2D, dynamicCtx: CanvasRenderingContext2D, config: RenderConfig) {
         this.staticCtx = staticCtx;
         this.dynamicCtx = dynamicCtx;
-        this.config = initialConfig;
+        this.config = config;
+        this.spriteManager = new SpriteManager();
     }
 
-    public setSize(width: number, height: number, dpr: number): void {
-        if (this.width !== width || this.height !== height) {
-            this.width = width;
-            this.height = height;
-            
+    public setSize(width: number, height: number, dpr: number) {
+        this.width = width;
+        this.height = height;
+        
+        if (this.staticCtx.canvas.width !== width * dpr || this.staticCtx.canvas.height !== height * dpr) {
             this.staticCtx.canvas.width = width * dpr;
             this.staticCtx.canvas.height = height * dpr;
-            this.staticCtx.canvas.style.width = `${width}px`;
-            this.staticCtx.canvas.style.height = `${height}px`;
-            this.staticCtx.scale(dpr, dpr);
-
             this.dynamicCtx.canvas.width = width * dpr;
             this.dynamicCtx.canvas.height = height * dpr;
-            this.dynamicCtx.canvas.style.width = `${width}px`;
-            this.dynamicCtx.canvas.style.height = `${height}px`;
+            this.staticCtx.scale(dpr, dpr);
             this.dynamicCtx.scale(dpr, dpr);
-            
-            // Force redraw of static on resize
             this.lastRenderedRevision = -1;
+            
+            // Clear sprite cache on resize
+            this.spriteManager.clearCache();
         }
     }
 
-    public updateConfig(newConfig: Partial<RenderConfig>): void {
-        this.config = { ...this.config, ...newConfig };
-    }
-
-    public render(engine: GameCore): void {
-        // Static Layer (Grid + Board) - Only redraw if board changed
-        if (engine.boardManager.revision !== this.lastRenderedRevision) {
-            this.renderStatic(engine);
-            this.lastRenderedRevision = engine.boardManager.revision;
+    public updateConfig(config: RenderConfig) {
+        // If skin changed, clear cache
+        if (config.blockSkin !== this.config.blockSkin) {
+            this.spriteManager.clearCache();
         }
-
-        // Dynamic Layer (Piece, Ghost, Effects) - Redraw every frame
-        this.renderDynamic(engine);
+        this.config = config;
     }
 
-    private renderStatic(engine: GameCore): void {
-        const { cellSize } = this.config;
-        const gap = 1; // Tight gap for premium feel
-        const size = cellSize - (gap * 2);
-        const radius = Math.max(2, size * 0.15); // Slightly tighter corners
-        const stage = engine.boardManager.stage;
-
-        this.staticCtx.clearRect(0, 0, STAGE_WIDTH * cellSize, STAGE_HEIGHT * cellSize);
-        this.drawGrid(this.staticCtx, cellSize);
-        this.drawStage(this.staticCtx, stage, cellSize, gap, size, radius, this.config.flippedGravity);
+    public addBeam(x: number, startY: number, endY: number, color: string) {
+        this.beams.push({ x, startY, endY, color, life: 1.0 });
+        // Also apply recoil on hard drop impact
+        this.recoilOffset = 6; 
     }
 
-    private renderDynamic(engine: GameCore): void {
-        const { cellSize } = this.config;
-        const gap = 1;
-        const size = cellSize - (gap * 2);
-        const radius = Math.max(2, size * 0.15);
-        
-        this.dynamicCtx.clearRect(0, 0, STAGE_WIDTH * cellSize, STAGE_HEIGHT * cellSize);
-
-        const player = engine.pieceManager.player;
-        const hasBlocks = player.tetromino.shape.some((row: (TetrominoType | 0)[]) => row.some((cell: TetrominoType | 0) => cell !== 0));
-
-        this.drawComboB2BOverlay(this.dynamicCtx, engine, cellSize);
-        this.drawGarbageIndicator(this.dynamicCtx, engine, cellSize, this.config.flippedGravity);
-
-        if (hasBlocks) {
-            const stage = engine.boardManager.stage;
-            const ghostY = this.calculateGhostY(stage, player, this.config.flippedGravity);
-            const isGhostWarning = this.config.lockWarningEnabled && engine.pieceManager.pieceIsGrounded && engine.pieceManager.lockTimer !== null;
-            this.drawGhost(this.dynamicCtx, player, ghostY, this.config, cellSize, gap, size, radius, isGhostWarning, engine.pieceManager.lockStartTime, engine.pieceManager.lockDelayDuration);
-
-            if (this.config.showAi && this.config.aiHint && this.config.aiHint.y !== undefined) {
-                this.drawAiHint(this.dynamicCtx, engine, this.config.aiHint, cellSize, gap, size, radius);
-            }
-            this.drawActivePiece(this.dynamicCtx, engine, this.config, cellSize, gap, size, radius);
-        }
-
-        this.drawFrenzyOverlay(this.dynamicCtx, engine, cellSize);
-        this.drawOverlays(this.dynamicCtx, engine, cellSize, this.config.flippedGravity);
-        this.drawGimmicks(this.dynamicCtx, engine, cellSize, this.config.flippedGravity);
-        this.drawBombSelectionOverlay(this.dynamicCtx, cellSize, this.config.bombSelectionRows, this.config.flippedGravity);
-        this.drawLineSelectionOverlay(this.dynamicCtx, cellSize, this.config.lineClearerSelectedRow, this.config.flippedGravity);
-    }
-
-    private drawGrid(ctx: CanvasRenderingContext2D, cellSize: number): void {
-        const audioData = audioManager.getFrequencyData();
-        let gridAlpha = 0.06;
-        if (audioData) {
-             let bassEnergy = 0;
-             for(let i=2; i<8; i++) bassEnergy += audioData[i];
-             gridAlpha = 0.06 + (bassEnergy / (6 * 255)) * 0.1; 
-        }
-        
-        ctx.fillStyle = `rgba(255, 255, 255, ${gridAlpha})`;
-        
-        // Minimal dots for a premium, clean look
-        for (let x = 0; x <= STAGE_WIDTH; x++) {
-            for (let y = 0; y <= STAGE_HEIGHT; y++) {
-                ctx.beginPath();
-                ctx.arc(x * cellSize, y * cellSize, 1, 0, Math.PI * 2);
-                ctx.fill();
-            }
-        }
-    }
-
-    private drawStage(ctx: CanvasRenderingContext2D, stage: Board, cellSize: number, gap: number, size: number, radius: number, flippedGravity: boolean): void {
-        stage.forEach((row, y) => {
-            row.forEach((cell, x: number) => {
-                const drawY = flippedGravity ? STAGE_HEIGHT - 1 - y : y;
-                if (cell[1] !== 'clear') {
-                    const color = COLORS[cell[0] as TetrominoType] || 'rgb(255,255,255)';
-                    ctx.save();
-                    this.drawBlock(ctx, x, drawY, color, cellSize, gap, size, radius, undefined, cell[2]); 
-                    ctx.restore();
-                } else if (cell[2]) {
-                    ctx.save();
-                    this.drawModifier(ctx, x, drawY, cell[2], cellSize, gap, size, radius);
-                    ctx.restore();
-                }
-            });
+    public addClearingRows(rows: number[]) {
+        rows.forEach(row => {
+            this.clearingRows.push({ row, life: 1.0 });
         });
     }
 
-    private drawBlock(ctx: CanvasRenderingContext2D, x: number, y: number, color: string, cellSize: number, gap: number, size: number, radius: number, lockData?: { isLocking: boolean, progress: number }, modifier?: CellModifier): void {
-        const rgb = this.getRgb(color);
-        const px = x * cellSize + gap;
-        const py = y * cellSize + gap;
+    public render(engine: GameCore) {
+        const { cellSize, flippedGravity, blockSkin } = this.config;
         
-        const isLocking = lockData?.isLocking || false;
-        const progress = lockData?.progress || 0;
-        const [r, g, b] = rgb.split(',').map(Number);
-        
-        ctx.save();
-
-        // --- Crystal Glass Effect ---
-        
-        // 1. Base Gradient (Body)
-        const gradient = ctx.createLinearGradient(px, py, px + size, py + size);
-        
-        if (isLocking) {
-            const flashAmt = Math.min(1, progress * 1.5); 
-            const whiteR = r + (255 - r) * flashAmt;
-            const whiteG = g + (255 - g) * flashAmt;
-            const whiteB = b + (255 - b) * flashAmt;
-            
-            gradient.addColorStop(0, `rgba(${whiteR}, ${whiteG}, ${whiteB}, 0.95)`);
-            gradient.addColorStop(1, `rgba(${r}, ${g}, ${b}, 0.8)`);
-            
-            ctx.shadowColor = `rgba(255, 255, 255, ${progress})`;
-            ctx.shadowBlur = size * progress * 2;
+        // Decay Recoil
+        if (Math.abs(this.recoilOffset) > 0.1) {
+            this.recoilOffset *= 0.85;
         } else {
-            // Translucent glass look with vibrant core
-            gradient.addColorStop(0, `rgba(${Math.min(255, r+60)}, ${Math.min(255, g+60)}, ${Math.min(255, b+60)}, 0.9)`);
-            gradient.addColorStop(0.5, `rgba(${r}, ${g}, ${b}, 0.8)`);
-            gradient.addColorStop(1, `rgba(${Math.max(0, r-40)}, ${Math.max(0, g-40)}, ${Math.max(0, b-40)}, 0.9)`);
-            
-            ctx.shadowColor = `rgba(${r}, ${g}, ${b}, 0.2)`;
-            ctx.shadowBlur = size * 0.2;
+            this.recoilOffset = 0;
         }
 
-        ctx.fillStyle = gradient;
-        this.drawRoundedRect(ctx, px, py, size, size, radius);
-        ctx.fill();
+        // Static Layer (Grid + Placed Blocks)
+        if (this.lastRenderedRevision !== engine.boardManager.revision || 
+            this.lastRenderedGravity !== flippedGravity ||
+            this.lastRenderedSkin !== blockSkin) {
+            
+            this.staticCtx.clearRect(0, 0, STAGE_WIDTH * cellSize, STAGE_HEIGHT * cellSize);
+            
+            // If recoil is active, force redraw of static layer
+            if (this.recoilOffset !== 0) {
+                // Force redraw next frame
+                this.lastRenderedRevision = -1; 
+            } else {
+                this.lastRenderedRevision = engine.boardManager.revision;
+            }
+            
+            this.staticCtx.save();
+            if (this.recoilOffset !== 0) {
+                this.staticCtx.translate(0, this.recoilOffset);
+            }
 
-        // 2. Inner Highlight (Top-Left Bevel) - Simulates light source
+            this.renderGrid(this.staticCtx, cellSize);
+            this.renderBoard(this.staticCtx, engine.boardManager.stage, cellSize);
+            this.staticCtx.restore();
+            
+            this.lastRenderedGravity = flippedGravity;
+            this.lastRenderedSkin = blockSkin;
+        }
+
+        // Dynamic Layer (Active Piece, Ghosts, Effects)
+        this.dynamicCtx.clearRect(0, 0, STAGE_WIDTH * cellSize, STAGE_HEIGHT * cellSize);
+        this.dynamicCtx.save();
+        if (this.recoilOffset !== 0) {
+            this.dynamicCtx.translate(0, this.recoilOffset);
+        }
+        this.renderDynamic(engine, cellSize);
+        this.renderComboHeat(this.dynamicCtx, engine, cellSize);
+        this.dynamicCtx.restore();
+    }
+
+    private renderGrid(ctx: CanvasRenderingContext2D, cellSize: number) {
         ctx.beginPath();
-        this.traceRoundedRect(ctx, px + 1, py + 1, size - 2, size - 2, radius);
-        const highlightGrad = ctx.createLinearGradient(px, py, px + size, py + size);
-        highlightGrad.addColorStop(0, 'rgba(255, 255, 255, 0.5)');
-        highlightGrad.addColorStop(0.3, 'rgba(255, 255, 255, 0.1)');
-        highlightGrad.addColorStop(1, 'rgba(255, 255, 255, 0)');
-        ctx.fillStyle = highlightGrad;
-        ctx.fill();
+        ctx.strokeStyle = VISUAL_THEME.GRID.COLOR; 
+        ctx.lineWidth = VISUAL_THEME.GRID.WIDTH;
+        if (this.config.blockSkin === 'RETRO') ctx.strokeStyle = 'rgba(0, 0, 0, 0.2)';
+        
+        for (let x = 0; x <= STAGE_WIDTH; x++) {
+            ctx.moveTo(x * cellSize, 0);
+            ctx.lineTo(x * cellSize, STAGE_HEIGHT * cellSize);
+        }
+        for (let y = 0; y <= STAGE_HEIGHT; y++) {
+            ctx.moveTo(0, y * cellSize);
+            ctx.lineTo(STAGE_WIDTH * cellSize, y * cellSize);
+        }
+        ctx.stroke();
+    }
 
-        // 3. Border
-        if (isLocking) {
-            ctx.strokeStyle = `rgba(255, 255, 255, ${0.8 + progress * 0.2})`;
-            ctx.lineWidth = 2;
-            ctx.stroke();
+    private renderComboHeat(ctx: CanvasRenderingContext2D, engine: GameCore, cellSize: number) {
+        const combo = engine.scoreManager.comboCount;
+        if (combo < 2) return;
+
+        const intensity = Math.min(combo / 10, 1);
+        let color = `rgba(34, 211, 238, ${intensity * 0.5})`; 
+        if (combo > 5) color = `rgba(168, 85, 247, ${intensity * 0.6})`; 
+        if (combo > 8) color = `rgba(250, 204, 21, ${intensity * 0.8})`; 
+
+        ctx.save();
+        ctx.strokeStyle = color;
+        ctx.lineWidth = 4 + (intensity * 4);
+        ctx.shadowColor = color;
+        ctx.shadowBlur = 20 * intensity;
+        ctx.strokeRect(0, 0, STAGE_WIDTH * cellSize, STAGE_HEIGHT * cellSize);
+        ctx.restore();
+    }
+
+    private renderBoard(ctx: CanvasRenderingContext2D, stage: Board, cellSize: number) {
+        for (let y = 0; y < STAGE_HEIGHT; y++) {
+            for (let x = 0; x < STAGE_WIDTH; x++) {
+                const cell = stage[y][x];
+                const type = cell[0];
+                const state = cell[1];
+                const modifier = cell[2];
+                const colorOverride = cell[3];
+                
+                const drawY = this.config.flippedGravity ? STAGE_HEIGHT - 1 - y : y;
+                
+                if (type) {
+                    this.drawBlock(ctx, x, drawY, cellSize, type, state, modifier, 0, colorOverride);
+                } else if (modifier) {
+                    this.drawModifier(ctx, x, drawY, cellSize, modifier);
+                }
+            }
+        }
+    }
+
+    private drawBlock(ctx: CanvasRenderingContext2D, x: number, y: number, size: number, type: TetrominoType | 'G', state: CellState = 'merged', modifier?: CellModifier, lockProgress: number = 0, colorOverride?: string) {
+        const { blockSkin } = this.config;
+        
+        let sprite;
+        if (colorOverride) {
+            sprite = this.spriteManager.getBlockSprite(type, blockSkin, size, colorOverride);
         } else {
-            // Subtle crisp border
-            ctx.strokeStyle = `rgba(255, 255, 255, 0.2)`;
-            ctx.lineWidth = 1;
-            ctx.stroke();
+            sprite = this.spriteManager.getBlockSprite(type, blockSkin, size);
         }
         
-        ctx.restore();
+        // Draw Sprite
+        ctx.drawImage(sprite, x * size, y * size);
+
+        // Zoned Visuals (Deferred Clear State)
+        if (state === 'zoned') {
+            ctx.save();
+            ctx.fillStyle = 'rgba(255, 215, 0, 0.4)'; // Gold tint
+            ctx.fillRect(x * size, y * size, size, size);
+            
+            // Glitch overlay
+            if (Math.random() > 0.8) {
+                ctx.fillStyle = 'rgba(255, 255, 255, 0.8)';
+                const h = Math.random() * size;
+                const oy = Math.random() * size;
+                ctx.fillRect(x * size, y * size + oy, size, h * 0.2);
+            }
+            
+            ctx.strokeStyle = 'rgba(255, 215, 0, 0.8)';
+            ctx.lineWidth = 2;
+            ctx.strokeRect(x * size, y * size, size, size);
+            ctx.restore();
+        }
+
+        // Lock Warning Visuals (Still drawn manually as they are dynamic)
+        if (lockProgress > 0) {
+            ctx.save();
+            // Red tint increasing with progress
+            ctx.fillStyle = `rgba(255, 50, 50, ${lockProgress * 0.3})`;
+            ctx.fillRect(x * size, y * size, size, size);
+            
+            // White pulse overlay
+            const pulse = (Math.sin(Date.now() / 60) + 1) / 2; 
+            const whiteAlpha = pulse * lockProgress * 0.4;
+            ctx.fillStyle = `rgba(255, 255, 255, ${whiteAlpha})`;
+            ctx.fillRect(x * size, y * size, size, size);
+            
+            // Warning Border
+            ctx.strokeStyle = `rgba(255, 255, 255, ${lockProgress})`;
+            ctx.lineWidth = 2;
+            ctx.strokeRect(x * size, y * size, size, size);
+            ctx.restore();
+        }
 
         if (modifier) {
-            this.drawModifier(ctx, x, y, modifier, cellSize, gap, size, radius, true); 
+            this.drawModifier(ctx, x, y, size, modifier);
         }
     }
 
-    private drawModifier(ctx: CanvasRenderingContext2D, x: number, y: number, modifier: CellModifier, cellSize: number, gap: number, size: number, radius: number, onBlock: boolean = false): void {
+    private drawModifier(ctx: CanvasRenderingContext2D, x: number, y: number, size: number, modifier: CellModifier) {
+        const color = MODIFIER_COLORS[modifier.type] || '#fff';
         ctx.save();
-        if (onBlock) {
-            ctx.globalAlpha = 0.8;
-        }
-        
-        switch (modifier.type) {
-            case 'GEM':
-                this._drawGemModifier(ctx, x, y, cellSize, gap, size, radius);
-                break;
-            case 'BOMB':
-                this._drawBombModifier(ctx, x, y, modifier, cellSize, gap, size, radius);
-                break;
-            case 'ICE':
-            case 'CRACKED_ICE':
-                this._drawIceModifier(ctx, x, y, modifier, cellSize, gap, size, radius);
-                break;
-            case 'WILDCARD_BLOCK':
-            case 'LASER_BLOCK':
-            case 'NUKE_BLOCK':
-                 this._drawGenericModifier(ctx, x, y, modifier, cellSize, gap, size, radius);
-                 break;
-        }
-
-        ctx.restore();
-    }
-
-    private _drawGenericModifier(ctx: CanvasRenderingContext2D, x: number, y: number, modifier: CellModifier, cellSize: number, gap: number, size: number, radius: number): void {
-         const px = x * cellSize + gap;
-         const py = y * cellSize + gap;
-         const color = MODIFIER_COLORS[modifier.type as keyof typeof MODIFIER_COLORS] || '#fff';
-         
-         ctx.fillStyle = color;
-         ctx.shadowColor = color;
-         ctx.shadowBlur = size * 0.6;
-         
-         this.drawRoundedRect(ctx, px + size*0.25, py + size*0.25, size*0.5, size*0.5, radius);
-         ctx.fill();
-    }
-
-    private _drawGemModifier(ctx: CanvasRenderingContext2D, x: number, y: number, cellSize: number, gap: number, size: number, radius: number): void {
-        const px = x * cellSize + gap;
-        const py = y * cellSize + gap;
-
-        ctx.fillStyle = MODIFIER_COLORS.GEM;
-        ctx.strokeStyle = `rgba(${this.getRgb(MODIFIER_COLORS.GEM)}, 0.8)`;
-        ctx.lineWidth = Math.max(1, cellSize * 0.05);
-        ctx.shadowColor = MODIFIER_COLORS.GEM;
-        ctx.shadowBlur = size * 0.5;
-        
-        ctx.beginPath();
-        ctx.moveTo(px + size / 2, py + size * 0.1);
-        ctx.lineTo(px + size * 0.9, py + size / 2);
-        ctx.lineTo(px + size / 2, py + size * 0.9);
-        ctx.lineTo(px + size * 0.1, py + size / 2);
-        ctx.closePath();
-        ctx.fill();
-        ctx.stroke();
-
-        ctx.fillStyle = 'rgba(255, 255, 255, 0.8)';
-        ctx.beginPath();
-        ctx.arc(px + size * 0.35, py + size * 0.35, size * 0.1, 0, Math.PI * 2);
-        ctx.fill();
-    }
-
-    private _drawBombModifier(ctx: CanvasRenderingContext2D, x: number, y: number, modifier: CellModifier, cellSize: number, gap: number, size: number, radius: number): void {
-        const px = x * cellSize + gap;
-        const py = y * cellSize + gap;
-
-        const bombRgb = this.getRgb(MODIFIER_COLORS.BOMB);
-        const pulse = (Math.sin(Date.now() / 150) + 1) / 2;
-        
-        // Bomb Base
-        ctx.fillStyle = `rgba(${bombRgb}, 0.8)`;
-        ctx.strokeStyle = '#fff';
+        ctx.strokeStyle = color;
         ctx.lineWidth = 2;
-        ctx.shadowColor = `rgba(${bombRgb}, 1)`;
-        ctx.shadowBlur = size * (0.5 + pulse * 0.3);
-
-        ctx.beginPath();
-        ctx.arc(px + size/2, py + size/2, size * 0.35, 0, Math.PI * 2);
-        ctx.fill();
-        ctx.stroke();
-
-        // Timer Text
-        ctx.font = `bold ${cellSize * 0.5}px Rajdhani`;
-        ctx.textAlign = 'center';
-        ctx.textBaseline = 'middle';
-        ctx.fillStyle = '#fff';
-        ctx.shadowBlur = 0;
-        ctx.fillText(modifier.timer!.toString(), px + size / 2, py + size / 2 + 1);
-    }
-
-    private _drawIceModifier(ctx: CanvasRenderingContext2D, x: number, y: number, modifier: CellModifier, cellSize: number, gap: number, size: number, radius: number): void {
-        const px = x * cellSize + gap;
-        const py = y * cellSize + gap;
-
-        const iceRgb = this.getRgb(MODIFIER_COLORS.ICE);
-        
-        const gradient = ctx.createLinearGradient(px, py, px + size, py + size);
-        gradient.addColorStop(0, `rgba(200, 230, 255, 0.8)`);
-        gradient.addColorStop(1, `rgba(${iceRgb}, 0.6)`);
-
-        ctx.fillStyle = gradient;
-        ctx.strokeStyle = `rgba(255, 255, 255, 0.5)`;
-        ctx.lineWidth = 1;
-        
-        this.drawRoundedRect(ctx, px, py, size, size, radius);
-        ctx.fill();
-        ctx.stroke();
-
-        // Glare
-        ctx.fillStyle = `rgba(255, 255, 255, 0.4)`;
-        ctx.beginPath();
-        ctx.moveTo(px, py);
-        ctx.lineTo(px + size * 0.6, py);
-        ctx.lineTo(px, py + size * 0.6);
-        ctx.fill();
-
-        if (modifier.type === 'CRACKED_ICE') {
-            ctx.strokeStyle = `rgba(255, 255, 255, 0.7)`;
-            ctx.lineWidth = 1.5;
-            ctx.beginPath();
-            ctx.moveTo(px + size * 0.2, py + size * 0.2);
-            ctx.lineTo(px + size * 0.8, py + size * 0.8);
-            ctx.moveTo(px + size * 0.8, py + size * 0.2);
-            ctx.lineTo(px + size * 0.2, py + size * 0.8);
-            ctx.stroke();
+        if (modifier.type === 'CRACKED_ICE') ctx.setLineDash([size * 0.2, size * 0.1]);
+        ctx.strokeRect(x * size + 2, y * size + 2, size - 4, size - 4);
+        if (modifier.type === 'BOMB' && modifier.timer !== undefined) {
+            ctx.fillStyle = '#fff';
+            ctx.font = `900 ${size * 0.6}px "Rajdhani", monospace`;
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            ctx.shadowColor = 'red';
+            ctx.shadowBlur = 4;
+            ctx.fillText(modifier.timer.toString(), x * size + size / 2, y * size + size / 2 + 1);
         }
-    }
-
-    private drawGhost(ctx: CanvasRenderingContext2D, player: Player, ghostY: number, config: RenderConfig, cellSize: number, gap: number, size: number, radius: number, isGhostWarning: boolean, lockStartTime: number, lockDelayDuration: number): void {
-        const { ghostStyle, ghostOpacity, ghostOutlineThickness, ghostGlowIntensity, ghostShadow, flippedGravity } = config;
-        const rgb = this.getRgb(player.tetromino.color);
-        const now = Date.now();
-
-        ctx.save();
-
-        let displayRgb = rgb;
-        let effectiveOpacity = ghostOpacity;
-        let effectiveOutlineThickness = ghostOutlineThickness;
-        let useDashed = false;
-
-        if (isGhostWarning) {
-            displayRgb = '255, 69, 0'; 
-            const elapsed = now - lockStartTime;
-            const progress = Math.min(1, Math.max(0, elapsed / lockDelayDuration));
-            effectiveOpacity = 0.5 + progress * 0.5;
-            effectiveOutlineThickness = Math.max(2, ghostOutlineThickness + progress * 2);
-            ctx.shadowColor = `rgba(${displayRgb}, 1)`;
-            ctx.shadowBlur = 15 * progress;
-        } else {
-            switch (ghostStyle) {
-                case 'dashed':
-                    useDashed = true;
-                    break;
-                case 'solid':
-                    effectiveOpacity = 0.3;
-                    break;
-                case 'neon':
-                default:
-                     ctx.shadowColor = `rgba(${displayRgb}, ${0.5 * ghostGlowIntensity})`;
-                     ctx.shadowBlur = 10 * ghostGlowIntensity;
-                    break;
-            }
-        }
-        
-        ctx.globalAlpha = effectiveOpacity;
-
-        if (useDashed) {
-            ctx.strokeStyle = `rgba(${displayRgb}, 0.5)`;
-            ctx.lineWidth = Math.max(1, effectiveOutlineThickness);
-            this.DASHED_LINE_PATTERN[0] = size * 0.25;
-            this.DASHED_LINE_PATTERN[1] = size * 0.15;
-            ctx.setLineDash(this.DASHED_LINE_PATTERN);
-        } else {
-            ctx.strokeStyle = `rgba(${displayRgb}, 0.8)`;
-            ctx.lineWidth = Math.max(1, effectiveOutlineThickness);
-            ctx.fillStyle = `rgba(${displayRgb}, 0.1)`;
-            ctx.setLineDash(this.EMPTY_LINE_PATTERN);
-        }
-
-        ctx.beginPath();
-        player.tetromino.shape.forEach((row: TetrominoShape[number], y: number) => {
-            row.forEach((value: TetrominoType | 0, x: number) => {
-                if (value !== 0) {
-                    const px = (x + player.pos.x) * cellSize + gap;
-                    const py = (flippedGravity ? STAGE_HEIGHT - 1 - (y + ghostY) : (y + ghostY)) * cellSize + gap;
-                    this.traceRoundedRect(ctx, px, py, size, size, radius);
-                    if (!useDashed) ctx.fill();
-                }
-            });
-        });
-
-        ctx.stroke();
         ctx.restore();
     }
 
-    private drawAiHint(ctx: CanvasRenderingContext2D, engine: GameCore, aiHint: MoveScore, cellSize: number, gap: number, size: number, radius: number): void {
-        const type = engine.pieceManager.player.tetromino.type;
-        const flippedGravity = engine.flippedGravity;
-        if (type && TETROMINOS[type]) {
-             let aiShape: TetrominoShape = TETROMINOS[type].shape;
-             for (let i = 0; i < aiHint.r; i++) aiShape = rotateMatrix(aiShape, 1);
-             
-             ctx.save();
-             const pulse = (Math.sin(Date.now() / 300) + 1) / 2; 
-             const alpha = 0.3 + pulse * 0.3;
-             
-             ctx.strokeStyle = `rgba(255, 215, 0, ${alpha})`;
-             ctx.lineWidth = 2;
-             ctx.shadowColor = 'gold';
-             ctx.shadowBlur = 5;
-             
-             ctx.beginPath();
-             aiShape.forEach((row: TetrominoShape[number], dy: number) => {
-                 row.forEach((cell: TetrominoType | 0, dx: number) => {
-                     if (cell !== 0) {
-                         const px = (aiHint.x + dx) * cellSize + gap;
-                         const py = (flippedGravity ? STAGE_HEIGHT - 1 - (aiHint.y! + dy) : (aiHint.y! + dy)) * cellSize + gap;
-                         this.traceRoundedRect(ctx, px, py, size, size, radius);
-                     }
-                 })
-             });
-             ctx.stroke();
-             ctx.restore();
-        }
+    private renderDynamic(engine: GameCore, cellSize: number) {
+        const ctx = this.dynamicCtx;
+        const player = engine.pieceManager.player;
+        const ghostY = this.calculateGhostY(engine, engine.boardManager.stage, player, this.config.flippedGravity);
+        
+        this.drawPredictiveClear(ctx, engine, player, ghostY, cellSize, this.config.flippedGravity);
+
+        const isGhostWarning = this.config.lockWarningEnabled && engine.pieceManager.pieceIsGrounded && engine.pieceManager.lockTimer !== null;
+        this.drawGhost(ctx, player, ghostY, cellSize, isGhostWarning);
+        
+        // Draw Motion Trails
+        this.drawTrails(ctx, player, cellSize);
+
+        this.drawActivePiece(ctx, engine, cellSize);
+
+        if (isGhostWarning) this.drawLockTimer(ctx, engine, player, cellSize);
+        this.renderOverlays(ctx, cellSize);
+
+        if (this.config.showAi && this.config.aiHint) this.drawAiHint(ctx, this.config.aiHint, cellSize);
+        this.renderEffects(ctx, cellSize);
     }
 
-    private drawActivePiece(ctx: CanvasRenderingContext2D, engine: GameCore, config: RenderConfig, cellSize: number, gap: number, size: number, radius: number): void {
-       const dropTime = engine.pieceManager.dropTime || 1000;
-       const effectiveDropTime = engine.scoreManager.frenzyActive ? dropTime / engine.scoreManager.frenzyMultiplier : dropTime; 
-       const offsetY = Math.min(1, engine.pieceManager.dropCounter / effectiveDropTime);
-       // Interpolate Y for smooth animation
-       const visualY = engine.pieceManager.player.pos.y + (config.flippedGravity ? -offsetY : offsetY);
-       
-       const isLocking = config.lockWarningEnabled && engine.pieceManager.lockTimer !== null && engine.pieceManager.pieceIsGrounded;
-       let lockProgress = 0;
-       if (isLocking && engine.pieceManager.lockStartTime) {
-           const elapsed = Date.now() - engine.pieceManager.lockStartTime;
-           lockProgress = Math.min(1, Math.max(0, elapsed / engine.pieceManager.lockDelayDuration));
-       }
+    private drawTrails(ctx: CanvasRenderingContext2D, player: Player, cellSize: number) {
+        if (!player.trail || player.trail.length === 0) return;
+        const { flippedGravity } = this.config;
+        const shape = player.tetromino.shape;
 
-       const color = engine.pieceManager.player.tetromino.color;
-       
-       engine.pieceManager.player.tetromino.shape.forEach((row: TetrominoShape[number], y: number) => {
-         row.forEach((value: TetrominoType | 0, x: number) => {
-           if (value !== 0) {
-              ctx.save();
-              const drawY = config.flippedGravity ? STAGE_HEIGHT - 1 - (y + visualY) : (y + visualY);
-              this.drawBlock(ctx, x + engine.pieceManager.player.pos.x, drawY, color, cellSize, gap, size, radius, { isLocking, progress: lockProgress });
-              ctx.restore();
-           }
-         });
-       });
-       
-       // Visual flash on lock/T-Spin
-       if (engine.fxManager.lockResetFlash > 0.01) {
-            ctx.save();
-            ctx.globalAlpha = engine.fxManager.lockResetFlash * 0.5;
-            ctx.fillStyle = 'white';
-            ctx.shadowColor = 'white';
-            ctx.shadowBlur = 10;
-            ctx.beginPath();
-            engine.pieceManager.player.tetromino.shape.forEach((row: TetrominoShape[number], y: number) => {
-                row.forEach((value: TetrominoType | 0, x: number) => {
-                    if (value !== 0) {
-                         const drawY = config.flippedGravity ? STAGE_HEIGHT - 1 - (y + visualY) : (y + visualY);
-                         const px = ((x + engine.pieceManager.player.pos.x) * cellSize) + gap;
-                         const py = (drawY * cellSize) + gap;
-                         this.traceRoundedRect(ctx, px, py, size, size, radius);
+        ctx.save();
+        player.trail.forEach((pos, index) => {
+            const opacity = (index + 1) / (player.trail.length + 2) * 0.2; // 0.05 to 0.2
+            ctx.globalAlpha = opacity;
+            
+            shape.forEach((row, y) => {
+                row.forEach((val, x) => {
+                    if (val !== 0) {
+                        const boardY = pos.y + y;
+                        const drawY = flippedGravity ? STAGE_HEIGHT - 1 - boardY : boardY;
+                        const drawX = pos.x + x;
+                        
+                        // Use override color if present
+                        ctx.fillStyle = player.colorOverride || player.tetromino.color;
+                        ctx.fillRect(drawX * cellSize, drawY * cellSize, cellSize, cellSize);
                     }
                 });
             });
-            ctx.fill();
-            ctx.restore();
-       }
-    }
-
-    private drawComboB2BOverlay(ctx: CanvasRenderingContext2D, engine: GameCore, cellSize: number): void {
-        if (!engine.scoreManager.isBackToBack && engine.scoreManager.comboCount < 1) return;
-
-        ctx.save();
-        ctx.globalCompositeOperation = 'screen'; 
-
-        const now = Date.now();
-        const pulseFactor = (Math.sin(now / 250) + 1) / 2; 
-
-        if (engine.scoreManager.isBackToBack) {
-            // Subtle purple glow for B2B
-            ctx.fillStyle = `rgba(192, 132, 252, ${0.05 + pulseFactor * 0.05})`; 
-            ctx.fillRect(0, 0, STAGE_WIDTH * cellSize, STAGE_HEIGHT * cellSize);
-        }
-
-        if (engine.scoreManager.comboCount > 0) {
-            // Green glow intensity scales with combo
-            const comboAlpha = Math.min(0.3, 0.05 + engine.scoreManager.comboCount * 0.02); 
-            ctx.fillStyle = `rgba(74, 222, 128, ${comboAlpha})`; 
-            ctx.fillRect(0, 0, STAGE_WIDTH * cellSize, STAGE_HEIGHT * cellSize);
-        }
-
-        ctx.restore();
-    }
-
-    private drawGarbageIndicator(ctx: CanvasRenderingContext2D, engine: GameCore, cellSize: number, flippedGravity: boolean): void {
-        if (engine.boardManager.garbagePending === 0) return;
-
-        ctx.save();
-        // Red bar indicating incoming garbage
-        const height = Math.min(engine.boardManager.garbagePending, STAGE_HEIGHT) * cellSize;
-        const startY = flippedGravity ? 0 : (STAGE_HEIGHT * cellSize) - height;
-        
-        const gradient = ctx.createLinearGradient(0, startY, 0, startY + height);
-        gradient.addColorStop(0, 'rgba(239, 68, 68, 0.1)');
-        gradient.addColorStop(0.5, 'rgba(239, 68, 68, 0.4)');
-        gradient.addColorStop(1, 'rgba(239, 68, 68, 0.1)');
-        
-        ctx.fillStyle = gradient;
-        ctx.fillRect(0, startY, STAGE_WIDTH * cellSize, height);
-        
-        // Warning Line
-        const lineY = flippedGravity ? height : startY;
-        ctx.strokeStyle = '#ef4444';
-        ctx.lineWidth = 2;
-        ctx.setLineDash([10, 5]);
-        ctx.beginPath();
-        ctx.moveTo(0, lineY);
-        ctx.lineTo(STAGE_WIDTH * cellSize, lineY);
-        ctx.stroke();
-
-        ctx.restore();
-    }
-
-    private drawFrenzyOverlay(ctx: CanvasRenderingContext2D, engine: GameCore, cellSize: number): void {
-        if (!engine.scoreManager.frenzyActive) return;
-
-        ctx.save();
-        ctx.globalCompositeOperation = 'screen'; 
-
-        const now = Date.now();
-        const pulse = (Math.sin(now / 100) + 1) / 2; 
-        const alpha = 0.1 + pulse * 0.1;
-
-        // Gold Overlay
-        ctx.fillStyle = `rgba(255, 215, 0, ${alpha})`; 
-        ctx.fillRect(0, 0, this.width, this.height);
-        
-        // Cinematic Borders
-        const borderGradient = ctx.createLinearGradient(0, 0, 0, this.height);
-        borderGradient.addColorStop(0, 'rgba(255, 215, 0, 0.3)');
-        borderGradient.addColorStop(0.1, 'transparent');
-        borderGradient.addColorStop(0.9, 'transparent');
-        borderGradient.addColorStop(1, 'rgba(255, 215, 0, 0.3)');
-        
-        ctx.fillStyle = borderGradient;
-        ctx.fillRect(0, 0, this.width, this.height);
-        
-        ctx.restore();
-    }
-
-    private drawOverlays(ctx: CanvasRenderingContext2D, engine: GameCore, cellSize: number, flippedGravity: boolean): void {
-        // Access flash via FXManager proxy
-        if (engine.fxManager.tSpinFlash && engine.fxManager.tSpinFlash > 0.01) {
-            ctx.save();
-            ctx.globalCompositeOperation = 'screen';
-            ctx.globalAlpha = engine.fxManager.tSpinFlash * 0.8; 
-            ctx.fillStyle = 'rgba(217, 70, 239, 0.8)'; 
-            ctx.fillRect(0, 0, this.width, this.height);
-            ctx.restore();
-        }
-
-        engine.fxManager.floatingTexts.forEach((ft: FloatingText) => {
-            ctx.save();
-            ctx.globalAlpha = ft.life;
-            ctx.textAlign = 'center';
-            const fx = ft.x * cellSize + (cellSize * 2); 
-            const fy = ft.y * cellSize + (flippedGravity ? cellSize * 0.5 : cellSize * 0.5);
-
-            let textColor = ft.color;
-            let textShadowColor = ft.color;
-            
-            // Use distinct styling for different variants
-            if (ft.variant === 'gem') {
-                textColor = '#f472b6';
-                textShadowColor = '#be185d';
-            } else if (ft.variant === 'bomb') {
-                textColor = '#4ade80';
-                textShadowColor = '#15803d';
-            } else if (ft.variant === 'frenzy') {
-                textColor = '#fcd34d';
-                textShadowColor = '#b45309';
-            }
-            
-            const currentScale = ft.initialScale * (1.5 - 0.5 * ft.life); // Grow slightly
-            ctx.font = `900 ${cellSize * currentScale}px Rajdhani`; 
-            
-            // Stroke outline for readability
-            ctx.strokeStyle = 'rgba(0,0,0,0.8)';
-            ctx.lineWidth = 4;
-            ctx.lineJoin = 'round';
-            
-            ctx.translate(fx, fy);
-            ctx.strokeText(ft.text, 0, 0);
-            
-            ctx.fillStyle = textColor;
-            ctx.shadowColor = textShadowColor;
-            ctx.shadowBlur = 15 * ft.life;
-            ctx.fillText(ft.text, 0, 0);
-            
-            ctx.restore();
         });
-    }
-
-    private drawGimmicks(ctx: CanvasRenderingContext2D, engine: GameCore, cellSize: number, flippedGravity: boolean): void {
-        const invisibleRowsGimmick = engine.adventureManager.config?.gimmicks?.find(g => g.type === 'INVISIBLE_ROWS');
-        if (invisibleRowsGimmick && engine.adventureManager.invisibleRows.length > 0) {
-            ctx.save();
-            ctx.fillStyle = 'rgba(3, 7, 18, 0.9)'; 
-            
-            // Fog effect
-            const fogGradient = ctx.createLinearGradient(0,0, this.width, 0);
-            fogGradient.addColorStop(0, 'rgba(6, 182, 212, 0.1)');
-            fogGradient.addColorStop(0.5, 'rgba(6, 182, 212, 0.0)');
-            fogGradient.addColorStop(1, 'rgba(6, 182, 212, 0.1)');
-
-            engine.adventureManager.invisibleRows.forEach(y => {
-                const py = (flippedGravity ? STAGE_HEIGHT - 1 - y : y) * cellSize;
-                ctx.fillRect(0, py, STAGE_WIDTH * cellSize, cellSize);
-                
-                // Draw fog
-                ctx.fillStyle = fogGradient;
-                ctx.fillRect(0, py, STAGE_WIDTH * cellSize, cellSize);
-                
-                // Reset fill
-                ctx.fillStyle = 'rgba(3, 7, 18, 0.9)';
-            });
-            ctx.restore();
-        }
-    }
-
-    private drawBombSelectionOverlay(ctx: CanvasRenderingContext2D, cellSize: number, bombSelectionRows: number[] | undefined, flippedGravity: boolean): void {
-        if (!bombSelectionRows || bombSelectionRows.length === 0) return;
-
-        ctx.save();
-        ctx.globalCompositeOperation = 'source-over'; 
-        const pulse = (Math.sin(Date.now() / 150) + 1) / 2; 
-
-        ctx.fillStyle = `rgba(239, 68, 68, ${0.3 + pulse * 0.2})`;
-        ctx.strokeStyle = `rgba(255, 255, 255, 0.8)`;
-        ctx.lineWidth = 2;
-
-        bombSelectionRows.forEach(y => {
-            const py = (flippedGravity ? STAGE_HEIGHT - 1 - y : y) * cellSize;
-            ctx.fillRect(0, py, STAGE_WIDTH * cellSize, cellSize);
-            ctx.strokeRect(0, py, STAGE_WIDTH * cellSize, cellSize);
-        });
-
         ctx.restore();
     }
 
-    private drawLineSelectionOverlay(ctx: CanvasRenderingContext2D, cellSize: number, selectedRow: number | null | undefined, flippedGravity: boolean): void {
-        if (selectedRow === null || selectedRow === undefined) return;
-
-        ctx.save();
-        const pulse = (Math.sin(Date.now() / 100) + 1) / 2; 
-
-        ctx.fillStyle = `rgba(6, 182, 212, ${0.3 + pulse * 0.2})`;
-        ctx.strokeStyle = `rgba(255, 255, 255, 0.9)`;
-        ctx.lineWidth = 2;
-
-        const py = (flippedGravity ? STAGE_HEIGHT - 1 - selectedRow : selectedRow) * cellSize;
-        ctx.fillRect(0, py, STAGE_WIDTH * cellSize, cellSize);
-        ctx.strokeRect(0, py, STAGE_WIDTH * cellSize, cellSize);
-
-        ctx.restore();
-    }
-
-    private calculateGhostY(stage: Board, player: Player, flippedGravity: boolean): number {
+    private calculateGhostY(engine: GameCore, stage: Board, player: Player, flippedGravity: boolean): number {
         let ghostY = player.pos.y;
-        const shape = player.tetromino.shape;
-        const moveIncrement = flippedGravity ? -1 : 1;
-        const boundaryCheck = (ny: number) => flippedGravity ? ny < 0 : ny >= STAGE_HEIGHT;
-
-        for (let i = 0; i < STAGE_HEIGHT + 2; i++) { 
-           let collision = false;
-           const nextY = ghostY + moveIncrement;
-           for(let r=0; r<shape.length; r++) {
-               for(let c=0; c<shape[r].length; c++) {
-                   if(shape[r][c] !== 0) {
-                       const ny = nextY + r;
-                       const nx = player.pos.x + c;
-                       if(boundaryCheck(ny) || (ny >= 0 && ny < STAGE_HEIGHT && nx >= 0 && nx < STAGE_WIDTH && stage[ny][nx][1] !== 'clear')) {
-                           collision = true;
-                           break;
-                       }
-                   }
-               }
-               if(collision) break;
-           }
-           if(collision) break;
-           ghostY += moveIncrement;
+        const moveY = flippedGravity ? -1 : 1;
+        while (!engine.collisionManager.checkCollision(player, stage, { x: 0, y: ghostY + moveY - player.pos.y }, flippedGravity)) {
+            ghostY += moveY;
         }
         return ghostY;
     }
 
-    private getRgb(color: string): string {
-        if (this.rgbCache.has(color)) return this.rgbCache.get(color)!;
-        const matches = color.match(/\d+/g);
-        const res = matches ? matches.join(',') : '255,255,255';
-        this.rgbCache.set(color, res);
-        return res;
+    private drawPredictiveClear(ctx: CanvasRenderingContext2D, engine: GameCore, player: Player, ghostY: number, cellSize: number, flippedGravity: boolean): void {
+        const predictedRowsToClear: number[] = [];
+        const shape = player.tetromino.shape;
+        const stage = engine.boardManager.stage;
+        const affectedRows = new Set<number>();
+        
+        shape.forEach((row, y) => {
+            row.forEach((val, x) => {
+                if (val !== 0) {
+                    const boardY = y + ghostY;
+                    if (boardY >= 0 && boardY < STAGE_HEIGHT) affectedRows.add(boardY);
+                }
+            });
+        });
+
+        affectedRows.forEach(y => {
+            let occupiedCount = 0;
+            for (let x = 0; x < STAGE_WIDTH; x++) {
+                // In Zone mode, 'zoned' cells count as empty for clearing prediction purposes (they are already cleared)
+                // Wait, no, predictive clear shows if placing piece *completes* a row.
+                // If a row has 'zoned' cells, it is technically full of zoned cells.
+                // We only care if *active* placement fills the *remaining* holes in a *merged* row.
+                // Zoned rows are already pushed to bottom.
+                
+                const cell = stage[y][x];
+                const isBoardFilled = cell[1] !== 'clear';
+                
+                const ghostRelY = y - ghostY;
+                const ghostRelX = x - player.pos.x;
+                let isGhostFilled = false;
+                if (ghostRelY >= 0 && ghostRelY < shape.length && ghostRelX >= 0 && ghostRelX < shape[0].length) {
+                    if (shape[ghostRelY][ghostRelX] !== 0) isGhostFilled = true;
+                }
+                
+                if (isBoardFilled || isGhostFilled) occupiedCount++;
+            }
+            if (occupiedCount === STAGE_WIDTH) predictedRowsToClear.push(y);
+        });
+
+        if (predictedRowsToClear.length > 0) {
+            ctx.save();
+            const alpha = 0.2 + (Math.sin(Date.now() / 100) * 0.1); 
+            ctx.fillStyle = `rgba(255, 255, 255, ${alpha})`;
+            ctx.shadowColor = 'white';
+            ctx.shadowBlur = 15;
+            predictedRowsToClear.forEach(y => {
+                const drawY = flippedGravity ? STAGE_HEIGHT - 1 - y : y;
+                ctx.fillRect(0, drawY * cellSize, STAGE_WIDTH * cellSize, cellSize);
+                ctx.fillStyle = 'rgba(255, 255, 255, 0.9)';
+                ctx.fillRect(0, drawY * cellSize, 4, cellSize);
+                ctx.fillRect(STAGE_WIDTH * cellSize - 4, drawY * cellSize, 4, cellSize);
+                ctx.fillStyle = `rgba(255, 255, 255, ${alpha})`;
+            });
+            ctx.restore();
+        }
     }
 
-    private drawRoundedRect(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, r: number): void {
+    private drawLockTimer(ctx: CanvasRenderingContext2D, engine: GameCore, player: Player, cellSize: number) {
+        const startTime = engine.pieceManager.lockStartTime;
+        const duration = engine.pieceManager.lockDelayDuration;
+        if (!startTime) return;
+        const elapsed = Date.now() - startTime;
+        const progress = Math.min(1, elapsed / duration);
+        const remaining = 1 - progress;
+        const shape = player.tetromino.shape;
+        const centerX = (player.pos.x + shape[0].length / 2) * cellSize;
+        const centerY = (this.config.flippedGravity 
+            ? STAGE_HEIGHT - 1 - (player.pos.y + shape.length / 2) 
+            : player.pos.y + shape.length / 2) * cellSize;
+        const radius = (cellSize * shape.length) / 1.5;
+        ctx.save();
         ctx.beginPath();
-        this.traceRoundedRect(ctx, x, y, w, h, r);
-        ctx.closePath();
+        ctx.arc(centerX, centerY, radius, -Math.PI / 2, (-Math.PI / 2) + (remaining * Math.PI * 2));
+        ctx.lineWidth = 4;
+        ctx.strokeStyle = `hsl(${120 * remaining}, 100%, 50%)`; 
+        ctx.shadowColor = 'black';
+        ctx.shadowBlur = 5;
+        ctx.stroke();
+        ctx.restore();
     }
 
-    private traceRoundedRect(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, r: number): void {
-        ctx.moveTo(x + r, y);
-        ctx.lineTo(x + w - r, y);
-        ctx.quadraticCurveTo(x + w, y, x + w, y + r);
-        ctx.lineTo(x + w, y + h - r);
-        ctx.quadraticCurveTo(x + w, y + h, x + w - r, y + h);
-        ctx.lineTo(x + r, y + h);
-        ctx.quadraticCurveTo(x, y + h, x, y + h - r);
-        ctx.lineTo(x, y + r);
-        ctx.quadraticCurveTo(x, y, x + r, y);
+    private drawGhost(ctx: CanvasRenderingContext2D, player: Player, ghostY: number, cellSize: number, isWarning: boolean) {
+        const { ghostOpacity, ghostStyle, ghostOutlineThickness, ghostGlowIntensity, flippedGravity } = this.config;
+        const shape = player.tetromino.shape;
+        let alpha = ghostOpacity;
+        let color = player.colorOverride || player.tetromino.color;
+        let glowScale = ghostGlowIntensity;
+
+        if (isWarning) {
+            const pulse = (Math.sin(Date.now() / 100) + 1) / 2;
+            alpha = ghostOpacity + (pulse * (1 - ghostOpacity));
+            color = '#ff4500';
+            glowScale *= 1.5;
+        }
+
+        ctx.save();
+        ctx.globalAlpha = alpha;
+        ctx.fillStyle = color;
+        ctx.strokeStyle = color;
+        ctx.lineWidth = ghostOutlineThickness;
+        if (ghostStyle === 'dashed') ctx.setLineDash([cellSize * 0.25, cellSize * 0.25]);
+        else if (ghostStyle === 'neon') {
+            ctx.shadowColor = color;
+            ctx.shadowBlur = 15 * glowScale;
+        }
+
+        shape.forEach((row, y) => {
+            row.forEach((val, x) => {
+                if (val !== 0) {
+                    const drawY = flippedGravity ? STAGE_HEIGHT - 1 - (ghostY + y) : (ghostY + y);
+                    const px = (player.pos.x + x) * cellSize;
+                    const py = drawY * cellSize;
+                    if (ghostStyle === 'solid') {
+                        ctx.save();
+                        ctx.globalAlpha = alpha * 0.6;
+                        ctx.fillRect(px, py, cellSize, cellSize);
+                        ctx.restore();
+                        if (ghostOutlineThickness > 0) {
+                            ctx.save();
+                            ctx.globalAlpha = alpha;
+                            const offset = ghostOutlineThickness / 2;
+                            ctx.strokeRect(px + offset, py + offset, cellSize - ghostOutlineThickness, cellSize - ghostOutlineThickness);
+                            ctx.restore();
+                        }
+                    } else {
+                        if (ghostStyle === 'neon') {
+                            ctx.save();
+                            ctx.globalAlpha = alpha * 0.15;
+                            ctx.shadowBlur = 0;
+                            ctx.fillRect(px, py, cellSize, cellSize);
+                            ctx.restore();
+                        }
+                        ctx.strokeRect(px, py, cellSize, cellSize);
+                    }
+                }
+            });
+        });
+        ctx.restore();
+    }
+
+    private drawActivePiece(ctx: CanvasRenderingContext2D, engine: GameCore, cellSize: number) {
+        const { flippedGravity } = this.config;
+        const player = engine.pieceManager.player;
+        const shape = player.tetromino.shape;
+        let offsetX = 0;
+        let offsetY = 0;
+        let lockProgress = 0;
+
+        if (engine.pieceManager.lockStartTime) {
+            const elapsed = Date.now() - engine.pieceManager.lockStartTime;
+            lockProgress = Math.min(1, elapsed / engine.pieceManager.lockDelayDuration);
+            
+            if (lockProgress > 0.7) {
+                const intensity = (lockProgress - 0.7) * 0.1 * cellSize;
+                offsetX = (Math.random() - 0.5) * intensity;
+                offsetY = (Math.random() - 0.5) * intensity;
+            }
+        }
+
+        shape.forEach((row, y) => {
+            row.forEach((val, x) => {
+                if (val !== 0) {
+                    const boardY = player.pos.y + y;
+                    const drawY = flippedGravity ? STAGE_HEIGHT - 1 - boardY : boardY;
+                    const drawX = player.pos.x + x;
+                    this.drawBlock(ctx, drawX + (offsetX / cellSize), drawY + (offsetY / cellSize), cellSize, player.tetromino.type, 'merged', undefined, lockProgress, player.colorOverride);
+                }
+            });
+        });
+    }
+
+    private renderOverlays(ctx: CanvasRenderingContext2D, cellSize: number) {
+        if (this.config.bombSelectionRows) {
+            ctx.save();
+            ctx.fillStyle = 'rgba(239, 68, 68, 0.3)';
+            this.config.bombSelectionRows.forEach(y => {
+                const drawY = this.config.flippedGravity ? STAGE_HEIGHT - 1 - y : y;
+                ctx.fillRect(0, drawY * cellSize, STAGE_WIDTH * cellSize, cellSize);
+            });
+            ctx.restore();
+        }
+        if (this.config.lineClearerSelectedRow !== null && this.config.lineClearerSelectedRow !== undefined) {
+            const y = this.config.lineClearerSelectedRow;
+            const drawY = this.config.flippedGravity ? STAGE_HEIGHT - 1 - y : y;
+            ctx.save();
+            ctx.fillStyle = 'rgba(6, 182, 212, 0.5)';
+            ctx.shadowColor = 'cyan';
+            ctx.shadowBlur = 15;
+            ctx.fillRect(0, drawY * cellSize, STAGE_WIDTH * cellSize, cellSize);
+            ctx.restore();
+        }
+    }
+
+    private drawAiHint(ctx: CanvasRenderingContext2D, hint: MoveScore, cellSize: number) {
+        if (!hint) return;
+        const drawY = this.config.flippedGravity ? STAGE_HEIGHT - 1 - hint.y! : hint.y!;
+        ctx.save();
+        const pulse = (Math.sin(Date.now() / 200) + 1) / 2; 
+        ctx.globalAlpha = 0.3 + (pulse * 0.2);
+        ctx.strokeStyle = 'rgba(255, 215, 0, 0.8)'; 
+        ctx.lineWidth = 2;
+        ctx.setLineDash([4, 4]);
+        ctx.lineDashOffset = -Date.now() / 20; 
+        const width = hint.type === 'I' ? 4 : (hint.type === 'O' ? 2 : 3);
+        const height = hint.type === 'I' ? 1 : 2; 
+        ctx.strokeRect(hint.x * cellSize, drawY * cellSize, width * cellSize, height * cellSize);
+        ctx.fillStyle = 'gold';
+        ctx.font = `bold ${cellSize/2}px monospace`;
+        ctx.fillText("AI", hint.x * cellSize, drawY * cellSize - 2);
+        ctx.restore();
+    }
+
+    private renderEffects(ctx: CanvasRenderingContext2D, cellSize: number) {
+        this.beams = this.beams.filter(beam => {
+            beam.life -= 0.05;
+            ctx.save();
+            ctx.globalAlpha = beam.life;
+            ctx.fillStyle = beam.color;
+            ctx.shadowColor = beam.color;
+            ctx.shadowBlur = 10 * beam.life;
+            const startY = this.config.flippedGravity ? STAGE_HEIGHT - 1 - beam.startY : beam.startY;
+            const endY = this.config.flippedGravity ? STAGE_HEIGHT - 1 - beam.endY : beam.endY;
+            const y = Math.min(startY, endY);
+            const h = Math.abs(endY - startY) + 1;
+            ctx.fillRect(beam.x * cellSize, y * cellSize, cellSize, h * cellSize);
+            ctx.restore();
+            return beam.life > 0;
+        });
+        this.clearingRows = this.clearingRows.filter(effect => {
+            effect.life -= 0.08; 
+            ctx.save();
+            ctx.fillStyle = `rgba(255, 255, 255, ${effect.life})`;
+            ctx.shadowColor = 'white';
+            ctx.shadowBlur = 20 * effect.life;
+            const drawY = this.config.flippedGravity ? STAGE_HEIGHT - 1 - effect.row : effect.row;
+            ctx.fillRect(0, drawY * cellSize, STAGE_WIDTH * cellSize, cellSize);
+            ctx.restore();
+            return effect.life > 0;
+        });
     }
 }

@@ -1,7 +1,9 @@
+
 import { create } from 'zustand';
 import { persist, createJSONStorage } from 'zustand/middleware';
 import { ADVENTURE_CAMPAIGN, MAX_STARS_PER_LEVEL } from '../constants';
 import { AdventureLevelConfig } from '../types';
+import { safeStorage } from '../utils/safeStorage';
 
 interface AdventureState {
     unlockedIndex: number;
@@ -90,20 +92,29 @@ export const useAdventureStore = create<AdventureState>()(
         {
             name: 'tetrios-adventure-store',
             version: 2, // Increased version to ensure schema compatibility
-            storage: createJSONStorage(() => localStorage),
+            storage: createJSONStorage(() => safeStorage),
             partialize: (state) => ({
               unlockedIndex: state.unlockedIndex,
               failedAttempts: state.failedAttempts,
               starsEarned: state.starsEarned, 
             }),
             migrate: (persistedState: any, currentVersion) => {
+                // Robust check: If storage was corrupted or null, return clean state
+                if (!persistedState || typeof persistedState !== 'object') {
+                    return { unlockedIndex: 0, currentLevelId: null, failedAttempts: {}, starsEarned: {} } as AdventureState;
+                }
+
                 if (currentVersion === 0) {
                     persistedState.starsEarned = {}; 
                 }
                 if (currentVersion < 2) {
                     // Ensure strict types for existing data
-                    if (!persistedState.failedAttempts) persistedState.failedAttempts = {};
-                    if (!persistedState.starsEarned) persistedState.starsEarned = {};
+                    if (!persistedState.failedAttempts || typeof persistedState.failedAttempts !== 'object') {
+                        persistedState.failedAttempts = {};
+                    }
+                    if (!persistedState.starsEarned || typeof persistedState.starsEarned !== 'object') {
+                        persistedState.starsEarned = {};
+                    }
                 }
                 return persistedState as AdventureState;
             },

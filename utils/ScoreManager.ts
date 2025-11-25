@@ -1,12 +1,10 @@
 
-
-
-
-
-import { GameCore } from './GameCore';
+import type { GameCore } from './GameCore';
 import { GameStats, GameMode, GameCallbacks, ScoreResult } from '../types';
-import { SCORES, DEFAULT_GAMESPEED, FRENZY_DURATION_MS, FRENZY_COMBO_THRESHOLD, BLITZ_DURATION_MS, BLITZ_SPEED_THRESHOLDS, LEVEL_PASS_COIN_REWARD, COMBO_MASTER_INITIAL_TIME, COMBO_MASTER_TIME_BONUS_BASE, COMBO_MASTER_TIME_BONUS_MULTIPLIER } from '../constants';
+import { SCORES, DEFAULT_GAMESPEED, FRENZY_DURATION_MS, FRENZY_COMBO_THRESHOLD, BLITZ_DURATION_MS, BLITZ_SPEED_THRESHOLDS, LEVEL_PASS_COIN_REWARD, COMBO_MASTER_INITIAL_TIME, COMBO_MASTER_TIME_BONUS_BASE, COMBO_MASTER_TIME_BONUS_MULTIPLIER, FOCUS_GAUGE_PER_LINE, FOCUS_GAUGE_MAX, ZONE_DURATION_MS, ACHIEVEMENTS } from '../constants';
 import { calculateScore } from './scoreRules';
+import { useProfileStore } from '../stores/profileStore';
+import { audioManager } from './audioManager';
 
 export class ScoreManager {
     private core: GameCore;
@@ -24,6 +22,9 @@ export class ScoreManager {
     // Blitz Mode State
     private blitzSpeedThresholdIndex: number = 0;
     private blitzLastSpeedUpScore: number = 0;
+    
+    // Combo Master Extra Time
+    private comboMasterExtraTime: number = 0;
 
     constructor(core: GameCore) {
         this.core = core;
@@ -33,15 +34,20 @@ export class ScoreManager {
     private _getInitialStats(): GameStats {
         return {
             score: 0, rows: 0, level: 0, time: 0,
-            movesTaken: 0, gemsCollected: 0, bombsDefused: 0, tetrisesAchieved: 0, combosAchieved: 0,
+            movesTaken: 0, gemsCollected: 0, bombsDefused: 0, tetrisesAchieved: 0, tspinsAchieved: 0, combosAchieved: 0,
+            currentB2BChain: 0, maxB2BChain: 0, bossHp: 0,
             isFrenzyActive: false, frenzyTimer: 0, slowTimeActive: false, slowTimeTimer: 0,
             wildcardAvailable: false, bombBoosterReady: false, lineClearerActive: false,
             flippedGravityActive: false, flippedGravityTimer: 0,
+            focusGauge: 0, isZoneActive: false, zoneTimer: 0, zoneLines: 0,
+            colorStreak: 0, lastClearColor: undefined,
+            colorClears: {}
         };
     }
 
     public reset(mode: GameMode, startLevel: number): void {
         this.stats = this._getInitialStats();
+        this.comboMasterExtraTime = 0;
         
         // Mode specific initializations
         if (mode === 'TIME_ATTACK') {
@@ -73,16 +79,33 @@ export class ScoreManager {
     }
 
     public update(deltaTime: number): void {
-        // Time Tracking
-        if (this.core.mode === 'TIME_ATTACK' || this.core.mode === 'SPRINT' || this.core.mode === 'SURVIVAL') {
-            this.stats.time += (deltaTime / 1000);
-        } else if (this.core.mode === 'BLITZ' || this.core.mode === 'COMBO_MASTER') {
-            this.stats.time = Math.max(0, this.stats.time - (deltaTime / 1000));
-            if (this.stats.time <= 0) {
-                if (this.core.mode === 'COMBO_MASTER') {
-                    this.core.triggerGameOver('GAMEOVER');
-                } else {
+        // TIME STOP: Do not update game time if Zone is active
+        if (!this.stats.isZoneActive) {
+            const elapsedSecs = this.core.getElapsedGameTime() / 1000;
+
+            // Time Tracking
+            if (this.core.mode === 'TIME_ATTACK' || this.core.mode === 'SPRINT' || this.core.mode === 'SURVIVAL') {
+                this.stats.time = elapsedSecs;
+            } else if (this.core.mode === 'BLITZ') {
+                this.stats.time = Math.max(0, (BLITZ_DURATION_MS / 1000) - elapsedSecs);
+                if (this.stats.time <= 0) {
                     this.core.triggerGameOver('VICTORY', { coins: LEVEL_PASS_COIN_REWARD, stars: 3 }); 
+                }
+            } else if (this.core.mode === 'COMBO_MASTER') {
+                const remaining = (COMBO_MASTER_INITIAL_TIME + this.comboMasterExtraTime) - elapsedSecs;
+                this.stats.time = Math.max(0, remaining);
+                if (this.stats.time <= 0) {
+                    this.core.triggerGameOver('GAMEOVER');
+                }
+            } else if (this.core.mode === 'ADVENTURE') {
+                const adventureConfig = this.core.adventureManager.config;
+                if (adventureConfig) {
+                    const timeLimit = adventureConfig.constraints?.timeLimit;
+                    if (timeLimit) {
+                        this.stats.time = Math.max(0, timeLimit - elapsedSecs);
+                    } else {
+                        this.stats.time = elapsedSecs;
+                    }
                 }
             }
         }
@@ -94,7 +117,14 @@ export class ScoreManager {
                 this._deactivateFrenzy();
             } else {
                 this.stats.frenzyTimer = this.frenzyTimer;
-                // We update stats in main loop, so just ensuring local state is correct
+            }
+        }
+        
+        // Zone Logic
+        if (this.stats.isZoneActive) {
+            this.stats.zoneTimer -= deltaTime;
+            if (this.stats.zoneTimer <= 0) {
+                this.deactivateZone();
             }
         }
         
@@ -102,32 +132,240 @@ export class ScoreManager {
         this.core.callbacks.onStatsChange(this.stats);
     }
 
-    public handleLineClear(rowsCleared: number, isTSpinDetected: boolean): ScoreResult {
+    public handleLineClear(rowsCleared: number, isTSpinDetected: boolean, monoClearCount: number = 0, monoColor?: string, alternatingClearCount: number = 0): ScoreResult {
         this.comboCount += 1;
         this.stats.combosAchieved = Math.max(this.stats.combosAchieved || 0, this.comboCount + 1);
         
         const result = calculateScore(rowsCleared, this.stats.level, isTSpinDetected, this.isBackToBack, this.comboCount);
+
+        // Zone Mechanics & Charging
+        if (this.stats.isZoneActive) {
+            // Add to zone lines accumulator
+            this.stats.zoneLines += rowsCleared;
+            // Audio feedback for stacking cleared lines in Zone
+            if (rowsCleared > 0) {
+                this.core.callbacks.onVisualEffect({ type: 'ZONE_CLEAR' });
+                this.core.callbacks.onAudio('ZONE_CLEAR');
+            }
+            // Deferred scoring
+            result.score = 0; 
+            result.text = rowsCleared > 0 ? `ZONED ${rowsCleared}` : ''; 
+        } else {
+            // Accumulate Focus Gauge if NOT in Zone
+            if (rowsCleared > 0 && this.stats.focusGauge < FOCUS_GAUGE_MAX) {
+                let gaugeGain = rowsCleared * FOCUS_GAUGE_PER_LINE;
+                
+                // Bonus for Combos (Higher combos fill meter faster)
+                if (this.comboCount > 0) {
+                    gaugeGain += this.comboCount * 1.5; 
+                }
+                
+                // Bonus for Back-to-Back (Reward consistency)
+                if (result.isBackToBack) {
+                    gaugeGain += 5;
+                }
+
+                const oldGauge = this.stats.focusGauge;
+                this.stats.focusGauge = Math.min(FOCUS_GAUGE_MAX, this.stats.focusGauge + gaugeGain);
+
+                // Trigger "Zone Ready" Notification
+                if (oldGauge < FOCUS_GAUGE_MAX && this.stats.focusGauge >= FOCUS_GAUGE_MAX) {
+                    this.core.addFloatingText("ZONE READY", "#ffd700", 1.2, 'powerup');
+                    this.core.callbacks.onAudio('UI_SELECT');
+                    this.core.callbacks.onVisualEffect({ type: 'FLASH', payload: { color: '#ffd700', duration: 300 } });
+                }
+            }
+        }
+
+        // RHYTHM CHECK
+        if (audioManager.isOnBeat() && !this.stats.isZoneActive) {
+            // Rhythm Bonus
+            const rhythmBonus = 200 * (rowsCleared + 1);
+            result.score += rhythmBonus;
+            this.core.addFloatingText("RHYTHM!", "#a78bfa", 0.7, 'rhythm');
+            this.core.callbacks.onVisualEffect({ type: 'FLASH', payload: { color: '#a78bfa', duration: 150 } });
+        }
+
+        // Handle Mono Color Bonus & Tracking
+        if (monoClearCount > 0 && monoColor && !this.stats.isZoneActive) {
+            if (this.stats.lastClearColor === monoColor) {
+                this.stats.colorStreak = (this.stats.colorStreak || 0) + monoClearCount;
+            } else {
+                this.stats.colorStreak = monoClearCount;
+                this.stats.lastClearColor = monoColor;
+            }
+            
+            // Track Specific Color Clears for Objectives
+            if (!this.stats.colorClears) this.stats.colorClears = {};
+            this.stats.colorClears[monoColor] = (this.stats.colorClears[monoColor] || 0) + monoClearCount;
+
+            // Bonus scales with streak and number of mono lines
+            const streakMult = Math.min(10, this.stats.colorStreak || 1);
+            const bonus = SCORES.MONO_COLOR_BONUS * monoClearCount * streakMult;
+            
+            result.score += bonus;
+            result.text = `COLOR MATCH x${this.stats.colorStreak}`;
+            this.core.callbacks.onVisualEffect({ type: 'SHOCKWAVE', payload: { color: monoColor } });
+        } else if (!this.stats.isZoneActive) {
+            this.stats.colorStreak = 0;
+            this.stats.lastClearColor = undefined;
+        }
+
+        // Handle Alternating Pattern Bonus
+        if (alternatingClearCount > 0 && !this.stats.isZoneActive) {
+            result.score += SCORES.PATTERN_BONUS * alternatingClearCount;
+            result.text = `PATTERN CLEAR!`;
+            this.core.addFloatingText("GARBAGE REDUCED", "#4ade80", 0.6);
+            
+            // Special Effect: Reduce pending garbage
+            if (this.core.boardManager.garbagePending > 0) {
+                const reduced = Math.min(this.core.boardManager.garbagePending, alternatingClearCount * 2);
+                this.core.boardManager.addGarbage(-reduced);
+            }
+            
+            this.core.callbacks.onVisualEffect({ type: 'FLASH', payload: { color: '#fcd34d', duration: 200 } });
+        }
+
+        if (result.isBackToBack && rowsCleared > 0) {
+            if (this.isBackToBack) this.stats.currentB2BChain = (this.stats.currentB2BChain || 0) + 1;
+            else this.stats.currentB2BChain = 1;
+        } else if (!result.isBackToBack) {
+            this.stats.currentB2BChain = 0;
+        }
         
+        this.stats.maxB2BChain = Math.max(this.stats.maxB2BChain || 0, this.stats.currentB2BChain || 0);
         this.isBackToBack = result.isBackToBack;
+
         if (rowsCleared === 4) this.stats.tetrisesAchieved = (this.stats.tetrisesAchieved || 0) + 1;
+        if (isTSpinDetected) this.stats.tspinsAchieved = (this.stats.tspinsAchieved || 0) + 1;
         
+        // Visual Effects for Clears
+        if (rowsCleared >= 4) {
+             this.core.callbacks.onVisualEffect({ type: 'SHOCKWAVE', payload: { color: '#06b6d4' } });
+        }
+        
+        if (isTSpinDetected && rowsCleared > 0) {
+             const { x, y } = this.core.pieceManager.player.pos;
+             this.core.callbacks.onVisualEffect({ 
+                 type: 'TSPIN_CLEAR', 
+                 payload: { x: x + 1, y: y + 1, color: '#d946ef' } 
+             });
+        }
+
+        // --- EXTENDED TETROMINO REWARDS (PRO MECHANIC) ---
+        // Inject rare pieces on high combos/chains with progressive rewards
+        if (this.comboCount === 4) {
+            this.core.pieceManager.injectRewardPiece('D2'); // Domino at 5x Combo
+        } else if (this.comboCount === 6) {
+            this.core.pieceManager.injectRewardPiece('T3'); // Triomino at 7x Combo
+        } else if (this.comboCount === 8) {
+            this.core.pieceManager.injectRewardPiece('M1'); // Monomino at 9x Combo (Ultra Fixer)
+        }
+        
+        if (this.stats.currentB2BChain === 2 && result.isBackToBack) {
+            this.core.pieceManager.injectRewardPiece('P5'); // Pentomino Reward for sustained B2B
+        }
+        // --------------------------------------------------
+
         this.core.callbacks.onComboChange(this.comboCount, this.isBackToBack);
-        this.applyScore(result.score);
+        
+        // Apply score only if NOT in zone (Zone deferred)
+        if (!this.stats.isZoneActive) {
+            this.applyScore(result.score);
+        }
         
         this._handleLevelProgression(rowsCleared);
         
-        if (this.comboCount >= FRENZY_COMBO_THRESHOLD) {
+        if (this.comboCount >= FRENZY_COMBO_THRESHOLD && !this.stats.isZoneActive) {
             this._activateFrenzy();
         }
 
-        // Combo Master Time Bonus
         if (this.core.mode === 'COMBO_MASTER' && rowsCleared > 0) {
             const bonus = COMBO_MASTER_TIME_BONUS_BASE + (this.comboCount * COMBO_MASTER_TIME_BONUS_MULTIPLIER);
-            this.stats.time += bonus;
+            this.comboMasterExtraTime += bonus; 
             this.core.addFloatingText(`+${bonus.toFixed(1)}s`, '#4ade80');
         }
 
+        this.checkAchievements(rowsCleared, isTSpinDetected);
+
         return result;
+    }
+
+    private checkAchievements(rowsCleared: number, isTSpin: boolean): void {
+        const { stats } = this;
+        const unlock = (id: string) => {
+            if (useProfileStore.getState().unlockAchievement(id)) {
+                this.core.callbacks.onAchievementUnlocked?.(id);
+            }
+        };
+
+        if (stats.rows >= 1) unlock('FIRST_DROP');
+        if (rowsCleared === 4) unlock('TETRIS');
+        if (this.comboCount >= 5) unlock('COMBO_5');
+        if (stats.score >= 100000) unlock('SCORE_100K');
+        if (stats.score >= 500000) unlock('SCORE_500K');
+        if (stats.level >= 10) unlock('LEVEL_10');
+        if (stats.isZoneActive && stats.zoneLines >= 8) unlock('ZONE_CLEAR_8');
+        if (isTSpin && rowsCleared === 2) unlock('TSPIN_DOUBLE');
+        if (this.isBackToBack && rowsCleared === 4) unlock('B2B_TETRIS');
+        if (this.core.mode === 'BLITZ' && this.blitzSpeedThresholdIndex >= BLITZ_SPEED_THRESHOLDS.length) unlock('BLITZ_SPEED');
+        if (this.core.boardManager.isBoardEmpty()) unlock('ALL_CLEAR');
+    }
+
+    public tryActivateZone(): void {
+        if (!this.stats.isZoneActive && this.stats.focusGauge >= FOCUS_GAUGE_MAX) {
+            this.activateZone();
+        }
+    }
+
+    private activateZone(): void {
+        this.stats.isZoneActive = true;
+        this.stats.zoneTimer = ZONE_DURATION_MS;
+        this.stats.zoneLines = 0;
+        // Pause gravity is handled in GameCore/PieceManager via the flag
+        this.core.callbacks.onVisualEffect({ type: 'ZONE_START' });
+        this.core.addFloatingText("HYPER FOCUS", "#ffffff", 1.0, 'zone');
+        this.core.callbacks.onAudio('ZONE_START');
+    }
+
+    private deactivateZone(): void {
+        if (!this.stats.isZoneActive) return;
+        
+        this.stats.isZoneActive = false;
+        
+        // Trigger Board Resolution and get actual lines cleared from the buffer
+        const clearedLines = this.core.boardManager.endZone();
+        
+        // Calculate Massive Bonus
+        // Base Zone Bonus + Scale for huge clears (e.g. 8 lines = 8000 base * level)
+        // Multiplier increases for every 4 lines
+        const multiplier = 1 + Math.floor(clearedLines / 4);
+        const bonus = clearedLines * SCORES.ZONE_CLEAR_BONUS * (this.stats.level + 1) * multiplier;
+        
+        if (bonus > 0) {
+            this.applyScore(bonus);
+            
+            let text = "ZONE CLEAR";
+            if (clearedLines >= 8) text = "OCTORIS!";
+            if (clearedLines >= 12) text = "DODECATRIS!";
+            if (clearedLines >= 16) text = "DECAHEX!";
+            
+            this.core.addFloatingText(`${text} +${bonus}`, "#ffd700", 1.5, 'zone');
+            // Trigger massive screen wipe effect
+            this.core.callbacks.onVisualEffect({ type: 'PARTICLE', payload: { isExplosion: true, x: 5, y: 10, amount: 100 + (clearedLines * 10), color: 'gold' } });
+            this.core.callbacks.onVisualEffect({ type: 'SHOCKWAVE', payload: { color: 'gold' } });
+            this.checkAchievements(0, false); 
+        } else {
+            this.core.addFloatingText("ZONE END", "#888888", 0.8);
+        }
+        
+        this.stats.focusGauge = 0;
+        this.stats.zoneLines = 0;
+        this.core.callbacks.onVisualEffect({ type: 'ZONE_END' });
+        this.core.callbacks.onAudio('ZONE_END');
+        
+        // Resume garbage processing if pending
+        this.core.boardManager.processGarbage();
     }
 
     public resetCombo(): void {
@@ -144,6 +382,8 @@ export class ScoreManager {
         if (this.core.mode === 'BLITZ') {
             this._checkBlitzSpeedUp();
         }
+        
+        this.checkAchievements(0, false);
         
         this.core.callbacks.onStatsChange(this.stats);
     }
@@ -167,6 +407,7 @@ export class ScoreManager {
             this.core.callbacks.onVisualEffect({ type: 'FRENZY_START' });
             this.core.addFloatingText('FRENZY!', '#ffd700', 0.9, 'frenzy');
             this.core.callbacks.onAudio('FRENZY_START');
+            this.checkAchievements(0, false); 
         }
         this.frenzyTimer = Math.max(this.frenzyTimer, FRENZY_DURATION_MS);
         this.stats.isFrenzyActive = true;
@@ -196,6 +437,7 @@ export class ScoreManager {
                 this.core.callbacks.onAudio('BLITZ_SPEEDUP');
                 this.blitzLastSpeedUpScore = currentScore;
                 this.blitzSpeedThresholdIndex++;
+                this.checkAchievements(0, false);
             }
         }
     }
@@ -205,16 +447,14 @@ export class ScoreManager {
         
         if (this.core.mode === 'MARATHON' || this.core.mode === 'SURVIVAL' || this.core.mode === 'COMBO_MASTER') {
             const newLevel: number = Math.floor(this.stats.rows / 10);
-            // Delegate level up logic to Core
             if (newLevel > this.stats.level) {
                 this.core.handleLevelUp(newLevel);
+                this.checkAchievements(0, false); 
             }
         } else if (this.core.mode === 'SPRINT') {
             if (this.stats.rows >= 40) {
                 this.core.triggerGameOver('VICTORY', { coins: LEVEL_PASS_COIN_REWARD, stars: 3 });
             }
-        } else if (this.core.mode === 'PUZZLE') {
-            // Logic handled in GameCore checks usually
         }
     }
 }

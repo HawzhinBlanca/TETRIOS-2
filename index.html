@@ -8,6 +8,11 @@
     <link rel="manifest" href="./metadata.json">
     <meta name="theme-color" content="#06B6D4" />
     <meta name="description" content="High-fidelity Tetris clone with neon aesthetics and robust mechanics.">
+    
+    <!-- Asset Optimization: Preconnect -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    
     <script src="https://cdn.tailwindcss.com"></script>
     <link href="https://fonts.googleapis.com/css2?family=Rajdhani:wght@400;500;600;700;800&display=swap" rel="stylesheet">
     <script type="importmap">
@@ -21,11 +26,12 @@
     "zustand": "https://esm.sh/zustand@4.5.2?deps=react@18.2.0",
     "zustand/middleware": "https://esm.sh/zustand@4.5.2/middleware?deps=react@18.2.0",
     "types": "https://aistudiocdn.com/types@^0.1.1",
+    "@testing-library/jest-dom": "https://aistudiocdn.com/@testing-library/jest-dom@^6.9.1",
+    "@testing-library/react": "https://aistudiocdn.com/@testing-library/react@^16.3.0",
+    "@testing-library/react-hooks": "https://aistudiocdn.com/@testing-library/react-hooks@^8.0.1",
     "react-dom/": "https://aistudiocdn.com/react-dom@^19.2.0/",
     "react/": "https://aistudiocdn.com/react@^19.2.0/",
-    "zustand/": "https://aistudiocdn.com/zustand@^5.0.8/",
-    "@testing-library/jest-dom": "https://aistudiocdn.com/@testing-library/jest-dom@^6.9.1",
-    "@testing-library/react": "https://aistudiocdn.com/@testing-library/react@^16.3.0"
+    "zustand/": "https://aistudiocdn.com/zustand@^5.0.8/"
   }
 }
 </script>
@@ -35,6 +41,62 @@
         --sab: env(safe-area-inset-bottom);
         --sal: env(safe-area-inset-left);
         --sar: env(safe-area-inset-right);
+
+        /* Main Menu Theme Variables */
+        --menu-overlay-bg: rgba(3, 7, 18, 0.85);
+        --menu-bg-primary: rgba(3, 7, 18, 0.4);
+        --menu-bg-secondary: rgba(31, 41, 55, 0.4);
+        --menu-bg-active: rgba(31, 41, 55, 0.7);
+        --menu-bg-hover: rgba(31, 41, 55, 0.3);
+        
+        --menu-bg-surface: rgba(255, 255, 255, 0.03);
+        --menu-bg-surface-hover: rgba(255, 255, 255, 0.08);
+        --menu-bg-surface-active: rgba(255, 255, 255, 0.15);
+        --menu-bg-surface-dark: rgba(0, 0, 0, 0.3);
+        --menu-bg-glass: rgba(10, 15, 30, 0.95);
+        
+        --menu-text-primary: #ffffff;
+        --menu-text-secondary: #e5e7eb; /* gray-200 */
+        --menu-text-muted: #9ca3af;     /* gray-400 */
+        --menu-text-dim: #6b7280;       /* gray-500 */
+        --menu-text-accent: #22d3ee;
+        
+        --menu-border-color: rgba(255, 255, 255, 0.1);
+        --menu-border-active: rgba(255, 255, 255, 0.3);
+        --menu-border-highlight: rgba(34, 211, 238, 0.3);
+        
+        /* Brand Identity & Status */
+        --brand-primary: #06b6d4; /* Cyan 500 */
+        --brand-primary-rgb: 6, 182, 212;
+        --brand-secondary: #2563eb; /* Blue 600 */
+        --status-success: #22c55e; /* Green 500 */
+        
+        /* Semantic Mechanics Colors (For Tutorials/Help) */
+        --mech-tspin-primary: #c084fc;
+        --mech-tspin-bg: rgba(88, 28, 135, 0.2);
+        --mech-tspin-border: rgba(168, 85, 247, 0.3);
+        
+        --mech-b2b-primary: #34d399;
+        --mech-b2b-bg: rgba(6, 78, 59, 0.2);
+        --mech-b2b-border: rgba(16, 185, 129, 0.3);
+        
+        --mech-combo-primary: #22d3ee;
+        --mech-combo-bg: rgba(22, 78, 99, 0.2);
+        --mech-combo-border: rgba(6, 182, 212, 0.3);
+
+        /* Complex Effects & Gradients */
+        --glow-title: 0 0 10px rgba(6, 182, 212, 0.9), 0 0 30px rgba(6, 182, 212, 0.6), 0 0 60px rgba(6, 182, 212, 0.4);
+        --glow-button-primary: 0 0 20px rgba(6, 182, 212, 0.6), 0 0 40px rgba(6, 182, 212, 0.3);
+        --glow-separator: 0 0 15px rgba(var(--brand-primary-rgb), 0.5);
+        --gradient-separator: linear-gradient(to right, var(--brand-primary), var(--brand-secondary));
+        
+        /* Spacing Variables */
+        --spacing-xs: 0.5rem;  /* 2 (8px) */
+        --spacing-sm: 1rem;    /* 4 (16px) */
+        --spacing-md: 1.5rem;  /* 6 (24px) */
+        --spacing-lg: 2rem;    /* 8 (32px) */
+        --spacing-xl: 3rem;    /* 12 (48px) */
+        --spacing-2xl: 4rem;   /* 16 (64px) */
       }
 
       body {
@@ -51,7 +113,22 @@
         padding: var(--sat) var(--sar) var(--sab) var(--sal);
       }
       
-      /* Screen Shake Animations */
+      /* Noise Overlay for texture - Premium Film Grain */
+      body::after {
+        content: "";
+        position: fixed;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noiseFilter'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.8' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noiseFilter)' opacity='1'/%3E%3C/svg%3E");
+        pointer-events: none;
+        z-index: 9999;
+        opacity: 0.03; /* Reduced from 0.4 for subtle texture */
+        mix-blend-mode: overlay;
+      }
+      
+      /* Animations */
       @keyframes shake-soft {
         0%, 100% { transform: translate(0, 0); }
         25% { transform: translate(1px, 1px); }
@@ -67,17 +144,40 @@
         90% { transform: translate(-1px, -1px) rotate(0deg); }
       }
 
+      @keyframes scan {
+        0% { top: -10%; opacity: 0; }
+        50% { opacity: 1; }
+        100% { top: 110%; opacity: 0; }
+      }
+
       .shake-soft { animation: shake-soft 0.2s cubic-bezier(.36,.07,.19,.97) both; }
       .shake-hard { animation: shake-hard 0.3s cubic-bezier(.36,.07,.19,.97) both; }
 
       .glow-text { text-shadow: 0 0 10px currentColor; }
+      .text-shadow-neon { text-shadow: 0 0 5px currentColor, 0 0 10px currentColor; }
       
-      /* Ghost Animations */
       @keyframes ghost-pulse {
         0% { border-color: rgba(255, 50, 50, 0.3); box-shadow: 0 0 4px rgba(255, 50, 50, 0.2), inset 0 0 2px rgba(255, 50, 50, 0.1); }
         50% { border-color: rgba(255, 50, 50, 1.0); box-shadow: 0 0 15px rgba(255, 50, 50, 0.7), inset 0 0 10px rgba(255, 50, 50, 0.3); }
         100% { border-color: rgba(255, 50, 50, 0.3); box-shadow: 0 0 4px rgba(255, 50, 50, 0.2), inset 0 0 2px rgba(255, 50, 50, 0.1); }
       }
+      
+      @keyframes ghost-pulse-dynamic {
+        0%, 100% { 
+            border-color: rgba(var(--cell-rgb), 0.6); 
+            box-shadow: 0 0 5px rgba(var(--cell-rgb), 0.4), inset 0 0 2px rgba(var(--cell-rgb), 0.2); 
+        }
+        50% { 
+            border-color: rgba(var(--cell-rgb), 1.0); 
+            box-shadow: 0 0 15px rgba(var(--cell-rgb), 0.8), inset 0 0 5px rgba(var(--cell-rgb), 0.4); 
+        }
+      }
+
+      @keyframes neon-glow {
+        0%, 100% { box-shadow: inset 0 0 8px rgba(255,255,255,0.4), 0 0 10px rgb(var(--cell-rgb)), 0 0 20px rgb(var(--cell-rgb)); }
+        50% { box-shadow: inset 0 0 12px rgba(255,255,255,0.6), 0 0 15px rgb(var(--cell-rgb)), 0 0 30px rgb(var(--cell-rgb)); }
+      }
+
       @keyframes ghost-warning {
         0%, 100% { border-color: rgba(255, 60, 0, 0.6); box-shadow: 0 0 8px rgba(255, 60, 0, 0.4), inset 0 0 4px rgba(255, 60, 0, 0.2); background-color: rgba(255, 60, 0, 0.1); }
         50% { border-color: rgba(255, 0, 0, 1); box-shadow: 0 0 20px rgba(255, 0, 0, 0.9), inset 0 0 12px rgba(255, 0, 0, 0.5); background-color: rgba(255, 0, 0, 0.3); }
@@ -88,7 +188,6 @@
         100% { transform: scale(1); filter: brightness(1); }
       }
 
-      /* UI Transitions */
       @keyframes slideInRight {
         from { opacity: 0; transform: translateX(20px); }
         to { opacity: 1; transform: translateX(0); }
@@ -97,40 +196,75 @@
         animation: slideInRight 0.5s cubic-bezier(0.16, 1, 0.3, 1) forwards;
       }
 
-      /* Garbage Display Pulse */
       @keyframes pulse-red {
           0%, 100% { border-color: rgba(239, 68, 68, 0.7); box-shadow: 0 0 10px rgba(239, 68, 68, 0.4); }
           50% { border-color: rgba(239, 68, 68, 1); box-shadow: 0 0 20px rgba(239, 68, 68, 0.8); }
       }
       .animate-pulse-red { animation: pulse-red 1.5s infinite ease-in-out; }
       
-      /* Combo Green Pulse */
       @keyframes pulse-green {
         0%, 100% { opacity: 0.6; }
         50% { opacity: 1; }
       }
       .animate-pulse-green { animation: pulse-green 1s infinite ease-in-out; }
 
-      /* Utilities */
-      .scrollbar-hide::-webkit-scrollbar {
-          display: none;
+      /* Custom Slider Styles for Webkit/Moz */
+      .slider-thumb-custom::-webkit-slider-thumb {
+          -webkit-appearance: none;
+          height: 16px;
+          width: 16px;
+          border-radius: 50%;
+          background: #ffffff;
+          box-shadow: 0 0 10px rgba(255,255,255,0.8);
+          cursor: pointer;
+          margin-top: 0px; 
+          transition: transform 0.1s;
       }
-      .scrollbar-hide {
-          -ms-overflow-style: none;
-          scrollbar-width: none;
+      .slider-thumb-custom::-webkit-slider-thumb:hover {
+          transform: scale(1.2);
       }
-      .custom-scrollbar::-webkit-scrollbar {
-          width: 4px;
+      .slider-thumb-custom::-moz-range-thumb {
+          height: 16px;
+          width: 16px;
+          border: none;
+          border-radius: 50%;
+          background: #ffffff;
+          box-shadow: 0 0 10px rgba(255,255,255,0.8);
+          cursor: pointer;
+          transition: transform 0.1s;
       }
-      .custom-scrollbar::-webkit-scrollbar-track {
-          background: transparent;
+      .slider-thumb-custom::-moz-range-thumb:hover {
+          transform: scale(1.2);
       }
-      .custom-scrollbar::-webkit-scrollbar-thumb {
-          background: rgba(255, 255, 255, 0.1);
-          border-radius: 10px;
+
+      /* Sleek Scrollbars */
+      .scrollbar-hide::-webkit-scrollbar { display: none; }
+      .scrollbar-hide { -ms-overflow-style: none; scrollbar-width: none; }
+      
+      .custom-scrollbar::-webkit-scrollbar { width: 6px; }
+      .custom-scrollbar::-webkit-scrollbar-track { background: rgba(0,0,0,0.1); }
+      .custom-scrollbar::-webkit-scrollbar-thumb { background: rgba(255, 255, 255, 0.1); border-radius: 10px; }
+      .custom-scrollbar::-webkit-scrollbar-thumb:hover { background: rgba(255, 255, 255, 0.3); }
+
+      /* Loading State Styles (Pre-hydration) */
+      #root:empty {
+        position: fixed;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        background: #030712;
+        display: flex;
+        justify-content: center;
+        align-items: center;
       }
-      .custom-scrollbar::-webkit-scrollbar-thumb:hover {
-          background: rgba(255, 255, 255, 0.3);
+      #root:empty::after {
+        content: "INITIALIZING SYSTEM...";
+        color: #06b6d4;
+        font-family: monospace;
+        font-weight: bold;
+        letter-spacing: 0.2em;
+        animation: pulse-green 1.5s infinite;
       }
     </style>
   </head>

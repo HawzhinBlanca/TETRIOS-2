@@ -1,15 +1,19 @@
 
 import React, { useState } from 'react';
-import { User, Save, Trophy, Hash, BarChart2 } from 'lucide-react';
+import { User, Save, Trophy, Hash, BarChart2, Star, Zap, Layers, Flame, Sparkles, Shield, Eye, RotateCw, Repeat, Crown, Eraser, LayoutGrid, Lock, Unlock } from 'lucide-react';
 import { useProfileStore } from '../../stores/profileStore';
 import { useModalStore } from '../../stores/modalStore';
 import Modal from '../ui/Modal';
 import { audioManager } from '../../utils/audioManager';
+import { ACHIEVEMENTS, TETROMINOS } from '../../constants';
+import Preview from '../Preview';
+import { TetrominoType } from '../../types';
 
 const ProfileModal = () => {
-    const { playerName, stats, setPlayerName } = useProfileStore();
+    const { playerName, stats, setPlayerName, toggleShape } = useProfileStore();
     const { closeProfile } = useModalStore();
     const [nameInput, setNameInput] = useState(playerName);
+    const [activeTab, setActiveTab] = useState<'STATS' | 'ACHIEVEMENTS' | 'DECK'>('STATS');
 
     const handleSave = () => {
         audioManager.playUiSelect();
@@ -17,15 +21,31 @@ const ProfileModal = () => {
         closeProfile();
     };
 
+    const IconMap: Record<string, React.ElementType> = {
+        Zap, Layers, Flame, Sparkles, Trophy, Shield, Eye, RotateCw, Repeat, Crown, Eraser, Star
+    };
+
+    const handleToggleShape = (shape: TetrominoType) => {
+        audioManager.playUiClick();
+        toggleShape(shape);
+    };
+
+    const SHAPE_GROUPS = [
+        { name: 'Standard (7)', shapes: ['I', 'J', 'L', 'O', 'S', 'T', 'Z'] as TetrominoType[] },
+        { name: 'Micro (1-2)', shapes: ['M1', 'D2_H', 'D2_V'] as TetrominoType[], unlockHint: 'Unlock via "Combo Breaker" Achievement' },
+        { name: 'Trominos (3)', shapes: ['T3_L', 'T3_I'] as TetrominoType[], unlockHint: 'Unlock via "High Roller" Achievement' },
+        { name: 'Pentominos (5)', shapes: ['P5_P', 'P5_X', 'P5_F'] as TetrominoType[], unlockHint: 'Unlock via "Survivor" Achievement' },
+    ];
+
     return (
-        <Modal onClose={closeProfile} ariaLabel="Player Profile" showCloseButton={true}>
-            <div className="flex flex-col items-center">
+        <Modal onClose={closeProfile} ariaLabel="Player Profile" showCloseButton={true} className="max-w-4xl w-full flex flex-col max-h-[90vh] overflow-hidden">
+            <div className="flex-shrink-0 flex flex-col items-center border-b border-gray-800 pb-6 mb-6">
                 <div className="w-20 h-20 bg-cyan-900/30 rounded-full flex items-center justify-center mb-4 border-2 border-cyan-500 shadow-[0_0_20px_rgba(6,182,212,0.3)] animate-in zoom-in duration-300">
                     <User size={40} className="text-cyan-400" />
                 </div>
                 <h2 className="text-2xl font-black text-white uppercase tracking-widest mb-6">Identity Card</h2>
 
-                <div className="w-full max-w-xs mb-8">
+                <div className="w-full max-w-xs mb-4">
                     <label className="text-xs text-gray-500 font-bold uppercase tracking-widest mb-2 block text-left">Operator Alias</label>
                     <div className="flex gap-2">
                         <input
@@ -46,28 +66,161 @@ const ProfileModal = () => {
                     </div>
                 </div>
 
-                <div className="grid grid-cols-2 gap-4 w-full">
-                    <div className="bg-gray-800/50 p-4 rounded border border-white/5 flex flex-col items-center hover:bg-gray-800 transition-colors">
-                        <Hash size={20} className="text-purple-400 mb-2" />
-                        <span className="text-[10px] text-gray-500 uppercase tracking-widest font-bold">Games Played</span>
-                        <span className="text-xl text-white font-mono font-bold">{stats.totalGamesPlayed}</span>
-                    </div>
-                    <div className="bg-gray-800/50 p-4 rounded border border-white/5 flex flex-col items-center hover:bg-gray-800 transition-colors">
-                        <Trophy size={20} className="text-yellow-400 mb-2" />
-                        <span className="text-[10px] text-gray-500 uppercase tracking-widest font-bold">Total Score</span>
-                        <span className="text-sm md:text-xl text-white font-mono font-bold">{stats.totalScore.toLocaleString()}</span>
-                    </div>
-                     <div className="bg-gray-800/50 p-4 rounded border border-white/5 flex flex-col items-center hover:bg-gray-800 transition-colors">
-                        <BarChart2 size={20} className="text-green-400 mb-2" />
-                        <span className="text-[10px] text-gray-500 uppercase tracking-widest font-bold">Lines Cleared</span>
-                        <span className="text-xl text-white font-mono font-bold">{stats.totalLinesCleared}</span>
-                    </div>
-                     <div className="bg-gray-800/50 p-4 rounded border border-white/5 flex flex-col items-center hover:bg-gray-800 transition-colors">
-                        <Trophy size={20} className="text-orange-400 mb-2" />
-                        <span className="text-[10px] text-gray-500 uppercase tracking-widest font-bold">Highest Level</span>
-                        <span className="text-xl text-white font-mono font-bold">{stats.highestLevelReached}</span>
-                    </div>
+                <div className="flex gap-2 p-1 bg-gray-800/50 rounded-lg">
+                    <button 
+                        onClick={() => setActiveTab('STATS')}
+                        className={`px-6 py-2 rounded text-xs font-bold uppercase tracking-wider transition-all ${activeTab === 'STATS' ? 'bg-cyan-600 text-white shadow-lg' : 'text-gray-400 hover:text-white hover:bg-white/5'}`}
+                    >
+                        Statistics
+                    </button>
+                    <button 
+                        onClick={() => setActiveTab('ACHIEVEMENTS')}
+                        className={`px-6 py-2 rounded text-xs font-bold uppercase tracking-wider transition-all ${activeTab === 'ACHIEVEMENTS' ? 'bg-purple-600 text-white shadow-lg' : 'text-gray-400 hover:text-white hover:bg-white/5'}`}
+                    >
+                        Achievements
+                    </button>
+                    <button 
+                        onClick={() => setActiveTab('DECK')}
+                        className={`px-6 py-2 rounded text-xs font-bold uppercase tracking-wider transition-all ${activeTab === 'DECK' ? 'bg-yellow-600 text-white shadow-lg' : 'text-gray-400 hover:text-white hover:bg-white/5'}`}
+                    >
+                        Deck Tuning
+                    </button>
                 </div>
+            </div>
+
+            <div className="flex-1 overflow-y-auto custom-scrollbar pr-2 min-h-0">
+                {activeTab === 'STATS' && (
+                    <div className="grid grid-cols-2 gap-4 w-full animate-in fade-in slide-in-from-bottom-2">
+                        <div className="bg-gray-800/50 p-4 rounded border border-white/5 flex flex-col items-center hover:bg-gray-800 transition-colors">
+                            <Hash size={20} className="text-purple-400 mb-2" />
+                            <span className="text-[10px] text-gray-500 uppercase tracking-widest font-bold">Games Played</span>
+                            <span className="text-xl text-white font-mono font-bold">{stats.totalGamesPlayed}</span>
+                        </div>
+                        <div className="bg-gray-800/50 p-4 rounded border border-white/5 flex flex-col items-center hover:bg-gray-800 transition-colors">
+                            <Trophy size={20} className="text-yellow-400 mb-2" />
+                            <span className="text-[10px] text-gray-500 uppercase tracking-widest font-bold">Total Score</span>
+                            <span className="text-sm md:text-xl text-white font-mono font-bold">{stats.totalScore.toLocaleString()}</span>
+                        </div>
+                        <div className="bg-gray-800/50 p-4 rounded border border-white/5 flex flex-col items-center hover:bg-gray-800 transition-colors">
+                            <BarChart2 size={20} className="text-green-400 mb-2" />
+                            <span className="text-[10px] text-gray-500 uppercase tracking-widest font-bold">Lines Cleared</span>
+                            <span className="text-xl text-white font-mono font-bold">{stats.totalLinesCleared}</span>
+                        </div>
+                        <div className="bg-gray-800/50 p-4 rounded border border-white/5 flex flex-col items-center hover:bg-gray-800 transition-colors">
+                            <Trophy size={20} className="text-orange-400 mb-2" />
+                            <span className="text-[10px] text-gray-500 uppercase tracking-widest font-bold">Highest Level</span>
+                            <span className="text-xl text-white font-mono font-bold">{stats.highestLevelReached}</span>
+                        </div>
+                    </div>
+                )}
+
+                {activeTab === 'ACHIEVEMENTS' && (
+                    <div className="grid grid-cols-2 md:grid-cols-3 gap-3 animate-in fade-in slide-in-from-bottom-2">
+                        {ACHIEVEMENTS.map(ach => {
+                            const isUnlocked = stats.unlockedAchievements.includes(ach.id);
+                            const Icon = IconMap[ach.icon] || Trophy;
+                            
+                            return (
+                                <div 
+                                    key={ach.id}
+                                    className={`p-4 rounded-xl border flex flex-col items-center text-center transition-all duration-300 relative overflow-hidden group
+                                        ${isUnlocked 
+                                            ? `bg-gray-800/80 border-white/10 shadow-[0_0_15px_rgba(0,0,0,0.3)] hover:scale-[1.02] hover:border-white/20` 
+                                            : 'bg-black/40 border-white/5 opacity-60 grayscale'
+                                        }
+                                    `}
+                                >
+                                    {isUnlocked && <div className={`absolute inset-0 opacity-5 pointer-events-none bg-gradient-to-br from-transparent to-white`}></div>}
+                                    
+                                    <div className={`w-12 h-12 rounded-full flex items-center justify-center mb-3 shadow-lg 
+                                        ${isUnlocked ? `bg-gray-900 ${ach.color}` : 'bg-gray-900 text-gray-600'}`}
+                                    >
+                                        <Icon size={24} />
+                                    </div>
+                                    
+                                    <h3 className={`text-xs font-bold uppercase tracking-wider mb-1 ${isUnlocked ? 'text-white' : 'text-gray-500'}`}>
+                                        {ach.title}
+                                    </h3>
+                                    <p className="text-[10px] text-gray-400 leading-tight">
+                                        {ach.description}
+                                    </p>
+                                    
+                                    {isUnlocked && (
+                                        <div className="absolute top-2 right-2 w-2 h-2 rounded-full bg-green-500 shadow-[0_0_5px_lime]"></div>
+                                    )}
+                                </div>
+                            );
+                        })}
+                    </div>
+                )}
+
+                {activeTab === 'DECK' && (
+                    <div className="space-y-6 animate-in fade-in slide-in-from-bottom-2 pb-4">
+                        <div className="bg-blue-900/20 border border-blue-500/30 p-4 rounded-lg flex items-center gap-3">
+                            <LayoutGrid className="text-blue-400" />
+                            <div className="text-xs text-blue-200">
+                                Configure your Piece Deck for <strong>Marathon</strong> and <strong>Zen</strong> modes. 
+                                Adventure Mode uses preset decks.
+                            </div>
+                        </div>
+
+                        {SHAPE_GROUPS.map((group) => (
+                            <div key={group.name} className="bg-gray-900/50 rounded-xl border border-white/5 p-4">
+                                <div className="flex justify-between items-center mb-4 border-b border-white/5 pb-2">
+                                    <h3 className="text-sm font-bold text-gray-300 uppercase tracking-widest">{group.name}</h3>
+                                    {group.unlockHint && !group.shapes.some(s => stats.unlockedShapes.includes(s)) && (
+                                        <span className="text-[9px] text-red-400 uppercase tracking-widest flex items-center gap-1">
+                                            <Lock size={10} /> Locked
+                                        </span>
+                                    )}
+                                </div>
+                                
+                                {group.unlockHint && !group.shapes.some(s => stats.unlockedShapes.includes(s)) ? (
+                                    <div className="p-4 text-center text-gray-500 text-xs italic flex flex-col items-center gap-2">
+                                        <Lock size={24} className="opacity-50" />
+                                        {group.unlockHint}
+                                    </div>
+                                ) : (
+                                    <div className="grid grid-cols-4 gap-2">
+                                        {group.shapes.map(shape => {
+                                            const isUnlocked = stats.unlockedShapes.includes(shape);
+                                            const isEnabled = stats.enabledShapes.includes(shape);
+                                            const isMandatory = ['I', 'J', 'L', 'O', 'S', 'T', 'Z'].includes(shape);
+
+                                            return (
+                                                <button
+                                                    key={shape}
+                                                    onClick={() => !isMandatory && isUnlocked && handleToggleShape(shape)}
+                                                    disabled={isMandatory || !isUnlocked}
+                                                    className={`relative p-2 rounded border transition-all duration-200 flex flex-col items-center justify-center min-h-[80px]
+                                                        ${isEnabled 
+                                                            ? 'bg-gray-800 border-cyan-500/50 shadow-[0_0_10px_rgba(6,182,212,0.2)]' 
+                                                            : 'bg-black/40 border-white/5 opacity-60 grayscale'
+                                                        }
+                                                        ${!isMandatory && isUnlocked ? 'hover:scale-105 cursor-pointer' : 'cursor-default'}
+                                                    `}
+                                                >
+                                                    <Preview title="" type={shape} variant="small" className="scale-75 pointer-events-none" />
+                                                    
+                                                    {isEnabled && (
+                                                        <div className="absolute top-1 right-1">
+                                                            <div className="w-2 h-2 bg-cyan-500 rounded-full shadow-[0_0_5px_cyan]"></div>
+                                                        </div>
+                                                    )}
+                                                    {!isEnabled && isUnlocked && !isMandatory && (
+                                                        <div className="absolute inset-0 flex items-center justify-center bg-black/60 rounded opacity-0 hover:opacity-100 transition-opacity">
+                                                            <span className="text-[9px] font-bold text-white uppercase">Enable</span>
+                                                        </div>
+                                                    )}
+                                                </button>
+                                            );
+                                        })}
+                                    </div>
+                                )}
+                            </div>
+                        ))}
+                    </div>
+                )}
             </div>
         </Modal>
     );

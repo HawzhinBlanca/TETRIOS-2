@@ -2,10 +2,13 @@
 import React from 'react';
 import { GameProvider } from './contexts/GameContext';
 import { TetriosGame } from './components/TetriosGame';
+import ErrorBoundary from './components/ErrorBoundary';
 
 const App = () => (
   <GameProvider>
-    <TetriosGame />
+    <ErrorBoundary>
+      <TetriosGame />
+    </ErrorBoundary>
   </GameProvider>
 );
 

@@ -1,9 +1,9 @@
 
-
 import { create } from 'zustand';
-import { persist } from 'zustand/middleware';
+import { persist, createJSONStorage } from 'zustand/middleware';
 import { Booster, BoosterType, LevelRewards, AdventureLevelConfig } from '../types';
 import { BOOSTERS, DEFAULT_COINS } from '../constants';
+import { safeStorage } from '../utils/safeStorage';
 
 interface BoosterState {
     coins: number;
@@ -110,6 +110,7 @@ export const useBoosterStore = create<BoosterState>()(
         {
             name: 'tetrios-booster-store',
             version: 2, // Increment version for new field
+            storage: createJSONStorage(() => safeStorage),
             migrate: (persistedState: any, currentVersion) => {
                 if (currentVersion < 2) {
                     // Initialize default boosters

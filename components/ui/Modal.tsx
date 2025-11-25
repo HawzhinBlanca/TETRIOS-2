@@ -68,15 +68,18 @@ const Modal: React.FC<ModalProps> = ({
     };
   }, [onClose]);
 
-  const overlayClasses = "fixed inset-0 z-[100] flex items-center justify-center bg-black/80 backdrop-blur-xl animate-in fade-in duration-200";
+  const overlayClasses = "fixed inset-0 z-[100] flex items-center justify-center bg-black/80 backdrop-blur-xl animate-in fade-in duration-200 p-4";
   
   const containerBase = variant === 'skewed'
-    ? `bg-[#0a0f1e] border-l-4 p-8 md:p-12 skew-x-[-10deg] shadow-[0_0_50px_rgba(0,0,0,0.8)] relative group max-w-lg w-[90%] text-center ${borderColorClass}`
-    : `bg-[#050810] border ${borderColorClass} w-full max-w-2xl shadow-[0_0_100px_rgba(6,182,212,0.15)] rounded-lg p-8 text-center relative`;
+    ? `bg-[#0a0f1e] border-l-4 p-8 md:p-12 skew-x-[-10deg] shadow-[0_0_50px_rgba(0,0,0,0.8)] relative group max-w-lg w-full text-center ${borderColorClass}`
+    : `bg-[#050810] border ${borderColorClass} w-full max-w-2xl shadow-[0_0_100px_rgba(6,182,212,0.15)] rounded-lg p-8 text-center relative flex flex-col`;
+
+  // Added max-h and overflow handling
+  const maxHeightClass = "max-h-[90vh] overflow-y-auto custom-scrollbar";
 
   return (
     <div className={overlayClasses} role={role} aria-modal="true" aria-label={ariaLabel} ref={modalRef}>
-        <div className={`${containerBase} ${className}`}>
+        <div className={`${containerBase} ${maxHeightClass} ${className}`}>
             {showCloseButton && onClose && (
                 <button 
                     onClick={() => { audioManager.playUiBack(); onClose(); }}

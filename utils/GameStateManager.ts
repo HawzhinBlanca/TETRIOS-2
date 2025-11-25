@@ -1,5 +1,5 @@
 
-import { GameCore } from './GameCore';
+import type { GameCore } from './GameCore';
 import { GameState } from '../types';
 import { audioManager } from './audioManager';
 
@@ -27,22 +27,31 @@ export class GameStateManager {
     private get stateConfig(): StateConfig {
         return {
             MENU: {
-                allowedTransitions: ['MAP', 'PLAYING', 'STORY'], // PLAYING via resetGame
+                allowedTransitions: ['MAP', 'PLAYING', 'COUNTDOWN', 'STORY'], // PLAYING via resetGame
                 onEnter: () => {
                     audioManager.playUiBack();
                 }
             },
             MAP: {
-                allowedTransitions: ['MENU', 'BOOSTER_SELECTION', 'STORY', 'PLAYING'], // PLAYING via level select
+                allowedTransitions: ['MENU', 'BOOSTER_SELECTION', 'STORY', 'PLAYING', 'COUNTDOWN'], 
                 onEnter: () => {
                     // Logic for entering map
                 }
             },
             STORY: {
-                allowedTransitions: ['MAP', 'PLAYING', 'MENU'],
+                allowedTransitions: ['MAP', 'PLAYING', 'COUNTDOWN', 'MENU'],
             },
             BOOSTER_SELECTION: {
-                allowedTransitions: ['MAP', 'PLAYING'],
+                allowedTransitions: ['MAP', 'PLAYING', 'COUNTDOWN'],
+            },
+            COUNTDOWN: {
+                allowedTransitions: ['PLAYING', 'MENU', 'PAUSED'], // Can pause during countdown to abort
+                onEnter: () => {
+                    this.core.pauseGameLoop(); // Logic loop paused during countdown
+                },
+                onExit: () => {
+                    // Cleanup countdown logic
+                }
             },
             PLAYING: {
                 allowedTransitions: ['PAUSED', 'GAMEOVER', 'VICTORY', 'WILDCARD_SELECTION', 'BOMB_SELECTION', 'LINE_SELECTION'],
@@ -55,7 +64,7 @@ export class GameStateManager {
                 }
             },
             PAUSED: {
-                allowedTransitions: ['PLAYING', 'MENU'],
+                allowedTransitions: ['PLAYING', 'MENU', 'COUNTDOWN'],
                 onEnter: () => {
                     this.core.pauseGameLoop();
                     audioManager.stopMusic();
@@ -77,14 +86,14 @@ export class GameStateManager {
                 allowedTransitions: ['PLAYING'],
             },
             GAMEOVER: {
-                allowedTransitions: ['MENU', 'MAP', 'PLAYING'], // PLAYING via retry
+                allowedTransitions: ['MENU', 'MAP', 'PLAYING', 'COUNTDOWN'],
                 onEnter: () => {
                     this.core.pauseGameLoop();
                     audioManager.playGameOver();
                 }
             },
             VICTORY: {
-                allowedTransitions: ['MENU', 'MAP', 'STORY', 'PLAYING'],
+                allowedTransitions: ['MENU', 'MAP', 'STORY', 'PLAYING', 'COUNTDOWN'],
                 onEnter: () => {
                     this.core.pauseGameLoop();
                     audioManager.playClear(4); // Victory sound
@@ -98,8 +107,6 @@ export class GameStateManager {
         const targetConfig = this.stateConfig[newState];
 
         // Validation: Check if transition is allowed
-        // Note: We allow 'PLAYING' to transition from anywhere if it's a hard reset (handled by resetGame usually),
-        // but strictly speaking, the FSM should enforce paths.
         if (config && !config.allowedTransitions.includes(newState)) {
             return false;
         }

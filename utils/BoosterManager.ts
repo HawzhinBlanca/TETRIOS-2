@@ -1,5 +1,5 @@
 
-import { GameCore } from './GameCore';
+import type { GameCore } from './GameCore';
 import { BoosterType } from '../types';
 import { SLOW_TIME_BOOSTER_DURATION_MS, FLIPPED_GRAVITY_BOOSTER_DURATION_MS, MODIFIER_COLORS, SCORES, STAGE_HEIGHT, STAGE_WIDTH } from '../constants';
 

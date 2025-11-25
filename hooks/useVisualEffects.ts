@@ -1,7 +1,9 @@
+
 import React, { useEffect } from 'react';
 import { ParticlesHandle } from '../components/Particles';
 import { VisualEffectPayload } from '../types';
 import { SHAKE_DURATION_HARD_MS, SHAKE_DURATION_SOFT_MS, FLASH_DURATION_MS, PARTICLE_AMOUNT_MEDIUM, PARTICLE_AMOUNT_SOFT } from '../constants';
+import { BoardRenderer } from '../utils/BoardRenderer';
 
 export const useVisualEffects = (
     particlesRef: React.RefObject<ParticlesHandle>,
@@ -9,7 +11,8 @@ export const useVisualEffects = (
     setFlashOverlay: (color: string | null) => void,
     cellSize: number,
     uiVisualEffect: VisualEffectPayload | null,
-    clearVisualEffect: () => void
+    clearVisualEffect: () => void,
+    rendererRef?: React.MutableRefObject<BoardRenderer | null> 
 ) => {
     useEffect(() => {
         if (!uiVisualEffect) return;
@@ -28,10 +31,10 @@ export const useVisualEffects = (
                     if (isExplosion) {
                         if (Array.isArray(clearedRows)) {
                             clearedRows.forEach((rowY: number) => {
-                                particlesRef.current?.spawnExplosion(rowY, color);
+                                particlesRef.current?.spawnExplosion(rowY, color, amount);
                             });
                         } else if (typeof clearedRows === 'number') {
-                            particlesRef.current?.spawnExplosion(clearedRows, color);
+                            particlesRef.current?.spawnExplosion(clearedRows, color, amount);
                         }
                     } else if (isBurst && x !== undefined && y !== undefined && color) {
                         particlesRef.current.spawnBurst(x, y, color, amount || PARTICLE_AMOUNT_MEDIUM);
@@ -60,7 +63,7 @@ export const useVisualEffects = (
                 if (particlesRef.current) {
                     const { type: powerupType, x, y, color } = effect.payload || {};
                     if (x !== undefined && y !== undefined && color) { 
-                        particlesRef.current.spawnBurst(x * cellSize + cellSize / 2, y * cellSize + cellSize / 2, color, 40);
+                        particlesRef.current.spawnRing(x, y, color);
                     } else if (color) {
                         particlesRef.current.spawnBurst(10 * cellSize / 2, 20 * cellSize / 2, color, 20);
                     }
@@ -80,9 +83,36 @@ export const useVisualEffects = (
                 setFlashOverlay('rgba(59, 130, 246, 0.2)');
                 setTimeout(() => setFlashOverlay(null), 200);
                 break;
+            case 'HARD_DROP_BEAM':
+                if (rendererRef && rendererRef.current) {
+                    const { x, startY, endY, color } = effect.payload;
+                    rendererRef.current.addBeam(x, startY, endY, color);
+                }
+                break;
+            case 'ROW_CLEAR':
+                if (rendererRef && rendererRef.current) {
+                    rendererRef.current.addClearingRows(effect.payload.rows);
+                }
+                break;
+            case 'SHOCKWAVE':
+                if (particlesRef.current) {
+                    const { x, y, color } = effect.payload || {};
+                    const cx = x !== undefined ? x : 5;
+                    const cy = y !== undefined ? y : 10;
+                    particlesRef.current.spawnShockwave(cx, cy, color || 'cyan');
+                }
+                break;
+            case 'TSPIN_CLEAR':
+                if (particlesRef.current) {
+                    const { x, y, color } = effect.payload || {};
+                    particlesRef.current.spawnTSpin(x, y, color);
+                }
+                setFlashOverlay(effect.payload?.color || '#d946ef');
+                setTimeout(() => setFlashOverlay(null), 150);
+                break;
             default:
                 break;
         }
         clearVisualEffect(); 
-    }, [uiVisualEffect, setShakeClass, setFlashOverlay, clearVisualEffect, particlesRef, cellSize]);
+    }, [uiVisualEffect, setShakeClass, setFlashOverlay, clearVisualEffect, particlesRef, cellSize, rendererRef]);
 };

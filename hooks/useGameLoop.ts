@@ -1,9 +1,7 @@
 
-
-
-import { useEffect, useRef, useCallback } from 'react';
+import React, { useEffect, useRef, useCallback } from 'react';
 import { GameCore } from '../utils/GameCore';
-import { GameState, GameMode } from '../types';
+import { GameState } from '../types';
 
 interface GameLoopConfig {
     das: number;

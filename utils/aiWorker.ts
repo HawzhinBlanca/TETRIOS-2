@@ -1,282 +1,295 @@
 
-import { STAGE_WIDTH, STAGE_HEIGHT, TETROMINOS, KICKS } from '../constants';
+import { WorkerRequest, WorkerResponse, WorkerInitPayload, Board, TetrominoType } from '../types';
 
-/**
- * The core logic for the AI bot, running within a Web Worker.
- * This function is stringified and executed as a Blob URL.
- * 
- * CRITICAL: We inline helper functions (rotateMatrix, checkCollision) directly 
- * into the string to avoid dependency injection issues where imported functions
- * might rely on other modules that are not available in the worker's scope.
- */
-const workerScript = `
-  const STAGE_WIDTH = ${STAGE_WIDTH};
-  const STAGE_HEIGHT = ${STAGE_HEIGHT};
-  const TETROMINOS = ${JSON.stringify(TETROMINOS)};
-  const KICKS = ${JSON.stringify(KICKS)};
+// Pure logic function for AI scoring, safe for export/testing
+export const workerLogic = () => {
+    let CONSTANTS: WorkerInitPayload | null = null;
 
-  const WEIGHTS = {
-    landingHeight: -10.0,
-    rowsCleared: 30.0,
-    rowTransitions: -6.0,
-    colTransitions: -15.0,
-    holes: -60.0, // Heavily penalized to prevent burials
-    wellSums: -10.0,
-    tSpin: 150.0, // Strong bias for T-Spins
-  };
+    const _WEIGHTS = {
+      landingHeight: -10.0,
+      rowsCleared: 30.0,
+      rowTransitions: -6.0,
+      colTransitions: -15.0,
+      holes: -60.0,
+      wellSums: -10.0,
+      tSpin: 150.0,
+    };
 
-  // --- Inlined Geometry Helpers ---
+    const rotateMatrix = (matrix: any[][], dir: number) => {
+        const rotatedGrid = matrix.map((_, index) => matrix.map((col) => col[index]));
+        if (dir > 0) return rotatedGrid.map((row) => row.reverse());
+        return rotatedGrid.reverse();
+    };
 
-  function rotateMatrix(matrix, dir) {
-    const rotatedGrid = matrix.map((_, index) => matrix.map((col) => col[index]));
-    if (dir > 0) return rotatedGrid.map((row) => row.reverse());
-    return rotatedGrid.reverse();
-  }
+    // ... checkCollision, isTSpin, cloneBoard, lockPiece, evaluateBoard helper functions remain identical to previous ...
+    const checkCollision = (player: any, stage: any, moveOffset: any, flippedGravity: boolean) => {
+        const { x: moveX, y: moveY } = moveOffset;
+        const { shape } = player.tetromino;
+        const shapeH = shape.length;
+        if (shapeH === 0) return false;
+        
+        const { x: posX, y: posY } = player.pos;
+        const boardH = stage.length;
+        const boardW = stage[0]?.length || 0;
 
-  function checkCollision(player, stage, { x: moveX, y: moveY }, flippedGravity) {
-    for (let y = 0; y < player.tetromino.shape.length; y += 1) {
-        for (let x = 0; x < player.tetromino.shape[y].length; x += 1) {
-            if (player.tetromino.shape[y][x] !== 0) {
-                const nextBlockY = player.pos.y + y + moveY;
-                const nextBlockX = player.pos.x + x + moveX;
+        const targetStartX = posX + moveX;
+        const targetStartY = posY + moveY;
 
-                if (nextBlockX < 0 || nextBlockX >= STAGE_WIDTH) {
-                    return true;
-                }
+        for (let y = 0; y < shapeH; y++) {
+            const row = shape[y];
+            const targetY = targetStartY + y;
 
-                if (flippedGravity) {
-                    if (nextBlockY < 0) return true;
-                } else {
-                    if (nextBlockY >= STAGE_HEIGHT) return true;
-                }
+            for (let x = 0; x < row.length; x++) {
+                if (row[x] !== 0) {
+                    const targetX = targetStartX + x;
 
-                if (nextBlockY >= 0 && nextBlockY < STAGE_HEIGHT) {
-                    if (stage[nextBlockY][nextBlockX][1] !== 'clear') {
-                        return true;
+                    if (targetX < 0 || targetX >= boardW) return true;
+
+                    if (flippedGravity) {
+                        if (targetY < 0) return true;
+                    } else {
+                        if (targetY >= boardH) return true;
+                    }
+
+                    if (targetY >= 0 && targetY < boardH) {
+                        if (stage[targetY][targetX][1] !== 'clear') return true;
                     }
                 }
             }
         }
-    }
-    return false;
-  }
+        return false;
+    };
 
-  function isTSpin(x, y, type, stage, flippedGravity) {
-    if (type !== 'T') return false;
-    
-    const corners = [
-        {x: x, y: y},
-        {x: x+2, y: y},
-        {x: x, y: y+2},
-        {x: x+2, y: y+2}
-    ];
-    
-    let occupied = 0;
-    for (let i = 0; i < corners.length; i++) {
-        const cx = corners[i].x;
-        const cy = corners[i].y;
+    const isTSpin = (player: any, stage: any, rotationState: any, flippedGravity: boolean) => {
+        if (player.tetromino.type !== 'T') return false;
+        if (!CONSTANTS) return false;
+        const { x, y } = player.pos;
         
-        // Side walls are always occupied
-        if (cx < 0 || cx >= STAGE_WIDTH) {
-            occupied++;
-            continue;
-        }
+        const cornerCheckPositions = [
+            { x: x, y: y },         
+            { x: x + 2, y: y },     
+            { x: x, y: y + 2 },     
+            { x: x + 2, y: y + 2 }  
+        ];
 
-        if (flippedGravity) {
-            // Falling UP. Y=0 is top(ground). Y=20 is bottom(sky).
-            // If cy < 0, it's in the ground (occupied).
-            if (cy < 0) {
-                occupied++;
+        let occupiedCorners = 0;
+
+        for (const c of cornerCheckPositions) {
+            if (c.x < 0 || c.x >= CONSTANTS.STAGE_WIDTH) {
+                occupiedCorners++;
                 continue;
             }
-            // If cy >= STAGE_HEIGHT, it's in the sky (open/not occupied).
-            if (cy >= STAGE_HEIGHT) {
-                continue; 
+            if (flippedGravity) {
+                if (c.y < 0) { occupiedCorners++; continue; }
+                if (c.y >= CONSTANTS.STAGE_HEIGHT) continue;
+            } else {
+                if (c.y >= CONSTANTS.STAGE_HEIGHT) { occupiedCorners++; continue; }
+                if (c.y < 0) continue;
             }
-        } else {
-            // Falling DOWN. Y=20 is bottom(ground). Y=-1 is top(sky).
-            // If cy >= STAGE_HEIGHT, it's in the ground (occupied).
-            if (cy >= STAGE_HEIGHT) {
-                occupied++;
-                continue;
-            }
-            // If cy < 0, it's in the sky (open).
-            if (cy < 0) {
-                continue;
+            if (stage[c.y][c.x][1] !== 'clear') {
+                occupiedCorners++;
             }
         }
+        return occupiedCorners >= 3;
+    };
 
-        // Check board blocks
-        if (stage[cy][cx][1] !== 'clear') {
-            occupied++;
-        }
-    }
-    return occupied >= 3;
-  }
+    const cloneBoard = (board: any) => {
+      return board.map((row: any) => row.map((cell: any) => [...cell]));
+    };
 
-  // --- Core AI Logic ---
-
-  function cloneBoard(board) {
-    return board.map(row => row.map(cell => [...cell]));
-  }
-
-  function lockPiece(board, shape, x, y, flippedGravity) {
-    let dy = y;
-    const moveIncrement = flippedGravity ? -1 : 1;
-    
-    const dummyPlayer = { pos: { x, y: dy }, tetromino: { shape } };
-
-    while (!checkCollision(dummyPlayer, board, {x: 0, y: moveIncrement}, flippedGravity)) {
-        dy += moveIncrement;
-        dummyPlayer.pos.y = dy; 
-    }
-    
-    for(let r=0; r<shape.length; r++) {
-        for(let c=0; c<shape[r].length; c++) {
-            if(shape[r][c] !== 0) {
-                const ny = dy + r;
-                const nx = x + c;
-                if(ny >= 0 && ny < STAGE_HEIGHT && nx >= 0 && nx < STAGE_WIDTH) {
-                   board[ny][nx] = ['G', 'merged']; 
-                }
-            }
-        }
-    }
-    return { board, droppedY: dy };
-  }
-
-  function evaluateBoard(board, droppedY, shapeHeight, flippedGravity, isTSpinMove) {
-    let landingHeight;
-    if (flippedGravity) {
-        landingHeight = droppedY + (shapeHeight / 2); 
-    } else {
-        landingHeight = STAGE_HEIGHT - droppedY - (shapeHeight / 2);
-    }
-    
-    let rowsCleared = 0;
-    let rowTransitions = 0;
-    let colTransitions = 0;
-    let holes = 0;
-    let wellSums = 0;
-
-    for(let y=0; y<STAGE_HEIGHT; y++) {
-      if(board[y].every(cell => cell[1] !== 'clear')) rowsCleared++;
-    }
-
-    for(let y=0; y<STAGE_HEIGHT; y++) {
-      for(let x=0; x<STAGE_WIDTH-1; x++) {
-        if( (board[y][x][1] !== 'clear') !== (board[y][x+1][1] !== 'clear') ) rowTransitions++;
-      }
-      if(board[y][0][1] === 'clear') rowTransitions++;
-      if(board[y][STAGE_WIDTH-1][1] === 'clear') rowTransitions++;
-    }
-
-    for(let x=0; x<STAGE_WIDTH; x++) {
-      let colHasBlock = false;
-      const yStart = flippedGravity ? STAGE_HEIGHT - 1 : 0;
-      const yEnd = flippedGravity ? -1 : STAGE_HEIGHT;
-      const yIncrement = flippedGravity ? -1 : 1;
-
-      for(let y=yStart; y !== yEnd; y += yIncrement) {
-        const isFilled = board[y][x][1] !== 'clear';
-        
-        if(y >= 0 && y < STAGE_HEIGHT - 1) { 
-          const nextY = y + (flippedGravity ? -1 : 1);
-          if(nextY >= 0 && nextY < STAGE_HEIGHT) {
-            if(isFilled !== (board[nextY][x][1] !== 'clear')) colTransitions++;
+    const lockPiece = (board: any, shape: any, x: number, y: number, flippedGravity: boolean) => {
+      if (!CONSTANTS) return { board, droppedY: y };
+      let dy = y;
+      const moveIncrement = flippedGravity ? -1 : 1;
+      
+      while (true) {
+          const nextY = dy + moveIncrement;
+          const playerMock = { pos: { x, y: nextY }, tetromino: { shape } };
+          
+          if (checkCollision(playerMock, board, {x:0, y:0}, flippedGravity)) {
+              break;
           }
-        } else if (y === STAGE_HEIGHT -1 && !flippedGravity){ 
-            if(isFilled) colTransitions++;
-        } else if (y === 0 && flippedGravity){ 
-            if(isFilled) colTransitions++;
-        }
+          dy = nextY;
+      }
+      
+      for(let r=0; r<shape.length; r++) {
+          for(let c=0; c<shape[r].length; c++) {
+              if(shape[r][c] !== 0) {
+                  const ny = dy + r;
+                  const nx = x + c;
+                  if(ny >= 0 && ny < CONSTANTS.STAGE_HEIGHT && nx >= 0 && nx < CONSTANTS.STAGE_WIDTH) {
+                     board[ny][nx] = ['G', 'merged']; 
+                  }
+              }
+          }
+      }
+      return { board, droppedY: dy };
+    };
 
-        if(isFilled) {
-            colHasBlock = true;
-        } else if(colHasBlock) {
-            holes++; 
-        }
+    const evaluateBoard = (board: any, droppedY: number, shapeHeight: number, flippedGravity: boolean, isTSpinMove: boolean) => {
+      if (!CONSTANTS) return -Infinity;
+      let landingHeight;
+      if (flippedGravity) {
+          landingHeight = droppedY + (shapeHeight / 2); 
+      } else {
+          landingHeight = CONSTANTS.STAGE_HEIGHT - droppedY - (shapeHeight / 2);
+      }
+      
+      let rowsCleared = 0;
+      let rowTransitions = 0;
+      let colTransitions = 0;
+      let holes = 0;
+      let wellSums = 0;
 
-        if(x>0 && x<STAGE_WIDTH-1) {
-          if(!isFilled && board[y][x-1][1] !== 'clear' && board[y][x+1][1] !== 'clear') wellSums++;
+      for(let y=0; y<CONSTANTS.STAGE_HEIGHT; y++) {
+        if(board[y].every((cell: any) => cell[1] !== 'clear')) rowsCleared++;
+      }
+
+      for(let y=0; y<CONSTANTS.STAGE_HEIGHT; y++) {
+        for(let x=0; x<CONSTANTS.STAGE_WIDTH-1; x++) {
+          if( (board[y][x][1] !== 'clear') !== (board[y][x+1][1] !== 'clear') ) rowTransitions++;
+        }
+        if(board[y][0][1] === 'clear') rowTransitions++;
+        if(board[y][CONSTANTS.STAGE_WIDTH-1][1] === 'clear') rowTransitions++;
+      }
+
+      for(let x=0; x<CONSTANTS.STAGE_WIDTH; x++) {
+        let colHasBlock = false;
+        const yStart = flippedGravity ? CONSTANTS.STAGE_HEIGHT - 1 : 0;
+        const yEnd = flippedGravity ? -1 : CONSTANTS.STAGE_HEIGHT;
+        const yIncrement = flippedGravity ? -1 : 1;
+
+        for(let y=yStart; y !== yEnd; y += yIncrement) {
+          const isFilled = board[y][x][1] !== 'clear';
+          
+          if(y >= 0 && y < CONSTANTS.STAGE_HEIGHT - 1) { 
+            const nextY = y + (flippedGravity ? -1 : 1);
+            if(nextY >= 0 && nextY < CONSTANTS.STAGE_HEIGHT) {
+              if(isFilled !== (board[nextY][x][1] !== 'clear')) colTransitions++;
+            }
+          } else if (y === CONSTANTS.STAGE_HEIGHT -1 && !flippedGravity){ 
+              if(isFilled) colTransitions++;
+          } else if (y === 0 && flippedGravity){ 
+              if(isFilled) colTransitions++;
+          }
+
+          if(isFilled) {
+              colHasBlock = true;
+          } else if(colHasBlock) {
+              holes++; 
+          }
+
+          if(x>0 && x<CONSTANTS.STAGE_WIDTH-1) {
+            if(!isFilled && board[y][x-1][1] !== 'clear' && board[y][x+1][1] !== 'clear') wellSums++;
+          }
         }
       }
-    }
 
-    let score = (
-      landingHeight * WEIGHTS.landingHeight +
-      rowsCleared * WEIGHTS.rowsCleared +
-      rowTransitions * WEIGHTS.rowTransitions +
-      colTransitions * WEIGHTS.colTransitions +
-      holes * WEIGHTS.holes +
-      wellSums * WEIGHTS.wellSums
-    );
+      let score = (
+        landingHeight * _WEIGHTS.landingHeight +
+        rowsCleared * _WEIGHTS.rowsCleared +
+        rowTransitions * _WEIGHTS.rowTransitions +
+        colTransitions * _WEIGHTS.colTransitions +
+        holes * _WEIGHTS.holes +
+        wellSums * _WEIGHTS.wellSums
+      );
 
-    if (isTSpinMove) {
-        score += WEIGHTS.tSpin;
-    }
+      if (isTSpinMove) {
+          score += _WEIGHTS.tSpin;
+      }
 
-    return score;
+      return score;
+    };
+
+    // MAIN WORKER LOOP
+    self.onmessage = function(e: MessageEvent<WorkerRequest>) {
+      if (e.data.type === 'INIT' && e.data.payload) {
+          CONSTANTS = e.data.payload;
+          return;
+      }
+
+      if (!CONSTANTS) return; 
+
+      try {
+        const { stage, tetrominoType, flippedGravity, mode, playerMove, id } = e.data; 
+        
+        if (!tetrominoType || !CONSTANTS.TETROMINOS[tetrominoType]) {
+          const response: WorkerResponse = { result: null, id };
+          self.postMessage(response); 
+          return;
+        }
+
+        let bestScore = -Infinity;
+        let bestMove = null;
+        const baseShape = CONSTANTS.TETROMINOS[tetrominoType].shape;
+
+        // Iterate all possible moves
+        for(let r=0; r<4; r++) { 
+          let shape = baseShape;
+          for(let i=0; i<r; i++) shape = rotateMatrix(shape, 1);
+
+          for(let x=-2; x<CONSTANTS.STAGE_WIDTH; x++) { 
+            let validX = true;
+            for(let row=0; row<shape.length; row++) {
+              for(let col=0; col<shape[row].length; col++) {
+                  if(shape[row][col] !== 0) {
+                      if(x+col < 0 || x+col >= CONSTANTS.STAGE_WIDTH) {
+                          validX = false;
+                          break;
+                      }
+                  }
+              }
+              if(!validX) break;
+            }
+            if(!validX) continue;
+
+            const startY = flippedGravity ? CONSTANTS.STAGE_HEIGHT - shape.length : 0;
+            const playerMock = { pos: { x, y: startY }, tetromino: { shape } };
+
+            if (checkCollision(playerMock, stage, {x:0, y:0}, flippedGravity || false)) {
+                continue;
+            }
+
+            const simBoard = cloneBoard(stage);
+            const { board: finalBoard, droppedY } = lockPiece(simBoard, shape, x, startY, flippedGravity || false);
+            
+            const dropPlayer = { pos: { x, y: droppedY }, tetromino: { type: tetrominoType, shape } };
+            const isTSpinMove = isTSpin(dropPlayer, stage, r, flippedGravity || false);
+            
+            const score = evaluateBoard(finalBoard, droppedY, shape.length, flippedGravity || false, isTSpinMove);
+
+            if(score > bestScore) {
+              bestScore = score;
+              bestMove = { x, r, score, y: droppedY, type: tetrominoType };
+            }
+          }
+        }
+
+        if (mode === 'EVALUATE' && playerMove && bestMove) {
+            const response: WorkerResponse = { type: 'EVALUATION', bestMove, id };
+            self.postMessage(response);
+        } else {
+            // Standard Hint - return with ID
+            const response: WorkerResponse = { result: bestMove || null, id };
+            self.postMessage(response);
+        }
+
+      } catch(err) {
+        self.postMessage({ result: null, id: e.data?.id || 0 });
+      }
+    };
+};
+
+export const createAiWorker = (): Worker | null => {
+  try {
+      const logicString = workerLogic.toString();
+      const bodyContent = logicString.substring(logicString.indexOf('{') + 1, logicString.lastIndexOf('}'));
+      const blob = new Blob([bodyContent], { type: 'application/javascript' });
+      const url = URL.createObjectURL(blob);
+      const worker = new Worker(url);
+      return worker;
+  } catch (e) {
+      console.warn("[Reliability] Failed to create AI Worker. AI features disabled.", e);
+      return null;
   }
-
-  self.onmessage = function(e) {
-    const { stage, type, rotationState, flippedGravity } = e.data;
-    if (!TETROMINOS[type]) {
-      self.postMessage(null); 
-      return;
-    }
-
-    let bestScore = -Infinity;
-    let bestMove = null;
-    const baseShape = TETROMINOS[type].shape;
-
-    for(let r=0; r<4; r++) { 
-      let shape = baseShape;
-      for(let i=0; i<r; i++) shape = rotateMatrix(shape, 1);
-
-      for(let x=-2; x<STAGE_WIDTH; x++) { 
-        let validX = true;
-        for(let row=0; row<shape.length; row++) {
-           for(let col=0; col<shape[row].length; col++) {
-               if(shape[row][col] !== 0) {
-                   if(x+col < 0 || x+col >= STAGE_WIDTH) {
-                       validX = false;
-                       break;
-                   }
-               }
-           }
-           if(!validX) break;
-        }
-        if(!validX) continue;
-
-        const simBoard = cloneBoard(stage);
-        const startY = flippedGravity ? STAGE_HEIGHT - shape.length : 0;
-        
-        const dummyPlayer = { pos: { x, y: startY }, tetromino: { shape } };
-
-        if (checkCollision(dummyPlayer, simBoard, {x:0, y:0}, flippedGravity)) {
-            continue;
-        }
-
-        const { board: finalBoard, droppedY } = lockPiece(simBoard, shape, x, startY, flippedGravity);
-        
-        // Check for T-Spin at final position
-        const isTSpinMove = isTSpin(x, droppedY, type, stage, flippedGravity);
-        
-        const score = evaluateBoard(finalBoard, droppedY, shape.length, flippedGravity, isTSpinMove);
-
-        if(score > bestScore) {
-           bestScore = score;
-           bestMove = { x, r, score, y: droppedY };
-        }
-      }
-    }
-
-    self.postMessage(bestMove);
-  };
-`;
-
-export const createAiWorker = (): Worker => {
-  const blob = new Blob([workerScript], { type: 'application/javascript' });
-  return new Worker(URL.createObjectURL(blob));
 };

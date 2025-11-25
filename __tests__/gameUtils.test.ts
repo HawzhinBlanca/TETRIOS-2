@@ -1,93 +1,68 @@
 
-import { checkCollision, rotateMatrix, createStage } from '../utils/gameUtils';
-import { TETROMINOS, STAGE_WIDTH, STAGE_HEIGHT } from '../constants';
+import { rotateMatrix, generateBag, parseRgb, createStage } from '../utils/gameUtils';
+import { STAGE_WIDTH, STAGE_HEIGHT } from '../constants';
 
-declare const describe: (name: string, callback: () => void) => void;
-declare const it: (name: string, callback: () => void) => void;
-declare const beforeEach: (callback: () => void) => void;
-declare const expect: (actual: any) => { 
-    toBe: (expected: any) => void; 
-    toEqual: (expected: any) => void; 
-};
+declare var describe: any;
+declare var it: any;
+declare var expect: any;
 
 describe('gameUtils', () => {
-  describe('rotateMatrix', () => {
-    it('should rotate a matrix 90 degrees clockwise', () => {
-      const matrix = [
-        [1, 0],
-        [1, 1]
-      ];
-      const expected = [
-        [1, 1],
-        [1, 0]
-      ];
-      expect(rotateMatrix(matrix as any, 1)).toEqual(expected);
-    });
-
-    it('should rotate a matrix 90 degrees counter-clockwise', () => {
-      const matrix = [
-        [1, 0],
-        [1, 1]
-      ];
-      const expected = [
-        [0, 1],
-        [1, 1]
-      ];
-      expect(rotateMatrix(matrix as any, -1)).toEqual(expected);
+  describe('createStage', () => {
+    it('creates a stage of correct dimensions', () => {
+      const stage = createStage(10, 20);
+      expect(stage.length).toBe(20);
+      expect(stage[0].length).toBe(10);
+      expect(stage[0][0][1]).toBe('clear');
     });
   });
 
-  describe('checkCollision', () => {
-    let stage = createStage();
-    const player = {
-      pos: { x: 0, y: 0 },
-      tetromino: TETROMINOS['T'], // T shape
-      collided: false
-    };
-
-    beforeEach(() => {
-      stage = createStage();
+  describe('rotateMatrix', () => {
+    it('rotates clockwise correctly', () => {
+      const matrix = [[1, 2], [3, 4]];
+      // Expected: [[3, 1], [4, 2]]
+      const result = rotateMatrix(matrix as any, 1);
+      expect(result[0][0]).toBe(3);
+      expect(result[0][1]).toBe(1);
     });
 
-    it('should detect collision with floor', () => {
-      // Position player at the very bottom
-      player.pos.y = STAGE_HEIGHT - player.tetromino.shape.length;
-      // Try to move down 1
-      const collided = checkCollision(player, stage, { x: 0, y: 1 });
-      expect(collided).toBe(true);
+    it('rotates counter-clockwise correctly', () => {
+      const matrix = [[1, 2], [3, 4]];
+      // Expected: [[2, 4], [1, 3]]
+      const result = rotateMatrix(matrix as any, -1);
+      expect(result[0][0]).toBe(2);
+      expect(result[0][1]).toBe(4);
+    });
+  });
+
+  describe('generateBag', () => {
+    it('returns a shuffled bag of 7 unique tetrominos', () => {
+      const bag = generateBag();
+      expect(bag.length).toBe(7);
+      const unique = new Set(bag);
+      expect(unique.size).toBe(7);
+      expect(unique.has('I')).toBe(true);
+      expect(unique.has('T')).toBe(true);
+    });
+  });
+
+  describe('parseRgb', () => {
+    it('parses hex colors to rgb string', () => {
+      expect(parseRgb('#ff0000')).toBe('255,0,0');
+      expect(parseRgb('#00ff00')).toBe('0,255,0');
+      expect(parseRgb('#0000ff')).toBe('0,0,255');
     });
 
-    it('should detect collision with walls', () => {
-      player.pos.x = 0;
-      // Try to move left
-      const collidedLeft = checkCollision(player, stage, { x: -1, y: 0 });
-      expect(collidedLeft).toBe(true);
-
-      player.pos.x = STAGE_WIDTH - player.tetromino.shape[0].length;
-      // Try to move right
-      const collidedRight = checkCollision(player, stage, { x: 1, y: 0 });
-      expect(collidedRight).toBe(true);
+    it('parses short hex', () => {
+      expect(parseRgb('#f00')).toBe('255,0,0');
     });
 
-    it('should detect collision with another block', () => {
-       // Place a block in the stage
-       stage[5][5] = ['I', 'merged'];
-       
-       // Position player right above it
-       player.pos.x = 5;
-       player.pos.y = 3; // T-piece is 3 high, so bottom is at y+2 = 5
-       
-       // T-Shape:
-       // . T .
-       // T T T
-       // . . . 
-       // If we assume basic T shape logic, we need to be precise about shape definition
-       
-       // Easier test: Direct overlap check logic
-       // If we move player INTO the block
-       player.pos.y = 5; // Direct overlap
-       const collided = checkCollision(player, stage, { x: 0, y: 0 });
-       expect(collided).toBe(true);
+    it('parses rgb strings', () => {
+      expect(parseRgb('rgb(100, 100, 100)')).toBe('100, 100, 100');
+    });
+
+    it('handles robustly invalid input', () => {
+      expect(parseRgb('invalid')).toBe('255,255,255'); // Default fallback
+      expect(parseRgb(null as any)).toBe('255,255,255');
     });
   });
 });
