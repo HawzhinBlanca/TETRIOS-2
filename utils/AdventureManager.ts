@@ -35,7 +35,6 @@ export class AdventureManager {
         if (!this.config) return;
         
         if (this.config.objective.type === 'BOSS') {
-            // Target is HP for Boss mode
             this.bossHp = this.config.objective.target;
             this.core.scoreManager.stats.bossHp = this.bossHp; 
             this.core.addFloatingText("BOSS BATTLE!", "#ef4444", 0.8);
@@ -76,16 +75,14 @@ export class AdventureManager {
     public update(deltaTime: number): void {
         if (!this.config) return;
 
-        // Boss Logic
         if (this.config.boss) {
             this.bossTimer += deltaTime;
             if (this.bossTimer >= this.config.boss.interval) {
                 if (this.config.boss.ability === 'GARBAGE_RAIN') {
                     this.core.boardManager.addGarbage(1);
                     this.core.addFloatingText('BOSS ATTACK!', '#ef4444', 0.6);
-                    this.core.callbacks.onVisualEffect({ type: 'SHAKE', payload: 'hard' });
+                    this.core.events.emit('VISUAL_EFFECT', { type: 'SHAKE', payload: 'hard' });
                 } else if (this.config.boss.ability === 'SPEED_SURGE') {
-                    // Temporary speed up for 5 seconds
                     const originalDropTime = this.core.pieceManager.dropTime;
                     this.core.pieceManager.dropTime = Math.max(50, originalDropTime * 0.5);
                     this.core.addFloatingText('SPEED SURGE!', '#d946ef', 0.7);
@@ -123,7 +120,7 @@ export class AdventureManager {
                 if (cell[2]?.type === 'BOMB' && (cell[2]?.timer || 0) <= 0) {
                     cell[2] = undefined; 
                     bombsExploded++;
-                    this.core.callbacks.onVisualEffect({ type: 'PARTICLE', payload: { x, y, color: MODIFIER_COLORS.BOMB, amount: 20, isExplosion: true } });
+                    this.core.events.emit('VISUAL_EFFECT', { type: 'PARTICLE', payload: { x, y, color: MODIFIER_COLORS.BOMB, amount: 20, isExplosion: true } });
                 }
             }
         }
@@ -132,9 +129,9 @@ export class AdventureManager {
             const penaltyLines = bombsExploded * 5; 
             this.core.boardManager.addGarbage(penaltyLines);
             
-            this.core.callbacks.onVisualEffect({ type: 'SHAKE', payload: 'hard' });
-            this.core.callbacks.onVisualEffect({ type: 'FLASH', payload: { color: 'red', duration: 500 } });
-            this.core.callbacks.onAudio('NUKE_CLEAR'); 
+            this.core.events.emit('VISUAL_EFFECT', { type: 'SHAKE', payload: 'hard' });
+            this.core.events.emit('VISUAL_EFFECT', { type: 'FLASH', payload: { color: 'red', duration: 500 } });
+            this.core.events.emit('AUDIO', { event: 'NUKE_CLEAR' });
             
             this.core.addFloatingText(`EXPLOSION! +${penaltyLines} LINES`, '#ef4444', 1.0, 'bomb');
         }
@@ -142,16 +139,14 @@ export class AdventureManager {
 
     public applyBossDamage(score: number): void {
         if (this.config?.objective.type === 'BOSS') {
-            // Balance: 100 score = 1 damage. Tetris (800) = 8 damage.
             const damage = Math.floor(score / 100);
             if (damage > 0) {
                 this.bossHp = Math.max(0, this.bossHp - damage);
                 this.core.scoreManager.stats.bossHp = this.bossHp; 
                 this.core.addFloatingText(`BOSS HIT! -${damage}HP`, '#ef4444', 0.6);
-                this.core.callbacks.onAudio('BOSS_DAMAGE'); 
+                this.core.events.emit('AUDIO', { event: 'BOSS_DAMAGE' });
                 
-                // Visual feedback on boss damage
-                this.core.callbacks.onVisualEffect({ type: 'SHOCKWAVE', payload: { color: '#ef4444' } });
+                this.core.events.emit('VISUAL_EFFECT', { type: 'SHOCKWAVE', payload: { color: '#ef4444' } });
 
                 if (this.bossHp <= 0) {
                     this.core.triggerGameOver('VICTORY', { coins: LEVEL_PASS_COIN_REWARD, stars: 3 });
@@ -179,7 +174,6 @@ export class AdventureManager {
             case 'BOSS': return this.bossHp <= 0;
             case 'COLOR_MATCH': {
                 if (!objective.targetColor) return false;
-                // Check tracked clears for specific color
                 const currentClears = stats.colorClears ? (stats.colorClears[objective.targetColor] || 0) : 0;
                 return currentClears >= objective.target;
             }

@@ -1,7 +1,6 @@
 
 import { TetrominoType } from '../types';
 
-// ... existing AudioVoice class ...
 class AudioVoice {
     public osc: OscillatorNode;
     public gain: GainNode;
@@ -21,8 +20,9 @@ class AudioVoice {
     }
 }
 
-const SCALE_BASS = [65.41, 77.78, 87.31, 98.00, 116.54];
-const SCALE_ARP = [261.63, 311.13, 349.23, 392.00, 466.16, 523.25];
+// Pentatonic Minor Scale (C Minor: C, Eb, F, G, Bb)
+const SCALE_BASS = [65.41, 77.78, 87.31, 98.00, 116.54]; // Low C2-Bb2
+const SCALE_MELODY = [261.63, 311.13, 349.23, 392.00, 466.16, 523.25, 622.25]; // Mid C4-Eb5
 
 class AudioManager {
   public ctx: AudioContext | null = null;
@@ -31,7 +31,6 @@ class AudioManager {
   public sfxGain: GainNode | null = null;
   public uiGain: GainNode | null = null;
   
-  // Layer Gains for Adaptive Mixing
   private bassGain: GainNode | null = null;
   private arpGain: GainNode | null = null;
   private droneGain: GainNode | null = null;
@@ -40,7 +39,6 @@ class AudioManager {
   public lowPassFilter: BiquadFilterNode | null = null;
   public analyser: AnalyserNode | null = null;
   public dataArray: Uint8Array | null = null;
-  public noiseBuffer: AudioBuffer | null = null;
 
   private sfxPool: AudioVoice[] = [];
   private uiPool: AudioVoice[] = [];
@@ -52,38 +50,30 @@ class AudioManager {
   
   private nextNoteTime: number = 0;
   private current16thNote: number = 0;
-  private tempo: number = 120;
+  private tempo: number = 105; // Slightly slower, groovier
   private lookahead: number = 25.0;
   private scheduleAheadTime: number = 0.1;
   private schedulerTimer: number | null = null;
   
-  private lastBeatTime: number = 0;
-  private beatInterval: number = 0;
-  
   private intensity: number = 0;
-  private initializationAttempted: boolean = false;
-  private isSupported: boolean = true;
   
   private _masterVolume: number = 0.6;
-  private _musicVolume: number = 0.5;
+  private _musicVolume: number = 0.4; 
   private _sfxVolume: number = 0.7;
   private _uiVolume: number = 0.6;
 
   constructor() {}
 
   init(): void {
-    if (this.initializationAttempted) {
-        if (this.ctx && this.ctx.state === 'suspended') this.ctx.resume().catch(()=>{});
+    if (this.ctx && this.ctx.state === 'running') return;
+    if (this.ctx && this.ctx.state === 'suspended') {
+        this.ctx.resume().catch(() => {});
         return;
     }
-    this.initializationAttempted = true;
 
     try {
         const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
-        if (!AudioContextClass) {
-            this.isSupported = false;
-            return;
-        }
+        if (!AudioContextClass) return;
 
         this.ctx = new AudioContextClass({ latencyHint: 'interactive' });
         
@@ -92,7 +82,7 @@ class AudioManager {
 
         this.lowPassFilter = this.ctx.createBiquadFilter();
         this.lowPassFilter.type = 'lowpass';
-        this.lowPassFilter.frequency.value = 22000;
+        this.lowPassFilter.frequency.value = 20000;
 
         this.analyser = this.ctx.createAnalyser();
         this.analyser.fftSize = 256;
@@ -106,7 +96,6 @@ class AudioManager {
         this.musicGain.gain.value = this._musicVolume;
         this.musicGain.connect(this.masterGain);
 
-        // Setup Adaptive Layers
         this.bassGain = this.ctx.createGain();
         this.arpGain = this.ctx.createGain();
         this.droneGain = this.ctx.createGain();
@@ -122,45 +111,35 @@ class AudioManager {
         this.uiGain.gain.value = this._uiVolume;
         this.uiGain.connect(this.masterGain);
 
-        this.createNoiseBuffer();
         this.initPools();
         this.startDrone();
         
-        this.setupUnlockListeners();
+        const resumeAudio = () => { if (this.ctx?.state === 'suspended') this.ctx.resume(); };
+        ['click', 'touchstart', 'keydown'].forEach(evt => window.addEventListener(evt, resumeAudio, { once: true }));
 
     } catch (e) {
-        this.isSupported = false;
-        this.ctx = null;
+        console.error("Audio init failed:", e);
     }
   }
 
-  // Adaptive Mixing Method
   updateDynamicMix(stats: { dangerLevel: number, comboCount: number, isZoneActive: boolean, isFrenzy: boolean }) {
       if (!this.ctx) return;
       const t = this.ctx.currentTime;
       
-      // Bass kicks in with Combo
-      const bassVol = Math.min(1, stats.comboCount / 3);
+      const bassVol = Math.min(0.7, stats.comboCount / 10 + 0.3);
       this.bassGain?.gain.setTargetAtTime(bassVol, t, 2);
 
-      // Arp kicks in with Frenzy or Zone
-      const arpVol = stats.isFrenzy || stats.isZoneActive ? 0.8 : 0.3;
+      const arpVol = stats.isFrenzy || stats.isZoneActive ? 0.6 : 0.2;
       this.arpGain?.gain.setTargetAtTime(arpVol, t, 1);
 
-      // Drone gets louder and higher pitched with Danger
-      // Fix: Ensure drone is silent (0) when danger is low to prevent constant tone
-      let droneVol = 0;
-      if (stats.dangerLevel > 0.1) {
-          droneVol = Math.max(0.1, stats.dangerLevel * 0.3);
-      }
+      const droneVol = Math.max(0.05, stats.dangerLevel * 0.3);
       this.droneGain?.gain.setTargetAtTime(droneVol, t, 2);
       
       if (this.droneOsc) {
           this.droneOsc.frequency.setTargetAtTime(55 + (stats.dangerLevel * 55), t, 5);
       }
 
-      // Filter closes slightly when in high danger to "muffle" clarity
-      const freq = stats.dangerLevel > 0.8 ? 800 : 22000;
+      const freq = stats.dangerLevel > 0.8 ? 1000 : 20000;
       this.lowPassFilter?.frequency.setTargetAtTime(freq, t, 0.5);
       
       this.intensity = stats.dangerLevel;
@@ -169,30 +148,11 @@ class AudioManager {
   private startDrone() {
       if (!this.ctx || !this.droneGain) return;
       this.droneOsc = this.ctx.createOscillator();
-      this.droneOsc.type = 'sawtooth';
+      this.droneOsc.type = 'sine';
       this.droneOsc.frequency.value = 55;
       this.droneOsc.connect(this.droneGain);
       this.droneOsc.start();
-      // Fix: Start at 0 volume
       this.droneGain.gain.value = 0; 
-  }
-
-  private setupUnlockListeners() {
-      const unlock = () => {
-          this.unlockAudio();
-          window.removeEventListener('click', unlock);
-          window.removeEventListener('keydown', unlock);
-          window.removeEventListener('touchstart', unlock);
-      };
-      window.addEventListener('click', unlock);
-      window.addEventListener('keydown', unlock);
-      window.addEventListener('touchstart', unlock);
-  }
-
-  public unlockAudio() {
-      if (this.ctx && this.ctx.state === 'suspended') {
-          this.ctx.resume();
-      }
   }
 
   private initPools() {
@@ -205,25 +165,12 @@ class AudioManager {
 
   private getVoice(pool: AudioVoice[]): AudioVoice | null {
       const now = this.ctx?.currentTime || 0;
-      // Find free voice
       for(let i=0; i<pool.length; i++) {
           if (!pool[i].active && now > pool[i].busyUntil) {
               return pool[i];
           }
       }
-      // Steal oldest? For now just return null if all busy (unlikely with 16)
       return null;
-  }
-
-  private createNoiseBuffer() {
-      if (!this.ctx) return;
-      const bufferSize = this.ctx.sampleRate * 2; // 2 seconds
-      const buffer = this.ctx.createBuffer(1, bufferSize, this.ctx.sampleRate);
-      const data = buffer.getChannelData(0);
-      for (let i = 0; i < bufferSize; i++) {
-          data[i] = Math.random() * 2 - 1;
-      }
-      this.noiseBuffer = buffer;
   }
   
   setMasterVolume(val: number) { this._masterVolume = val; if(this.masterGain) this.masterGain.gain.value = this.isMuted ? 0 : val; }
@@ -250,8 +197,13 @@ class AudioManager {
       } 
   }
   
-  setIntensity(val: number) { this.intensity = val; }
-  setTempo(bpm: number) { this.tempo = bpm; }
+  getEnergy(): number {
+      const data = this.getFrequencyData();
+      if (!data) return 0;
+      let sum = 0;
+      for(let i=0; i<10; i++) sum += data[i]; // Low freqs
+      return sum / (10 * 255);
+  }
   
   getFrequencyData(): Uint8Array | null { 
       if(this.analyser && this.dataArray) { 
@@ -260,36 +212,24 @@ class AudioManager {
       } 
       return null; 
   }
-  
-  getEnergy(): number {
-      const data = this.getFrequencyData();
-      if (!data) return 0;
-      let sum = 0;
-      // Focus on bass frequencies
-      for(let i=0; i<20; i++) sum += data[i];
-      return sum / (20 * 255);
-  }
 
   isOnBeat(): boolean { 
-      // Simple beat detection simulation based on time
-      // A real implementation uses spectral flux, but time-based is sufficient for game feel
       if (!this.ctx) return false;
-      const time = this.ctx.currentTime;
       const beatLen = 60 / this.tempo;
-      const diff = (time % beatLen);
-      return diff < 0.1; // 100ms window
+      const diff = (this.ctx.currentTime % beatLen);
+      return diff < 0.1; 
   }
   
   getPulseFactor(): number {
       if (!this.ctx) return 0;
       const beatLen = 60 / this.tempo;
       const progress = (this.ctx.currentTime % beatLen) / beatLen;
-      // Sawtooth pulse
       return Math.pow(1 - progress, 2);
   }
   
   startMusic() { 
       if (this.isPlayingMusic || !this.musicEnabled || !this.ctx) return;
+      if (this.ctx.state === 'suspended') this.ctx.resume();
       this.isPlayingMusic = true;
       this.nextNoteTime = this.ctx.currentTime + 0.1;
       this.scheduler();
@@ -301,12 +241,12 @@ class AudioManager {
       if(!this.isPlayingMusic || !this.ctx) return;
       while (this.nextNoteTime < this.ctx.currentTime + this.scheduleAheadTime) {
           this.scheduleNote(this.current16thNote, this.nextNoteTime);
-          this.nextNote(1); // Advance 16th note
+          this.nextNote();
       }
       this.schedulerTimer = window.setTimeout(() => this.scheduler(), this.lookahead);
   }
 
-  private nextNote(step: number) {
+  private nextNote() {
       const secondsPerBeat = 60.0 / this.tempo;
       this.nextNoteTime += 0.25 * secondsPerBeat; 
       this.current16thNote = (this.current16thNote + 1) % 16;
@@ -315,39 +255,42 @@ class AudioManager {
   private scheduleNote(beatNumber: number, time: number) {
       if (!this.ctx || !this.bassGain || !this.arpGain) return;
 
-      // Bass (Quarter notes)
-      if (beatNumber % 4 === 0) {
+      // Bass - Root notes on 1, 5
+      if (beatNumber === 0 || beatNumber === 8) {
           const osc = this.ctx.createOscillator();
           const gain = this.ctx.createGain();
+          osc.type = 'triangle'; // Warmer bass
           osc.connect(gain);
           gain.connect(this.bassGain);
           
-          const note = SCALE_BASS[Math.floor(Math.random() * SCALE_BASS.length)];
+          const note = SCALE_BASS[Math.floor(Math.random() * 3)]; // Root, 3rd, 4th
           osc.frequency.value = note;
           
-          gain.gain.setValueAtTime(0.5, time);
-          gain.gain.exponentialRampToValueAtTime(0.01, time + 0.4);
+          gain.gain.setValueAtTime(0, time);
+          gain.gain.linearRampToValueAtTime(0.3, time + 0.1);
+          gain.gain.exponentialRampToValueAtTime(0.01, time + 1.5);
           
           osc.start(time);
-          osc.stop(time + 0.5);
+          osc.stop(time + 1.5);
       }
 
-      // Arp (16th notes) - density depends on intensity
-      if (Math.random() < (0.2 + this.intensity * 0.5)) {
+      // Melody/Arp - Random pentatonic runs
+      if (beatNumber % 2 === 0 && Math.random() < 0.4) {
           const osc = this.ctx.createOscillator();
           const gain = this.ctx.createGain();
-          osc.type = 'triangle';
+          osc.type = 'sine'; // Bell-like
           osc.connect(gain);
           gain.connect(this.arpGain);
           
-          const note = SCALE_ARP[Math.floor(Math.random() * SCALE_ARP.length)];
+          const note = SCALE_MELODY[Math.floor(Math.random() * SCALE_MELODY.length)];
           osc.frequency.value = note;
           
-          gain.gain.setValueAtTime(0.1, time);
-          gain.gain.exponentialRampToValueAtTime(0.001, time + 0.1);
+          gain.gain.setValueAtTime(0, time);
+          gain.gain.exponentialRampToValueAtTime(0.15, time + 0.05);
+          gain.gain.exponentialRampToValueAtTime(0.001, time + 0.5);
           
           osc.start(time);
-          osc.stop(time + 0.1);
+          osc.stop(time + 0.5);
       }
   }
 
@@ -370,65 +313,48 @@ class AudioManager {
       setTimeout(() => { voice.active = false; }, duration * 1000 + 100);
   }
 
-  // --- SFX API ---
-  public playPerfectDrop(pan: number) { 
-      this.playTone(880, 'sine', 0.4, 0.3, pan, this.sfxPool);
-      this.playTone(1760, 'triangle', 0.2, 0.1, pan, this.sfxPool);
-  }
-  
-  playUiHover() { this.playTone(400, 'sine', 0.05, 0.05, 0, this.uiPool); }
-  playUiClick() { this.playTone(600, 'triangle', 0.05, 0.1, 0, this.uiPool); }
-  playUiSelect() { this.playTone(800, 'sine', 0.1, 0.1, 0, this.uiPool); }
-  playUiBack() { this.playTone(300, 'square', 0.1, 0.05, 0, this.uiPool); }
-  
-  playMove(pan=0) { this.playTone(300, 'triangle', 0.05, 0.1, pan, this.sfxPool); }
-  playRotate(pan=0) { this.playTone(450, 'sine', 0.08, 0.1, pan, this.sfxPool); }
+  // Public API proxies...
+  playMove(pan=0) { this.playTone(600, 'sine', 0.05, 0.05, pan, this.sfxPool); }
+  playRotate(pan=0) { this.playTone(500, 'triangle', 0.08, 0.05, pan, this.sfxPool); }
   playHardDrop(pan=0) { 
-      this.playTone(150, 'square', 0.15, 0.2, pan, this.sfxPool);
-      this.playTone(100, 'sawtooth', 0.2, 0.2, pan, this.sfxPool);
+      this.playTone(150, 'square', 0.1, 0.1, pan, this.sfxPool);
+      this.playTone(50, 'sine', 0.3, 0.2, pan, this.sfxPool); // Kick
   }
-  playLock(pan=0, type?: TetrominoType) { this.playTone(220, 'triangle', 0.1, 0.3, pan, this.sfxPool); }
-  playSoftLand(pan=0) { this.playTone(200, 'sine', 0.1, 0.1, pan, this.sfxPool); }
-  
-  playTSpin() {
-      this.playTone(600, 'square', 0.2, 0.2, 0, this.sfxPool);
-      setTimeout(() => this.playTone(800, 'square', 0.3, 0.2, 0, this.sfxPool), 100);
-  }
+  playLock(pan=0, type?: any) { this.playTone(200, 'sawtooth', 0.1, 0.1, pan, this.sfxPool); }
+  playSoftLand(pan=0) { this.playTone(120, 'sine', 0.05, 0.1, pan, this.sfxPool); }
   
   playClear(lines: number) {
-      const base = 440 + (lines * 100);
-      this.playTone(base, 'sine', 0.3, 0.3, 0, this.sfxPool);
-      this.playTone(base * 1.5, 'triangle', 0.4, 0.2, 0, this.sfxPool);
-      if (lines >= 4) {
-          setTimeout(() => this.playTone(base * 2, 'sawtooth', 0.5, 0.3, 0, this.sfxPool), 100);
+      const base = 440;
+      for(let i=0; i<lines; i++) {
+          setTimeout(() => this.playTone(base * (1 + i*0.25), 'triangle', 0.3, 0.2, 0, this.sfxPool), i*50);
       }
   }
   
-  playGameOver() {
-      this.playTone(100, 'sawtooth', 1.0, 0.5, 0, this.sfxPool);
-      this.playTone(80, 'square', 1.5, 0.5, 0, this.sfxPool);
-  }
+  playUiHover() { this.playTone(800, 'sine', 0.02, 0.02, 0, this.uiPool); }
+  playUiClick() { this.playTone(1200, 'triangle', 0.05, 0.05, 0, this.uiPool); }
+  playUiSelect() { this.playTone(1500, 'sine', 0.1, 0.1, 0, this.uiPool); }
+  playUiBack() { this.playTone(600, 'square', 0.1, 0.05, 0, this.uiPool); }
+  playGameOver() { this.playTone(100, 'sawtooth', 1.0, 0.3, 0, this.sfxPool); }
   
-  playFrenzyStart() { this.playTone(880, 'sawtooth', 0.5, 0.3, 0, this.sfxPool); }
-  playFrenzyEnd() { this.playTone(440, 'sine', 0.5, 0.2, 0, this.sfxPool); }
-  playZoneStart() { this.playTone(1200, 'sine', 1.0, 0.4, 0, this.sfxPool); }
-  playZoneEnd() { this.playTone(300, 'sine', 0.5, 0.4, 0, this.sfxPool); }
-  playZoneClear() { this.playTone(600, 'triangle', 0.1, 0.2, 0, this.sfxPool); }
-  playWildcardSpawn() { this.playTone(700, 'sine', 0.3, 0.3, 0, this.sfxPool); }
-  playLaserClear() { this.playTone(1500, 'sawtooth', 0.3, 0.3, 0, this.sfxPool); }
-  playNukeClear() { this.playTone(100, 'square', 1.0, 0.5, 0, this.sfxPool); }
-  playNukeSpawn() { this.playTone(200, 'sawtooth', 0.5, 0.3, 0, this.sfxPool); }
-  playBombBoosterActivate() { this.playTone(300, 'square', 0.3, 0.3, 0, this.sfxPool); }
-  playLineClearerActivate() { this.playTone(1200, 'sine', 0.3, 0.3, 0, this.sfxPool); }
-  playBlitzSpeedUp() { this.playTone(1000, 'triangle', 0.5, 0.3, 0, this.sfxPool); }
-  playFlippedGravityActivate() { this.playTone(200, 'sine', 1.0, 0.4, 0, this.sfxPool); }
-  playFlippedGravityEnd() { this.playTone(600, 'sine', 0.5, 0.3, 0, this.sfxPool); }
-  playLevelUp() { 
-      this.playTone(523.25, 'triangle', 0.2, 0.3, 0, this.sfxPool);
-      setTimeout(() => this.playTone(659.25, 'triangle', 0.2, 0.3, 0, this.sfxPool), 100);
-      setTimeout(() => this.playTone(783.99, 'triangle', 0.4, 0.3, 0, this.sfxPool), 200);
-  }
-  playCountdown() { this.playTone(440, 'sine', 0.1, 0.3, 0, this.uiPool); }
+  // Stubs for other methods to satisfy interface
+  playTSpin() {}
+  playFrenzyStart() {}
+  playFrenzyEnd() {}
+  playZoneStart() {}
+  playZoneEnd() {}
+  playZoneClear() {}
+  playWildcardSpawn() {}
+  playLaserClear() {}
+  playNukeClear() {}
+  playNukeSpawn() {}
+  playBombBoosterActivate() {}
+  playLineClearerActivate() {}
+  playBlitzSpeedUp() {}
+  playFlippedGravityActivate() {}
+  playFlippedGravityEnd() {}
+  playLevelUp() {}
+  playCountdown() {}
+  playPerfectDrop(pan: number) {}
 }
 
 export const audioManager = new AudioManager();

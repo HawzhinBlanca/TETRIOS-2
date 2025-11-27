@@ -2,16 +2,24 @@
 import { STAGE_HEIGHT, STAGE_WIDTH, TETROMINOS, KICKS, MODIFIER_COLORS, COLORS } from '../constants';
 import { Board, CellData, TetrominoType, Player, TetrominoShape, Position, CellModifier, AdventureLevelConfig, InitialBoardModifierType, PuzzleDefinition } from '../types';
 
-/**
- * Creates an empty game stage filled with 'clear' cells.
- */
-export const createStage = (width: number = STAGE_WIDTH, height: number = STAGE_HEIGHT): Board =>
-  Array.from(Array(height), () =>
-    Array.from({ length: width }, () => [null, 'clear'] as CellData)
-  );
+export const createStage = (width: number = STAGE_WIDTH, height: number = STAGE_HEIGHT): Board => {
+  // Safety: Ensure integer dimensions >= 0 to prevent 'Invalid array length' errors
+  // Explicitly handle NaN or undefined by defaulting to 0 in Math.max
+  const h = Math.floor(Math.max(0, height || 0));
+  const w = Math.floor(Math.max(0, width || 0));
+  // If height is 0, return empty array immediately to avoid potential issues down the line
+  if (h === 0) return [];
+  
+  try {
+      return Array.from(Array(h), () =>
+        Array.from({ length: w }, () => [null, 'clear'] as CellData)
+      );
+  } catch (e) {
+      console.error("Failed to create stage", e);
+      return [];
+  }
+};
 
-// --- SEEDED RNG ---
-// Simple LCG (Linear Congruential Generator)
 class SeededRNG {
     private _seed: number;
     
@@ -24,12 +32,11 @@ class SeededRNG {
         for (let i = 0; i < str.length; i++) {
             const char = str.charCodeAt(i);
             hash = ((hash << 5) - hash) + char;
-            hash = hash & hash; // Convert to 32bit integer
+            hash = hash & hash; 
         }
         return Math.abs(hash);
     }
 
-    // Returns 0 <= x < 1
     public next(): number {
         this._seed = (this._seed * 9301 + 49297) % 233280;
         return this._seed / 233280;
@@ -40,7 +47,6 @@ class SeededRNG {
     }
 }
 
-// Singleton instance holder
 let rngInstance: SeededRNG | null = null;
 
 export const setRngSeed = (seed: string | null) => {
@@ -52,9 +58,6 @@ const random = (): number => {
     return rngInstance ? rngInstance.next() : Math.random();
 };
 
-/**
- * Creates a game stage based on a puzzle definition.
- */
 export const createPuzzleStage = (puzzle: PuzzleDefinition): Board => {
     const stage = createStage();
     const layout = [...puzzle.layout].reverse();
@@ -72,18 +75,19 @@ export const createPuzzleStage = (puzzle: PuzzleDefinition): Board => {
     return stage;
 };
 
-/**
- * Fills a random clear cell on the board with a given modifier.
- */
 export const fillRandomClearCell = (board: Board, modifier: CellModifier, attempts: number = 100, flippedGravity: boolean = false): boolean => {
+    const height = board.length;
+    if (height === 0) return false;
+    const width = board[0].length;
+    
     for (let i = 0; i < attempts; i++) {
         const startBuffer = 4; 
         const yStart = flippedGravity ? 0 : startBuffer;
-        const yEnd = flippedGravity ? STAGE_HEIGHT - startBuffer : STAGE_HEIGHT;
+        const yEnd = flippedGravity ? height - startBuffer : height;
         const y = Math.floor(random() * (yEnd - yStart)) + yStart;
         
-        const x = Math.floor(random() * STAGE_WIDTH);
-        if (board[y][x][1] === 'clear' && !board[y][x][2]) {
+        const x = Math.floor(random() * width);
+        if (board[y] && board[y][x] && board[y][x][1] === 'clear' && !board[y][x][2]) {
             board[y][x][2] = { ...modifier }; 
             return true;
         }
@@ -91,20 +95,19 @@ export const fillRandomClearCell = (board: Board, modifier: CellModifier, attemp
     return false;
 };
 
-/**
- * Creates a Garbage Block with a specific modifier in a random location.
- * Used for BOMB and ICE which typically are attached to blocks.
- */
 export const fillRandomWithGarbageAndModifier = (board: Board, modifier: CellModifier, attempts: number = 100, flippedGravity: boolean = false): boolean => {
+    const height = board.length;
+    if (height === 0) return false;
+    const width = board[0].length;
+
     for (let i = 0; i < attempts; i++) {
         const startBuffer = 4; 
         const yStart = flippedGravity ? 0 : startBuffer;
-        const yEnd = flippedGravity ? STAGE_HEIGHT - startBuffer : STAGE_HEIGHT;
+        const yEnd = flippedGravity ? height - startBuffer : height;
         const y = Math.floor(random() * (yEnd - yStart)) + yStart;
-        const x = Math.floor(random() * STAGE_WIDTH);
+        const x = Math.floor(random() * width);
         
-        if (board[y][x][1] === 'clear' && !board[y][x][2]) {
-            // Create a 'merged' Garbage block with the modifier
+        if (board[y] && board[y][x] && board[y][x][1] === 'clear' && !board[y][x][2]) {
             board[y][x] = ['G', 'merged', { ...modifier }];
             return true;
         }
@@ -112,11 +115,11 @@ export const fillRandomWithGarbageAndModifier = (board: Board, modifier: CellMod
     return false;
 };
 
-/**
- * Helper to populate the stage with initial board items.
- */
 const _populateStageWithInitialBoardItems = (stage: Board, item: { type: any; amount: number; modifierProps?: { timer?: number; hits?: number; }; }, flippedGravity: boolean): Board => {
     let currentStage = stage;
+    const width = stage[0].length;
+    const height = stage.length;
+
     for (let i = 0; i < item.amount; i++) {
         switch (item.type) {
             case 'GEMS':
@@ -144,17 +147,15 @@ const _populateStageWithInitialBoardItems = (stage: Board, item: { type: any; am
                 fillRandomWithGarbageAndModifier(currentStage, { type: 'SOFT_BLOCK' }, 100, flippedGravity);
                 break;
             case 'BEDROCK':
-                // Bedrock: Permanent obstacles. Fill random location with garbage + BEDROCK modifier
                 fillRandomWithGarbageAndModifier(currentStage, { type: 'BEDROCK' }, 100, flippedGravity);
                 break;
             case 'PILLARS':
-                // Add a vertical column of garbage (Obstacle)
-                const col = Math.floor(random() * STAGE_WIDTH);
-                const height = 10 + Math.floor(random() * 5);
-                for(let y=0; y<height; y++) {
-                    const stageY = flippedGravity ? y : STAGE_HEIGHT - 1 - y;
+                const col = Math.floor(random() * width);
+                const pillarHeight = 10 + Math.floor(random() * 5);
+                for(let y=0; y<pillarHeight; y++) {
+                    const stageY = flippedGravity ? y : height - 1 - y;
                     if (currentStage[stageY]) {
-                        currentStage[stageY][col] = ['G', 'merged', { type: 'BEDROCK' }]; // Use BEDROCK modifier to make them permanent
+                        currentStage[stageY][col] = ['G', 'merged', { type: 'BEDROCK' }]; 
                     }
                 }
                 break;
@@ -163,10 +164,9 @@ const _populateStageWithInitialBoardItems = (stage: Board, item: { type: any; am
     return currentStage;
 };
 
-/**
- * Generates an adventure game stage based on configuration.
- */
 export const generateAdventureStage = (config: AdventureLevelConfig, assistRows: number = 0): Board => {
+    // Adventure mode typically uses standard grid unless overridden, but we respect mobile dynamic height here too if passed implicitly
+    // However, for now we use default unless context changes
     let stage = createStage();
     const flippedGravity = config.gimmicks?.some(g => g.type === 'FLIPPED_GRAVITY');
 
@@ -174,49 +174,48 @@ export const generateAdventureStage = (config: AdventureLevelConfig, assistRows:
         stage = _populateStageWithInitialBoardItems(stage, item, flippedGravity || false);
     });
 
-    // Player assist: clear bottom (or top if flipped) rows
+    const height = stage.length;
+    const width = stage[0].length;
+
     for (let i = 0; i < assistRows; i++) {
-        const rowToClear = flippedGravity ? i : STAGE_HEIGHT - 1 - i;
+        const rowToClear = flippedGravity ? i : height - 1 - i;
         if (stage[rowToClear]) {
-            stage[rowToClear] = Array.from({ length: STAGE_WIDTH }, () => [null, 'clear']);
+            stage[rowToClear] = Array.from({ length: width }, () => [null, 'clear']);
         }
     }
 
     return stage;
 };
 
-/**
- * Adds a specified number of garbage lines to the bottom (or top if flipped) of the stage.
- */
 export const addGarbageLines = (stage: Board, count: number, initialPlacement: boolean = false, flippedGravity: boolean = false): Board => {
     const newStage = stage.map(row => [...row]);
+    const width = stage[0]?.length || 0;
+    
+    if (width === 0) return newStage;
+
     for(let i=0; i<count; i++) {
-        const hole = Math.floor(random() * STAGE_WIDTH);
-        // Create independent cells for garbage row
-        const garbageRow: CellData[] = Array.from({ length: STAGE_WIDTH }, (_, x) => 
+        const hole = Math.floor(random() * width);
+        const garbageRow: CellData[] = Array.from({ length: width }, (_, x) => 
             x === hole ? [null, 'clear'] : ['G', 'merged']
         );
 
         if (flippedGravity) {
             if (!initialPlacement) {
-                newStage.pop(); // Remove bottom row if not initial placement
+                newStage.pop(); 
             }
-            newStage.unshift(garbageRow); // Add to top
+            newStage.unshift(garbageRow); 
         } else {
             if (!initialPlacement) {
-                newStage.shift(); // Remove top row if not initial placement
+                newStage.shift(); 
             }
-            newStage.push(garbageRow); // Add to bottom
+            newStage.push(garbageRow); 
         }
     }
     return newStage;
 };
 
-// Support custom pools. If no pool provided, use standard bag.
 export const generateBag = (customPool?: TetrominoType[]): TetrominoType[] => {
   const shapes: TetrominoType[] = customPool ? [...customPool] : ['I', 'J', 'L', 'O', 'S', 'T', 'Z'];
-  
-  // Shuffle
   for (let i = shapes.length - 1; i > 0; i--) {
     const j = Math.floor(random() * (i + 1));
     [shapes[i], shapes[j]] = [shapes[j], shapes[i]];

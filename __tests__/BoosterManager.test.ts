@@ -13,18 +13,8 @@ const mockCore = {
   addFloatingText: jest.fn(),
   setFlippedGravity: jest.fn(),
   pieceManager: { canHold: false },
-  callbacks: {
-    onSlowTimeChange: jest.fn(),
-    onWildcardAvailableChange: jest.fn(),
-    onBombBoosterReadyChange: jest.fn(),
-    onLineClearerActiveChange: jest.fn(),
-    onFlippedGravityTimerChange: jest.fn(),
-    onVisualEffect: jest.fn(),
-    onBombSelectionStart: jest.fn(),
-    onBombSelectionEnd: jest.fn(),
-    onLineSelectionStart: jest.fn(),
-    onLineSelectionEnd: jest.fn(),
-    onAudio: jest.fn(),
+  events: {
+    emit: jest.fn(),
   },
   boardManager: {
       stage: Array(20).fill(Array(10).fill([null, 'clear'])),
@@ -56,11 +46,11 @@ describe('BoosterManager', () => {
     
     manager.update(1000);
     expect(manager.slowTimeTimer).toBe(SLOW_TIME_BOOSTER_DURATION_MS - 1000);
-    expect(mockCore.callbacks.onSlowTimeChange).toHaveBeenCalledWith(true, expect.any(Number));
+    expect(mockCore.events.emit).toHaveBeenCalledWith('SLOW_TIME_CHANGE', { active: true, timer: expect.any(Number) });
 
     manager.update(SLOW_TIME_BOOSTER_DURATION_MS);
     expect(manager.slowTimeActive).toBe(false);
-    expect(mockCore.callbacks.onSlowTimeChange).toHaveBeenCalledWith(false, 0);
+    expect(mockCore.events.emit).toHaveBeenCalledWith('SLOW_TIME_CHANGE', { active: false, timer: 0 });
   });
 
   it('executes Bomb Booster', () => {

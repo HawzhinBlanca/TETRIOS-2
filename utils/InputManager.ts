@@ -8,6 +8,7 @@ export interface InputConfig {
     das: number;
     arr: number;
     flippedGravity?: boolean;
+    stageWidth?: number;
 }
 
 type ActionListener = (action: KeyAction) => void;
@@ -34,11 +35,6 @@ export class InputManager {
     private lastGamepadState: Set<string> = new Set();
     private axisState: Map<string, boolean> = new Map(); // Track persistent axis state for hysteresis
 
-    // Touch State
-    private touchStart: { x: number, y: number } | null = null;
-    private isTouchHolding: boolean = false;
-    private touchHoldTimer: any = null;
-
     private isDestroyed: boolean = false;
 
     constructor(config: InputConfig) {
@@ -53,10 +49,6 @@ export class InputManager {
                 console.log("[Input] Gamepad connected:", e.gamepad.id);
                 this.gamepadIndex = e.gamepad.index;
             });
-            
-            document.addEventListener('touchstart', this.boundTouchStart, { passive: false });
-            document.addEventListener('touchend', this.boundTouchEnd);
-            document.addEventListener('touchmove', this.boundTouchMove, { passive: false });
         }
     }
 
@@ -87,9 +79,6 @@ export class InputManager {
     private boundKeyDown = (e: KeyboardEvent) => this.handleKeyDown(e);
     private boundKeyUp = (e: KeyboardEvent) => this.handleKeyUp(e);
     private boundBlur = () => this.handleBlur();
-    private boundTouchStart = (e: TouchEvent) => this.handleTouchStart(e);
-    private boundTouchEnd = (e: TouchEvent) => this.handleTouchEnd(e);
-    private boundTouchMove = (e: TouchEvent) => this.handleTouchMove(e);
 
     private handleKeyDown(e: KeyboardEvent): void {
         if (e.repeat) return; // Ignore OS repeat, we handle it manually
@@ -132,12 +121,6 @@ export class InputManager {
         this.softDropTimeHeld = 0;
         this.lastDropCount = 0;
         
-        this.touchStart = null;
-        this.isTouchHolding = false;
-        if (this.touchHoldTimer) {
-            clearTimeout(this.touchHoldTimer);
-            this.touchHoldTimer = null;
-        }
         engineStore.setState({ inputVector: { x: 0, y: 0 } });
     }
 
@@ -147,10 +130,6 @@ export class InputManager {
         }
         return false;
     }
-
-    private handleTouchStart(e: TouchEvent): void {}
-    private handleTouchEnd(e: TouchEvent): void {}
-    private handleTouchMove(e: TouchEvent): void {}
 
     private getEffectiveAction(action: KeyAction): KeyAction {
         if (this.config.flippedGravity) {
@@ -296,7 +275,8 @@ export class InputManager {
                 const timeInDas = this.horizTimeHeld - this.config.das;
                 
                 if (this.config.arr === 0) {
-                    for (let i = 0; i < STAGE_WIDTH; i++) this.emitAction(nextHorizDir);
+                    const width = this.config.stageWidth || STAGE_WIDTH;
+                    for (let i = 0; i < width; i++) this.emitAction(nextHorizDir);
                 } else {
                     const arrMoves = Math.floor(timeInDas / this.config.arr);
                     const totalMovesExpected = 1 + arrMoves;

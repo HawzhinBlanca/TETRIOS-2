@@ -12,27 +12,30 @@ declare var beforeEach: any;
 
 // Mocks
 jest.mock('../utils/audioManager', () => ({
-  audioManager: {}
+  audioManager: {
+      isOnBeat: jest.fn(),
+  }
 }));
 
 const mockCore = {
   flippedGravity: false,
-  callbacks: {
-    onGarbageChange: jest.fn(),
-    onVisualEffect: jest.fn(),
-    onAudio: jest.fn(),
-    onComboChange: jest.fn(),
-    onStatsChange: jest.fn(),
+  events: {
+    emit: jest.fn(),
   },
-  scoreManager: new ScoreManager({} as any),
+  scoreManager: {
+      stats: { isZoneActive: false },
+      handleLineClear: jest.fn().mockReturnValue({ score: 100, text: 'SINGLE', isBackToBack: false }),
+      resetCombo: jest.fn(),
+  },
   adventureManager: { checkObjectives: jest.fn(), applyBossDamage: jest.fn() },
   fxManager: { addFloatingText: jest.fn() },
   addFloatingText: jest.fn(),
   applyScore: jest.fn(),
+  boosterManager: { activeBoosters: [] },
 } as unknown as GameCore;
 
 // Init ScoreManager mock
-mockCore.scoreManager = new ScoreManager(mockCore);
+// mockCore.scoreManager = new ScoreManager(mockCore);
 
 describe('BoardManager', () => {
   let boardManager: BoardManager;
@@ -51,7 +54,7 @@ describe('BoardManager', () => {
   it('adds garbage lines', () => {
     boardManager.addGarbage(2);
     expect(boardManager.garbagePending).toBe(2);
-    expect(mockCore.callbacks.onGarbageChange).toHaveBeenCalledWith(2);
+    expect(mockCore.events.emit).toHaveBeenCalledWith('GARBAGE_CHANGE', 2);
     
     boardManager.processGarbage();
     // Bottom line should be garbage
@@ -74,7 +77,8 @@ describe('BoardManager', () => {
     
     // Row should be cleared (moved/removed)
     expect(boardManager.stage[STAGE_HEIGHT - 1][0][1]).toBe('clear');
-    expect(mockCore.scoreManager.stats.rows).toBe(1);
-    expect(mockCore.callbacks.onAudio).toHaveBeenCalledWith('CLEAR_1');
+    // With mocked scoreManager, we check if handleLineClear was called
+    expect(mockCore.scoreManager.handleLineClear).toHaveBeenCalled();
+    expect(mockCore.events.emit).toHaveBeenCalledWith('AUDIO', expect.objectContaining({ event: 'CLEAR_1' }));
   });
 });

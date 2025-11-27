@@ -51,10 +51,22 @@ export const useInputStore = create<InputState>()(
         {
             name: 'tetrios-controls-store',
             storage: createJSONStorage(() => safeStorage),
-            version: 2, // Version bumped
+            version: 3, // Version bumped
             migrate: (persistedState: any, currentVersion) => {
-                // Merge with defaults to ensure new actions are added if missing
                 if (persistedState && persistedState.controls) {
+                    if (currentVersion < 3) {
+                        // Force remapping of ArrowUp for legacy saves
+                        // Remove from hardDrop
+                        if (persistedState.controls.hardDrop) {
+                            persistedState.controls.hardDrop = persistedState.controls.hardDrop.filter((k: string) => k !== 'ArrowUp');
+                        }
+                        // Add to rotateCW
+                        if (persistedState.controls.rotateCW && !persistedState.controls.rotateCW.includes('ArrowUp')) {
+                            persistedState.controls.rotateCW.push('ArrowUp');
+                        }
+                    }
+                    
+                    // Merge with defaults to ensure new actions are added if missing
                     persistedState.controls = { ...DEFAULT_CONTROLS, ...persistedState.controls };
                 }
                 return persistedState as InputState;

@@ -1,11 +1,11 @@
 
 import React, { useState } from 'react';
-import { User, Save, Trophy, Hash, BarChart2, Star, Zap, Layers, Flame, Sparkles, Shield, Eye, RotateCw, Repeat, Crown, Eraser, LayoutGrid, Lock, Unlock } from 'lucide-react';
+import { User, Save, Trophy, Hash, BarChart2, Star, Zap, Layers, Flame, Sparkles, Shield, Eye, RotateCw, Repeat, Crown, Eraser, LayoutGrid, Lock, Unlock, Calendar, Clock, Skull, Map } from 'lucide-react';
 import { useProfileStore } from '../../stores/profileStore';
 import { useModalStore } from '../../stores/modalStore';
 import Modal from '../ui/Modal';
 import { audioManager } from '../../utils/audioManager';
-import { ACHIEVEMENTS, TETROMINOS } from '../../constants';
+import { ACHIEVEMENTS, TETROMINOS, GAME_MODES_CONFIG } from '../../constants';
 import Preview from '../Preview';
 import { TetrominoType } from '../../types';
 
@@ -22,7 +22,7 @@ const ProfileModal = () => {
     };
 
     const IconMap: Record<string, React.ElementType> = {
-        Zap, Layers, Flame, Sparkles, Trophy, Shield, Eye, RotateCw, Repeat, Crown, Eraser, Star
+        Zap, Layers, Flame, Sparkles, Trophy, Shield, Eye, RotateCw, Repeat, Crown, Eraser, Star, Calendar, Clock, Skull, Map
     };
 
     const handleToggleShape = (shape: TetrominoType) => {
@@ -90,26 +90,52 @@ const ProfileModal = () => {
 
             <div className="flex-1 overflow-y-auto custom-scrollbar pr-2 min-h-0">
                 {activeTab === 'STATS' && (
-                    <div className="grid grid-cols-2 gap-4 w-full animate-in fade-in slide-in-from-bottom-2">
-                        <div className="bg-gray-800/50 p-4 rounded border border-white/5 flex flex-col items-center hover:bg-gray-800 transition-colors">
-                            <Hash size={20} className="text-purple-400 mb-2" />
-                            <span className="text-[10px] text-gray-500 uppercase tracking-widest font-bold">Games Played</span>
-                            <span className="text-xl text-white font-mono font-bold">{stats.totalGamesPlayed}</span>
+                    <div className="flex flex-col gap-6 animate-in fade-in slide-in-from-bottom-2 pb-6">
+                        <div className="grid grid-cols-2 gap-4 w-full">
+                            <div className="bg-gray-800/50 p-4 rounded border border-white/5 flex flex-col items-center hover:bg-gray-800 transition-colors">
+                                <Hash size={20} className="text-purple-400 mb-2" />
+                                <span className="text-[10px] text-gray-500 uppercase tracking-widest font-bold">Games Played</span>
+                                <span className="text-xl text-white font-mono font-bold">{stats.totalGamesPlayed}</span>
+                            </div>
+                            <div className="bg-gray-800/50 p-4 rounded border border-white/5 flex flex-col items-center hover:bg-gray-800 transition-colors">
+                                <Trophy size={20} className="text-yellow-400 mb-2" />
+                                <span className="text-[10px] text-gray-500 uppercase tracking-widest font-bold">Total Score</span>
+                                <span className="text-sm md:text-xl text-white font-mono font-bold">{stats.totalScore.toLocaleString()}</span>
+                            </div>
+                            <div className="bg-gray-800/50 p-4 rounded border border-white/5 flex flex-col items-center hover:bg-gray-800 transition-colors">
+                                <BarChart2 size={20} className="text-green-400 mb-2" />
+                                <span className="text-[10px] text-gray-500 uppercase tracking-widest font-bold">Lines Cleared</span>
+                                <span className="text-xl text-white font-mono font-bold">{stats.totalLinesCleared}</span>
+                            </div>
+                            <div className="bg-gray-800/50 p-4 rounded border border-white/5 flex flex-col items-center hover:bg-gray-800 transition-colors">
+                                <Trophy size={20} className="text-orange-400 mb-2" />
+                                <span className="text-[10px] text-gray-500 uppercase tracking-widest font-bold">Highest Level</span>
+                                <span className="text-xl text-white font-mono font-bold">{stats.highestLevelReached}</span>
+                            </div>
                         </div>
-                        <div className="bg-gray-800/50 p-4 rounded border border-white/5 flex flex-col items-center hover:bg-gray-800 transition-colors">
-                            <Trophy size={20} className="text-yellow-400 mb-2" />
-                            <span className="text-[10px] text-gray-500 uppercase tracking-widest font-bold">Total Score</span>
-                            <span className="text-sm md:text-xl text-white font-mono font-bold">{stats.totalScore.toLocaleString()}</span>
-                        </div>
-                        <div className="bg-gray-800/50 p-4 rounded border border-white/5 flex flex-col items-center hover:bg-gray-800 transition-colors">
-                            <BarChart2 size={20} className="text-green-400 mb-2" />
-                            <span className="text-[10px] text-gray-500 uppercase tracking-widest font-bold">Lines Cleared</span>
-                            <span className="text-xl text-white font-mono font-bold">{stats.totalLinesCleared}</span>
-                        </div>
-                        <div className="bg-gray-800/50 p-4 rounded border border-white/5 flex flex-col items-center hover:bg-gray-800 transition-colors">
-                            <Trophy size={20} className="text-orange-400 mb-2" />
-                            <span className="text-[10px] text-gray-500 uppercase tracking-widest font-bold">Highest Level</span>
-                            <span className="text-xl text-white font-mono font-bold">{stats.highestLevelReached}</span>
+
+                        <div>
+                            <h3 className="text-sm font-bold text-gray-300 uppercase tracking-widest mb-4 border-b border-white/5 pb-2">Best Performances</h3>
+                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                                {GAME_MODES_CONFIG.map(mode => {
+                                    const highScore = stats.highScores?.[mode.id] || 0;
+                                    const ModeIcon = IconMap[mode.icon] || Trophy;
+                                    
+                                    return (
+                                        <div key={mode.id} className="flex items-center justify-between p-3 bg-gray-900/50 border border-white/5 rounded-lg hover:bg-gray-800/50 transition-colors">
+                                            <div className="flex items-center gap-3">
+                                                <div className={`p-2 rounded-full bg-gray-800 ${mode.color} text-opacity-80`}>
+                                                    <ModeIcon size={16} />
+                                                </div>
+                                                <span className="text-xs font-bold text-gray-300 uppercase tracking-wider">{mode.label}</span>
+                                            </div>
+                                            <span className={`font-mono font-bold text-sm ${highScore > 0 ? 'text-yellow-400' : 'text-gray-600'}`}>
+                                                {highScore.toLocaleString()}
+                                            </span>
+                                        </div>
+                                    );
+                                })}
+                            </div>
                         </div>
                     </div>
                 )}

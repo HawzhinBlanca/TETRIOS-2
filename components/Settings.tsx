@@ -1,12 +1,14 @@
 
 import React, { useState, useEffect, useRef } from 'react';
 import { X, Gamepad2, Eye, Keyboard, RefreshCcw, Monitor, Volume2, Music, Settings as SettingsIcon, User, Palette, Layers } from 'lucide-react';
-import { KeyMap, KeyAction, GhostStyle, ColorblindMode, BlockSkin } from '../types';
+import { KeyMap, KeyAction, GhostStyle, ColorblindMode, BlockSkin, TetrominoType } from '../types';
 import { audioManager } from '../utils/audioManager';
 import { useUiStore } from '../stores/uiStore';
 import { useModalStore } from '../stores/modalStore';
 import { useGameSettingsStore } from '../stores/gameSettingsStore'; 
 import { DEFAULT_DAS, DEFAULT_ARR, DEFAULT_GAMESPEED } from '../constants';
+import { getPieceColor } from '../utils/themeUtils';
+import { parseRgb } from '../utils/gameUtils';
 import Slider from './ui/Slider';
 import GhostPreview from './ui/GhostPreview';
 import Button from './ui/Button';
@@ -73,7 +75,6 @@ interface ControlsPanelProps {
   resetControls: () => void;
 }
 
-// ... formatKey and ControlsPanel logic mostly unchanged ...
 const formatKey = (key: string): string => {
     if (!key) return '---';
     if (key === ' ') return 'Space';
@@ -235,12 +236,15 @@ const ControlsPanel: React.FC<ControlsPanelProps> = ({ controls, setKeyBinding, 
 const VisualsPanel: React.FC = () => {
     const { ghostStyle, setGhostStyle, ghostOpacity, setGhostOpacity, ghostOutlineThickness, setGhostOutlineThickness, ghostGlowIntensity, setGhostGlowIntensity, lockWarning, setLockWarning, cameraShake, setCameraShake, colorblindMode, setColorblindMode, blockSkin, setBlockSkin } = useGameSettingsStore();
     
+    // Calculate current T piece color for preview based on mode
+    const tPieceRgb = parseRgb(getPieceColor('T', colorblindMode));
+
     return (
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 animate-slide-in">
             <div className="lg:col-span-4 order-first lg:order-last">
                 <div className="lg:sticky lg:top-0 space-y-4">
                     <h3 className="text-[10px] text-gray-500 uppercase tracking-widest font-bold mb-2" role="heading" aria-level={3}>Real-time Render</h3>
-                    <GhostPreview style={ghostStyle} opacity={ghostOpacity} thickness={ghostOutlineThickness} glow={ghostGlowIntensity} />
+                    <GhostPreview style={ghostStyle} opacity={ghostOpacity} thickness={ghostOutlineThickness} glow={ghostGlowIntensity} rgb={tPieceRgb} />
                 </div>
             </div>
             <div className="lg:col-span-8 space-y-6">
@@ -271,6 +275,17 @@ const VisualsPanel: React.FC = () => {
                                 >
                                     {mode}
                                 </button>
+                            ))}
+                        </div>
+                        {/* Palette Preview Strip */}
+                        <div className="flex gap-2 mt-4 p-3 bg-black/40 rounded-lg justify-center border border-white/5" role="img" aria-label={`Color palette for ${colorblindMode} mode`}>
+                            {['I', 'J', 'L', 'O', 'S', 'T', 'Z'].map(shape => (
+                                <div 
+                                    key={shape} 
+                                    className="w-6 h-6 rounded-sm shadow-sm border border-white/10"
+                                    style={{ backgroundColor: getPieceColor(shape as TetrominoType, colorblindMode) }}
+                                    title={shape}
+                                />
                             ))}
                         </div>
                     </div>

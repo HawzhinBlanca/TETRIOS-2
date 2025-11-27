@@ -9,20 +9,24 @@ declare var expect: any;
 declare var jest: any;
 declare var beforeEach: any;
 
+// Mock Audio Manager
+jest.mock('../utils/audioManager', () => ({
+  audioManager: {
+    isOnBeat: jest.fn(),
+  }
+}));
+
 const mockCore = {
   mode: 'MARATHON',
-  callbacks: {
-    onStatsChange: jest.fn(),
-    onComboChange: jest.fn(),
-    onVisualEffect: jest.fn(),
-    onAudio: jest.fn(),
-    onBlitzSpeedUp: jest.fn(),
+  events: {
+    emit: jest.fn(),
   },
   addFloatingText: jest.fn(),
   triggerGameOver: jest.fn(),
   handleLevelUp: jest.fn(),
-  pieceManager: { dropTime: 1000 },
-  adventureManager: { applyBossDamage: jest.fn() },
+  pieceManager: { dropTime: 1000, injectRewardPiece: jest.fn(), player: { pos: { x: 0, y: 0 } } },
+  adventureManager: { applyBossDamage: jest.fn(), config: null },
+  boardManager: { isBoardEmpty: jest.fn() },
 } as unknown as GameCore;
 
 describe('ScoreManager', () => {
@@ -48,7 +52,7 @@ describe('ScoreManager', () => {
     
     expect(manager.frenzyActive).toBe(true);
     expect(manager.frenzyMultiplier).toBe(SCORES.FRENZY_MULTIPLIER);
-    expect(mockCore.callbacks.onVisualEffect).toHaveBeenCalledWith({ type: 'FRENZY_START' });
+    expect(mockCore.events.emit).toHaveBeenCalledWith('VISUAL_EFFECT', { type: 'FRENZY_START' });
   });
 
   it('applies Frenzy multiplier to score', () => {
@@ -66,7 +70,7 @@ describe('ScoreManager', () => {
     manager.applyScore(5000); // First threshold
     
     expect(mockCore.pieceManager.dropTime).toBeLessThan(1000); // Should reduce drop time
-    expect(mockCore.callbacks.onBlitzSpeedUp).toHaveBeenCalled();
+    expect(mockCore.events.emit).toHaveBeenCalledWith('BLITZ_SPEED_UP', expect.anything());
   });
 
   it('handles Time Attack countdown', () => {

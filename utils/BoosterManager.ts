@@ -20,7 +20,6 @@ export class BoosterManager {
     public bombBoosterReady: boolean = false;
     public lineClearerActive: boolean = false;
     
-    // Selection States
     public isSelectingBombRows: boolean = false;
     public isSelectingLine: boolean = false;
     public selectedLineToClear: number | null = null;
@@ -70,9 +69,8 @@ export class BoosterManager {
         if (this.activeBoosters.includes('FLIPPED_GRAVITY_BOOSTER')) {
             this.flippedGravityActive = true;
             this.flippedGravityTimer = FLIPPED_GRAVITY_BOOSTER_DURATION_MS;
-            // Use setter to ensure InputManager is synced
             this.core.setFlippedGravity(true);
-            this.core.callbacks.onVisualEffect({ type: 'FLIPPED_GRAVITY_ACTIVATE' });
+            this.core.events.emit('VISUAL_EFFECT', { type: 'FLIPPED_GRAVITY_ACTIVATE' });
             this.core.addFloatingText('GRAVITY FLIPPED!', '#3b82f6', 0.8, 'powerup');
         }
 
@@ -80,42 +78,40 @@ export class BoosterManager {
     }
 
     private _syncUI(): void {
-        this.core.callbacks.onSlowTimeChange(this.slowTimeActive, this.slowTimeTimer);
-        this.core.callbacks.onWildcardAvailableChange(this.wildcardAvailable);
-        this.core.callbacks.onBombBoosterReadyChange(this.bombBoosterReady);
-        this.core.callbacks.onLineClearerActiveChange(this.lineClearerActive);
-        this.core.callbacks.onFlippedGravityTimerChange?.(this.flippedGravityActive, this.flippedGravityTimer);
+        this.core.events.emit('SLOW_TIME_CHANGE', { active: this.slowTimeActive, timer: this.slowTimeTimer });
+        this.core.events.emit('WILDCARD_AVAILABLE_CHANGE', this.wildcardAvailable);
+        this.core.events.emit('BOMB_BOOSTER_READY_CHANGE', this.bombBoosterReady);
+        this.core.events.emit('LINE_CLEARER_ACTIVE_CHANGE', this.lineClearerActive);
+        this.core.events.emit('FLIPPED_GRAVITY_TIMER_CHANGE', { active: this.flippedGravityActive, timer: this.flippedGravityTimer });
     }
 
     public activateSlowTime(duration: number): void {
         this.slowTimeActive = true;
         this.slowTimeTimer = duration;
         this.core.addFloatingText('SLOW TIME!', '#818cf8', 0.8, 'powerup');
-        this.core.callbacks.onSlowTimeChange(true, duration);
+        this.core.events.emit('SLOW_TIME_CHANGE', { active: true, timer: duration });
     }
 
     public activateTimeFreeze(duration: number): void {
         this.timeFreezeActive = true;
         this.timeFreezeTimer = duration;
         this.core.addFloatingText('GRAVITY FROZEN!', MODIFIER_COLORS.FREEZE_BLOCK, 1.0, 'powerup');
-        this.core.callbacks.onVisualEffect({ type: 'FLASH', payload: { color: MODIFIER_COLORS.FREEZE_BLOCK, duration: 500 } });
-        this.core.callbacks.onAudio('ZONE_START'); // Use zone sound for freeze impact
+        this.core.events.emit('VISUAL_EFFECT', { type: 'FLASH', payload: { color: MODIFIER_COLORS.FREEZE_BLOCK, duration: 500 } });
+        this.core.events.emit('AUDIO', { event: 'ZONE_START' });
     }
 
     public update(deltaTime: number): void {
-        // Slow Time
         if (this.slowTimeActive) {
             this.slowTimeTimer -= deltaTime;
             if (this.slowTimeTimer <= 0) {
                 this.slowTimeActive = false;
-                this.core.callbacks.onSlowTimeChange(false, 0);
+                this.core.events.emit('SLOW_TIME_CHANGE', { active: false, timer: 0 });
                 this.core.addFloatingText('SLOW TIME END', '#888888', 0.6, 'powerup');
             } else {
-                this.core.callbacks.onSlowTimeChange(true, this.slowTimeTimer);
+                this.core.events.emit('SLOW_TIME_CHANGE', { active: true, timer: this.slowTimeTimer });
             }
         }
 
-        // Time Freeze
         if (this.timeFreezeActive) {
             this.timeFreezeTimer -= deltaTime;
             if (this.timeFreezeTimer <= 0) {
@@ -124,18 +120,16 @@ export class BoosterManager {
             }
         }
 
-        // Flipped Gravity
         if (this.flippedGravityActive) {
             this.flippedGravityTimer -= deltaTime;
             if (this.flippedGravityTimer <= 0) {
                 this.flippedGravityActive = false;
-                // Use setter to revert and sync InputManager
                 this.core.setFlippedGravity(this.core.initialFlippedGravityGimmick);
-                this.core.callbacks.onFlippedGravityTimerChange?.(false, 0);
-                this.core.callbacks.onVisualEffect({ type: 'FLIPPED_GRAVITY_END' });
+                this.core.events.emit('FLIPPED_GRAVITY_TIMER_CHANGE', { active: false, timer: 0 });
+                this.core.events.emit('VISUAL_EFFECT', { type: 'FLIPPED_GRAVITY_END' });
                 this.core.addFloatingText('GRAVITY RESTORED!', '#888888', 0.6, 'powerup');
             } else {
-                this.core.callbacks.onFlippedGravityTimerChange?.(true, this.flippedGravityTimer);
+                this.core.events.emit('FLIPPED_GRAVITY_TIMER_CHANGE', { active: true, timer: this.flippedGravityTimer });
             }
         }
     }
@@ -143,15 +137,15 @@ export class BoosterManager {
     public activateLineClearerSelection(): void {
         if (!this.activeBoosters.includes('LINE_CLEARER_BOOSTER') || this.isSelectingLine) return;
         this.isSelectingLine = true;
-        this.core.callbacks.onLineSelectionStart();
-        this.core.callbacks.onAudio('LINE_CLEARER_ACTIVATE');
-        this.core.callbacks.onVisualEffect({ type: 'POWERUP_ACTIVATE', payload: { type: 'LINE_CLEARER_BOOSTER', x: STAGE_WIDTH / 2 -1, y: STAGE_HEIGHT / 2 -1, color: MODIFIER_COLORS.LASER_BLOCK } });
+        this.core.events.emit('LINE_SELECTION_START');
+        this.core.events.emit('AUDIO', { event: 'LINE_CLEARER_ACTIVATE' });
+        this.core.events.emit('VISUAL_EFFECT', { type: 'POWERUP_ACTIVATE', payload: { type: 'LINE_CLEARER_BOOSTER', x: STAGE_WIDTH / 2 -1, y: STAGE_HEIGHT / 2 -1, color: MODIFIER_COLORS.LASER_BLOCK } });
     }
 
     public executeLineClearer(selectedRow: number): void {
         if (!this.isSelectingLine || !this.activeBoosters.includes('LINE_CLEARER_BOOSTER')) return;
         this.isSelectingLine = false;
-        this.core.callbacks.onLineSelectionEnd();
+        this.core.events.emit('LINE_SELECTION_END');
 
         if (selectedRow === null || selectedRow === undefined || selectedRow < 0 || selectedRow >= STAGE_HEIGHT) {
             this.core.addFloatingText('INVALID LINE!', '#888888', 0.6, 'powerup');
@@ -163,31 +157,31 @@ export class BoosterManager {
         const tempStage = this.core.boardManager.stage.map(row => [...row]);
         tempStage[selectedRow].fill([null, 'clear']);
 
-        this.core.callbacks.onVisualEffect({type: 'PARTICLE', payload: { isExplosion: true, clearedRows: selectedRow, color: MODIFIER_COLORS.LASER_BLOCK }});
-        this.core.callbacks.onVisualEffect({type: 'SHAKE', payload: 'soft'});
-        this.core.callbacks.onVisualEffect({type: 'FLASH', payload: { color: MODIFIER_COLORS.LASER_BLOCK, duration: 200 }});
+        this.core.events.emit('VISUAL_EFFECT', {type: 'PARTICLE', payload: { isExplosion: true, clearedRows: selectedRow, color: MODIFIER_COLORS.LASER_BLOCK }});
+        this.core.events.emit('VISUAL_EFFECT', {type: 'SHAKE', payload: 'soft'});
+        this.core.events.emit('VISUAL_EFFECT', {type: 'FLASH', payload: { color: MODIFIER_COLORS.LASER_BLOCK, duration: 200 }});
         this.core.addFloatingText('LINE CLEARED!', MODIFIER_COLORS.LASER_BLOCK, 0.7, 'powerup');
         this.core.applyScore({ score: SCORES.BOOSTER_LINE_CLEARER_BONUS });
-        this.core.callbacks.onAudio('LASER_CLEAR');
+        this.core.events.emit('AUDIO', { event: 'LASER_CLEAR' });
         this.core.boardManager.sweepRows(tempStage, false, [selectedRow]);
 
         this.activeBoosters = this.activeBoosters.filter(b => b !== 'LINE_CLEARER_BOOSTER');
         this.lineClearerActive = false;
-        this.core.callbacks.onLineClearerActiveChange(false);
+        this.core.events.emit('LINE_CLEARER_ACTIVE_CHANGE', false);
     }
 
     public activateBombBoosterSelection(): void {
         if (!this.activeBoosters.includes('BOMB_BOOSTER') || this.isSelectingBombRows) return;
         this.isSelectingBombRows = true;
-        this.core.callbacks.onBombSelectionStart(2);
-        this.core.callbacks.onVisualEffect({ type: 'POWERUP_ACTIVATE', payload: { type: 'BOMB_BOOSTER', x: STAGE_WIDTH / 2 -1, y: STAGE_HEIGHT / 2 -1, color: MODIFIER_COLORS.BOMB } });
-        this.core.callbacks.onAudio('BOMB_ACTIVATE');
+        this.core.events.emit('BOMB_SELECTION_START', 2);
+        this.core.events.emit('VISUAL_EFFECT', { type: 'POWERUP_ACTIVATE', payload: { type: 'BOMB_BOOSTER', x: STAGE_WIDTH / 2 -1, y: STAGE_HEIGHT / 2 -1, color: MODIFIER_COLORS.BOMB } });
+        this.core.events.emit('AUDIO', { event: 'BOMB_ACTIVATE' });
     }
 
     public executeBombBooster(startRow: number, numRows: number): void {
         if (!this.isSelectingBombRows || !this.activeBoosters.includes('BOMB_BOOSTER')) return;
         this.isSelectingBombRows = false;
-        this.core.callbacks.onBombSelectionEnd();
+        this.core.events.emit('BOMB_SELECTION_END');
 
         const rowsToClear: number[] = [];
         const actualStartRow = this.core.flippedGravity ? (STAGE_HEIGHT - numRows - startRow) : startRow;
@@ -211,17 +205,17 @@ export class BoosterManager {
             }
         });
 
-        this.core.callbacks.onVisualEffect({ type: 'PARTICLE', payload: { isExplosion: true, clearedRows: rowsToClear, color: MODIFIER_COLORS.BOMB } });
-        this.core.callbacks.onVisualEffect({ type: 'SHAKE', payload: 'hard' });
-        this.core.callbacks.onVisualEffect({ type: 'FLASH', payload: { color: MODIFIER_COLORS.BOMB, duration: 300 } });
+        this.core.events.emit('VISUAL_EFFECT', { type: 'PARTICLE', payload: { isExplosion: true, clearedRows: rowsToClear, color: MODIFIER_COLORS.BOMB } });
+        this.core.events.emit('VISUAL_EFFECT', { type: 'SHAKE', payload: 'hard' });
+        this.core.events.emit('VISUAL_EFFECT', { type: 'FLASH', payload: { color: MODIFIER_COLORS.BOMB, duration: 300 } });
         this.core.addFloatingText('BOMB CLEAR!', MODIFIER_COLORS.BOMB, 0.7, 'powerup');
         this.core.applyScore({ score: SCORES.BOOSTER_BOMB_CLEAR_BONUS });
-        this.core.callbacks.onAudio('NUKE_CLEAR');
+        this.core.events.emit('AUDIO', { event: 'NUKE_CLEAR' });
 
         this.core.boardManager.sweepRows(tempStage, false, rowsToClear);
 
         this.activeBoosters = this.activeBoosters.filter(b => b !== 'BOMB_BOOSTER');
         this.bombBoosterReady = false;
-        this.core.callbacks.onBombBoosterReadyChange(false);
+        this.core.events.emit('BOMB_BOOSTER_READY_CHANGE', false);
     }
 }

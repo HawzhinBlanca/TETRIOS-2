@@ -24,6 +24,7 @@ jest.mock('../utils/audioManager', () => ({
     init: jest.fn(),
     setIntensity: jest.fn(),
     setTempo: jest.fn(),
+    updateDynamicMix: jest.fn(),
   }
 }));
 
@@ -43,32 +44,7 @@ class MockInputManager extends InputManager {
 
 describe('GameCore Integration', () => {
     let game: GameCore;
-    const mockCallbacks = {
-        onStateChange: jest.fn(),
-        onStatsChange: jest.fn(),
-        onQueueChange: jest.fn(),
-        onHoldChange: jest.fn(),
-        onVisualEffect: jest.fn(),
-        onGameOver: jest.fn(),
-        onAiTrigger: jest.fn(),
-        onComboChange: jest.fn(),
-        onGarbageChange: jest.fn(),
-        onGroundedChange: jest.fn(),
-        onFlippedGravityChange: jest.fn(),
-        onWildcardSelectionTrigger: jest.fn(),
-        onWildcardAvailableChange: jest.fn(),
-        onSlowTimeChange: jest.fn(),
-        onBombBoosterReadyChange: jest.fn(),
-        onBombSelectionStart: jest.fn(),
-        onBombSelectionEnd: jest.fn(),
-        onLineClearerActiveChange: jest.fn(),
-        onLineSelectionStart: jest.fn(),
-        onLineSelectionEnd: jest.fn(),
-        onAudio: jest.fn(),
-        onStressChange: jest.fn(),
-        onFastScoreUpdate: jest.fn(),
-        onAchievementUnlocked: jest.fn(),
-    };
+    let emitSpy: any;
 
     beforeEach(() => {
         // Reset mocks
@@ -81,18 +57,7 @@ describe('GameCore Integration', () => {
             arr: DEFAULT_ARR
         });
 
-        // Override events with spies to verify calls
-        // We replace the callbacks object with a merged object containing our mocks
-        // and the original callbacks for any we missed (to prevent crashes)
-        const originalCallbacks = { ...game.callbacks };
-        
-        Object.defineProperty(game, 'callbacks', {
-            value: {
-                ...originalCallbacks,
-                ...mockCallbacks
-            },
-            writable: true
-        });
+        emitSpy = jest.spyOn(game.events, 'emit');
     });
 
     it('should initialize with default stats', () => {
@@ -111,7 +76,9 @@ describe('GameCore Integration', () => {
         
         // Assertions
         expect(game.scoreManager.stats.score).toBeGreaterThan(0); // Should score points for drop
-        expect(mockCallbacks.onAudio).toHaveBeenCalledWith('LOCK', expect.anything(), initialPiece);
+        
+        // Check if LOCK audio event was emitted
+        expect(emitSpy).toHaveBeenCalledWith('AUDIO', expect.objectContaining({ event: 'LOCK', type: initialPiece }));
         
         // Queue should have shifted
         expect(game.pieceManager.player.tetromino.type).not.toBe(initialPiece);
@@ -129,7 +96,7 @@ describe('GameCore Integration', () => {
         
         expect(game.scoreManager.stats.rows).toBe(1);
         expect(game.scoreManager.stats.score).toBeGreaterThan(100); // Single clear score
-        expect(mockCallbacks.onAudio).toHaveBeenCalledWith('CLEAR_1', undefined, undefined);
+        expect(emitSpy).toHaveBeenCalledWith('AUDIO', expect.objectContaining({ event: 'CLEAR_1' }));
     });
 
     it('should transition to Game Over when topping out', () => {
@@ -143,6 +110,6 @@ describe('GameCore Integration', () => {
         // Try to spawn a piece
         game.spawnPiece();
         
-        expect(mockCallbacks.onGameOver).toHaveBeenCalled();
+        expect(emitSpy).toHaveBeenCalledWith('GAME_OVER', expect.anything());
     });
 });

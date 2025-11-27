@@ -8,21 +8,11 @@ import { useModalStore } from '../stores/modalStore';
 import { useUiStore } from '../stores/uiStore';
 import Button from './ui/Button';
 import GlassPanel from './ui/GlassPanel';
-import { DIFFICULTY_SETTINGS } from '../constants';
+import { DIFFICULTY_SETTINGS, GAME_MODES_CONFIG } from '../constants';
 
 interface MainMenuProps {
     onStart: (startLevel: number, mode: GameMode, difficulty: Difficulty) => void;
 }
-
-const GAME_MODES: { id: GameMode; label: string; description: string; icon: any; color: string }[] = [
-    { id: 'MARATHON', label: 'Marathon', description: 'Classic Tetris. 150 Lines to win. Speed increases with levels.', icon: Trophy, color: 'text-cyan-400' },
-    { id: 'DAILY', label: 'Daily Challenge', description: 'Unique seed every day. Compete on the same board as everyone else.', icon: Calendar, color: 'text-fuchsia-400' },
-    { id: 'BLITZ', label: 'Blitz', description: 'Fast-paced action! Clear for points as the game gets faster over 2 minutes.', icon: Zap, color: 'text-yellow-400' },
-    { id: 'COMBO_MASTER', label: 'Combo Master', description: 'Keep the chain alive! Time only increases when you clear lines in a combo.', icon: Flame, color: 'text-orange-500' },
-    { id: 'SPRINT', label: 'Sprint', description: 'Clear 40 lines as fast as possible.', icon: Clock, color: 'text-green-400' },
-    { id: 'SURVIVAL', label: 'Survival', description: 'Resist incoming garbage lines. Don\'t top out!', icon: Skull, color: 'text-red-400' },
-    { id: 'ADVENTURE', label: 'Adventure', description: 'Campaign mode with unique challenges and bosses.', icon: Map, color: 'text-purple-400' },
-];
 
 const MainMenu = React.forwardRef<HTMLDivElement, MainMenuProps>(({ onStart }, ref) => {
     const [selectedMode, setSelectedMode] = useState<GameMode>('MARATHON');
@@ -71,8 +61,14 @@ const MainMenu = React.forwardRef<HTMLDivElement, MainMenuProps>(({ onStart }, r
         audioManager.playUiClick();
     };
 
-    const activeModeConfig = GAME_MODES.find(m => m.id === selectedMode) || GAME_MODES[0];
+    const activeModeConfig = GAME_MODES_CONFIG.find(m => m.id === selectedMode) || GAME_MODES_CONFIG[0];
     const currentModeHighScore = profileStats.highScores?.[selectedMode] || 0;
+
+    const IconMap: Record<string, React.ElementType> = {
+        Trophy, Zap, Skull, Map, Clock, Flame, Calendar
+    };
+
+    const ActiveIcon = IconMap[activeModeConfig.icon] || Trophy;
 
     return (
         <div ref={ref} className="fixed inset-0 z-50 flex items-center justify-center bg-[var(--menu-overlay-bg)] backdrop-blur-sm p-[var(--spacing-sm)] overflow-y-auto" role="dialog" aria-modal="true" aria-label="Main Menu">
@@ -82,7 +78,7 @@ const MainMenu = React.forwardRef<HTMLDivElement, MainMenuProps>(({ onStart }, r
                 <div className="order-1 lg:order-2 lg:col-span-8 h-auto lg:h-full min-h-[450px] lg:min-h-[500px]">
                     <GlassPanel variant="darker" className="h-full p-[var(--spacing-lg)] md:p-12 flex flex-col relative overflow-hidden border-[var(--menu-border-color)] shadow-2xl !bg-[var(--menu-bg-glass)]">
                         <div className="absolute top-0 right-0 p-12 opacity-5 pointer-events-none transform rotate-12 translate-x-20 -translate-y-10 transition-all duration-500">
-                            <activeModeConfig.icon size={500} />
+                            <ActiveIcon size={500} />
                         </div>
 
                         <div className="relative z-10 flex flex-col h-full">
@@ -99,7 +95,7 @@ const MainMenu = React.forwardRef<HTMLDivElement, MainMenuProps>(({ onStart }, r
                             <div className="flex flex-col lg:flex-row items-start lg:items-center gap-4 mb-6">
                                 <div className="flex items-center gap-[var(--spacing-sm)]">
                                     <div className={`p-3 rounded-xl bg-[var(--menu-bg-surface-dark)] border border-[var(--menu-border-color)] ${activeModeConfig.color}`}>
-                                        <activeModeConfig.icon size={32} />
+                                        <ActiveIcon size={32} />
                                     </div>
                                     <h2 className="text-4xl md:text-6xl font-black text-[var(--menu-text-primary)] uppercase tracking-tight drop-shadow-lg">
                                         {activeModeConfig.label}
@@ -211,29 +207,32 @@ const MainMenu = React.forwardRef<HTMLDivElement, MainMenuProps>(({ onStart }, r
                     </div>
 
                     <nav className="flex-1 space-y-2 overflow-y-auto custom-scrollbar pr-2 max-h-[400px] lg:max-h-none" role="tablist" aria-label="Game Modes">
-                        {GAME_MODES.map(mode => (
-                            <button
-                                key={mode.id}
-                                role="tab"
-                                aria-selected={selectedMode === mode.id}
-                                onClick={() => handleModeSelect(mode.id)}
-                                onMouseEnter={() => audioManager.playUiHover()}
-                                className={`w-full text-left p-[var(--spacing-sm)] rounded-xl border transition-all duration-200 flex items-center gap-[var(--spacing-sm)] group relative overflow-hidden
-                                    ${selectedMode === mode.id 
-                                        ? 'bg-[var(--menu-bg-active)] border-[var(--menu-border-active)] shadow-[0_0_25px_rgba(0,0,0,0.6)] translate-x-2 z-10 ring-1 ring-white/10' 
-                                        : 'bg-[var(--menu-bg-secondary)] border-transparent hover:bg-[var(--menu-bg-hover)] hover:border-[var(--menu-border-color)] hover:translate-x-1'
-                                    }
-                                `}
-                            >
-                                <div className={`p-2.5 rounded-lg transition-colors ${selectedMode === mode.id ? 'bg-[var(--menu-bg-surface-dark)] shadow-inner' : 'bg-[var(--menu-bg-surface)] group-hover:bg-[var(--menu-bg-surface-hover)]'}`}>
-                                    <mode.icon size={22} className={mode.color} />
-                                </div>
-                                <div>
-                                    <div className={`text-sm font-black uppercase tracking-wider ${selectedMode === mode.id ? 'text-[var(--menu-text-primary)]' : 'text-[var(--menu-text-secondary)] group-hover:text-[var(--menu-text-primary)]'}`}>{mode.label}</div>
-                                </div>
-                                {selectedMode === mode.id && <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/5 to-transparent animate-[pulse_3s_infinite]"></div>}
-                            </button>
-                        ))}
+                        {GAME_MODES_CONFIG.map(mode => {
+                            const ModeIcon = IconMap[mode.icon] || Trophy;
+                            return (
+                                <button
+                                    key={mode.id}
+                                    role="tab"
+                                    aria-selected={selectedMode === mode.id}
+                                    onClick={() => handleModeSelect(mode.id)}
+                                    onMouseEnter={() => audioManager.playUiHover()}
+                                    className={`w-full text-left p-[var(--spacing-sm)] rounded-xl border transition-all duration-200 flex items-center gap-[var(--spacing-sm)] group relative overflow-hidden
+                                        ${selectedMode === mode.id 
+                                            ? 'bg-[var(--menu-bg-active)] border-[var(--menu-border-active)] shadow-[0_0_25px_rgba(0,0,0,0.6)] translate-x-2 z-10 ring-1 ring-white/10' 
+                                            : 'bg-[var(--menu-bg-secondary)] border-transparent hover:bg-[var(--menu-bg-hover)] hover:border-[var(--menu-border-color)] hover:translate-x-1'
+                                        }
+                                    `}
+                                >
+                                    <div className={`p-2.5 rounded-lg transition-colors ${selectedMode === mode.id ? 'bg-[var(--menu-bg-surface-dark)] shadow-inner' : 'bg-[var(--menu-bg-surface)] group-hover:bg-[var(--menu-bg-surface-hover)]'}`}>
+                                        <ModeIcon size={22} className={mode.color} />
+                                    </div>
+                                    <div>
+                                        <div className={`text-sm font-black uppercase tracking-wider ${selectedMode === mode.id ? 'text-[var(--menu-text-primary)]' : 'text-[var(--menu-text-secondary)] group-hover:text-[var(--menu-text-primary)]'}`}>{mode.label}</div>
+                                    </div>
+                                    {selectedMode === mode.id && <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/5 to-transparent animate-[pulse_3s_infinite]"></div>}
+                                </button>
+                            );
+                        })}
                     </nav>
                     
                     <div className="pt-[var(--spacing-md)] mt-[var(--spacing-sm)] border-t border-[var(--menu-border-color)] grid grid-cols-2 gap-3">

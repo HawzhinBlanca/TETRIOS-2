@@ -1,3 +1,4 @@
+
 import React from 'react';
 import { STAGE_HEIGHT } from '../constants';
 
@@ -7,10 +8,11 @@ interface Props {
 }
 
 const GarbageDisplay: React.FC<Props> = ({ garbagePending, flippedGravity }) => {
-  if (garbagePending === 0) return null;
+  if (garbagePending <= 0) return null; // Ensure non-positive garbage returns early
 
   const maxVisualLines: number = 5; 
-  const displayLines: number = Math.min(garbagePending, maxVisualLines);
+  const safeGarbage = Math.max(0, Math.floor(garbagePending || 0)); // Guard against NaN/Negative
+  const displayLines: number = Math.min(safeGarbage, maxVisualLines);
 
   const containerClasses = `flex flex-col items-center p-3 rounded-lg bg-red-900/50 border border-red-700 transition-all duration-300 transform scale-100 hover:scale-105 shadow-md animate-pulse-red ${flippedGravity ? 'order-first' : 'order-last'}`; // Position at top if flipped
   const lineContainerClasses = `flex items-center gap-1 ${flippedGravity ? 'flex-col' : 'flex-col-reverse'}`; // Reverse order if flipped
@@ -20,7 +22,7 @@ const GarbageDisplay: React.FC<Props> = ({ garbagePending, flippedGravity }) => 
       className={containerClasses}
       role="status"
       aria-live="polite"
-      aria-label={`${garbagePending} garbage lines incoming!`}
+      aria-label={`${safeGarbage} garbage lines incoming!`}
     >
       <div className="text-xl font-black text-red-400 glow-text mb-2">
         GARBAGE IN
@@ -33,9 +35,9 @@ const GarbageDisplay: React.FC<Props> = ({ garbagePending, flippedGravity }) => 
             style={{ animationDelay: `${i * 0.05}s` }} 
           />
         ))}
-        {garbagePending > maxVisualLines && (
+        {safeGarbage > maxVisualLines && (
             <div className="text-xs font-bold text-red-300 mt-1">
-                +{garbagePending - maxVisualLines} more
+                +{safeGarbage - maxVisualLines} more
             </div>
         )}
       </div>

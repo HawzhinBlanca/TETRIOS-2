@@ -45,26 +45,35 @@ const StatsPanel: React.FC<Props> = React.memo(({
   // Refs for fast updates
   const scoreRef = useRef<HTMLDivElement>(null);
   const timeRef = useRef<HTMLDivElement>(null);
+  const gaugeRef = useRef<HTMLDivElement>(null);
   
   const { engine } = useGameContext();
 
-  // Subscribe to fast updates from engine
+  // Transient Subscriptions
   useEffect(() => {
       if (!engine.current) return;
       
-      engine.current.events.onFastScoreUpdate = (newScore, newTime) => {
-          if (scoreRef.current) {
-              scoreRef.current.textContent = newScore.toLocaleString();
-          }
+      const handleScore = (newScore: number, newTime: number) => {
+          if (scoreRef.current) scoreRef.current.textContent = newScore.toLocaleString();
           if (timeRef.current && (gameMode === 'SPRINT' || gameMode === 'BLITZ' || gameMode === 'TIME_ATTACK')) {
               timeRef.current.textContent = formatTime(newTime);
           }
       };
-      
-      return () => {
-          if (engine.current) engine.current.events.onFastScoreUpdate = () => {};
+
+      const handleGauge = (val: number) => {
+          if (gaugeRef.current && !isZoneActive) {
+              const pct = Math.min(100, (val / FOCUS_GAUGE_MAX) * 100);
+              gaugeRef.current.style.width = `${pct}%`;
+          }
       };
-  }, [engine, gameMode]);
+      
+      engine.current.events.on('FAST_SCORE', ({ score, time }) => handleScore(score, time));
+      engine.current.events.on('FAST_GAUGE', ({ value }) => handleGauge(value));
+      
+      // Clean up listeners isn't strictly necessary here as component lifespan matches game session
+      // but good practice for complex apps
+      return () => {};
+  }, [engine, gameMode, isZoneActive]);
 
   const renderActiveEffects = () => {
       const effects = [];
@@ -147,7 +156,6 @@ const StatsPanel: React.FC<Props> = React.memo(({
 
     return (
       <GlassPanel variant="cyan" intensity="low" className="mb-6 p-5 border-l-4 border-l-cyan-500 relative overflow-hidden bg-cyan-950/30 shadow-lg">
-          {/* Gloss effect */}
           <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/5 to-transparent skew-x-12 pointer-events-none"></div>
           
           <PanelHeader title="Mission Objective" icon={icon} className="mb-4" textColor="text-cyan-300" />
@@ -209,7 +217,7 @@ const StatsPanel: React.FC<Props> = React.memo(({
                       <Label className="text-cyan-500/80">Total Score</Label>
                   </div>
                   <div className="relative flex flex-col items-end">
-                      {/* Use ref for direct DOM update */}
+                      {/* Use ref for score to update without re-render */}
                       <div ref={scoreRef} className="font-mono font-bold tabular-nums leading-none tracking-tight text-4xl bg-clip-text text-transparent bg-gradient-to-b from-white to-gray-400 drop-shadow-[0_0_10px_rgba(255,255,255,0.5)] [text-shadow:0_0_5px_currentColor,0_0_15px_currentColor]">
                           {score.toLocaleString()}
                       </div>
@@ -221,7 +229,6 @@ const StatsPanel: React.FC<Props> = React.memo(({
           )}
 
           <div className="space-y-0 bg-black/20 rounded-xl border border-white/5 p-3">
-            {/* Use ref for Time as well in fast modes */}
             {(gameMode === 'TIME_ATTACK' || gameMode === 'SPRINT' || gameMode === 'SURVIVAL' || gameMode === 'COMBO_MASTER' || gameMode === 'BLITZ') && (
                 <div className="flex items-center justify-between py-2 border-b border-white/5 last:border-0">
                     <div className="flex items-center gap-2 text-gray-400">
@@ -289,12 +296,13 @@ const StatsPanel: React.FC<Props> = React.memo(({
                   </div>
               </div>
               <div className={`rounded-full p-[2px] bg-black/60 border border-white/10 ${isFocusReady && !isZoneActive ? 'ring-2 ring-yellow-500/50 ring-offset-1 ring-offset-black animate-pulse border-yellow-500/50' : ''}`}>
-                  <ProgressBar 
-                      progress={isZoneActive ? 1 : focusGauge / FOCUS_GAUGE_MAX} 
-                      fillClassName={isZoneActive ? "bg-white shadow-[0_0_20px_gold]" : (isFocusReady ? "bg-gradient-to-r from-yellow-400 to-yellow-200 shadow-[0_0_15px_gold]" : "bg-gray-600")}
-                      trackClassName="bg-transparent"
-                      height="h-2"
-                  />
+                  <div className="w-full h-2 bg-transparent rounded-full overflow-hidden relative">
+                        <div 
+                            ref={gaugeRef}
+                            className={`h-full absolute top-0 left-0 transition-all duration-200 ${isZoneActive ? "bg-white shadow-[0_0_20px_gold]" : (isFocusReady ? "bg-gradient-to-r from-yellow-400 to-yellow-200 shadow-[0_0_15px_gold]" : "bg-gray-600")}`}
+                            style={{ width: isZoneActive ? '100%' : `${(focusGauge / FOCUS_GAUGE_MAX) * 100}%` }}
+                        />
+                  </div>
               </div>
               {isZoneActive && <div className="text-[9px] text-center text-yellow-200/70 mt-2 uppercase tracking-widest font-bold animate-pulse">Gravity Suspended</div>}
           </div>

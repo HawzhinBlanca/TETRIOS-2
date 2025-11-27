@@ -1,5 +1,5 @@
 
-import { TetrominoType, Tetromino, Booster, Achievement, Difficulty, GameMode, AdventureWorld, AbilityConfig } from './types';
+import { TetrominoType, Tetromino, Booster, Achievement, Difficulty, GameMode, AdventureWorld, AbilityConfig, PuzzleDefinition, ColorblindMode } from './types';
 
 export const STAGE_WIDTH = 11;
 export const STAGE_HEIGHT = 22;
@@ -24,6 +24,51 @@ export const COLORS: Record<string, string> = {
   P5_P: '#f43f5e',
   P5_X: '#f43f5e',
   P5_F: '#f43f5e',
+};
+
+// Accessible Palettes (Okabe & Ito adapted)
+export const PALETTES: Record<ColorblindMode, Record<string, string>> = {
+    NORMAL: { ...COLORS },
+    PROTANOPIA: {
+        I: '#56B4E9', // Sky Blue
+        J: '#0072B2', // Blue
+        L: '#E69F00', // Orange
+        O: '#F0E442', // Yellow
+        S: '#009E73', // Bluish Green
+        T: '#CC79A7', // Reddish Purple
+        Z: '#D55E00', // Vermilion
+        WILDCARD_SHAPE: '#FFFFFF',
+        M1: '#CC79A7', D2: '#CC79A7', T3: '#CC79A7', P5: '#CC79A7',
+        D2_H: '#CC79A7', D2_V: '#CC79A7', T3_L: '#CC79A7', T3_I: '#CC79A7',
+        P5_P: '#CC79A7', P5_X: '#CC79A7', P5_F: '#CC79A7'
+    },
+    DEUTERANOPIA: {
+        // Similar to Protanopia, this high contrast palette works well for both
+        I: '#56B4E9', 
+        J: '#0072B2', 
+        L: '#E69F00', 
+        O: '#F0E442', 
+        S: '#009E73', 
+        T: '#CC79A7', 
+        Z: '#D55E00',
+        WILDCARD_SHAPE: '#FFFFFF',
+        M1: '#CC79A7', D2: '#CC79A7', T3: '#CC79A7', P5: '#CC79A7',
+        D2_H: '#CC79A7', D2_V: '#CC79A7', T3_L: '#CC79A7', T3_I: '#CC79A7',
+        P5_P: '#CC79A7', P5_X: '#CC79A7', P5_F: '#CC79A7'
+    },
+    TRITANOPIA: {
+        I: '#66CCEE', // Cyan/Blue
+        J: '#228833', // Green (distinct from I)
+        L: '#EE6677', // Pink/Red
+        O: '#CCBB44', // Dark Yellow/Khaki
+        S: '#4477AA', // Blue
+        T: '#AA3377', // Purple
+        Z: '#AA6677', // Rose
+        WILDCARD_SHAPE: '#FFFFFF',
+        M1: '#AA3377', D2: '#AA3377', T3: '#AA3377', P5: '#AA3377',
+        D2_H: '#AA3377', D2_V: '#AA3377', T3_L: '#AA3377', T3_I: '#AA3377',
+        P5_P: '#AA3377', P5_X: '#AA3377', P5_F: '#AA3377'
+    }
 };
 
 export const MODIFIER_COLORS = {
@@ -122,8 +167,13 @@ export const TETROMINOS: Record<string, Tetromino> = {
   P5_F: { shape: [[0, 'P5_F', 'P5_F'], ['P5_F', 'P5_F', 0], [0, 'P5_F', 0]], color: COLORS.P5_F, type: 'P5_F' },
 };
 
-export const KICKS: any = {
-    // SRS Kick data... simplified or full
+// Explicit Type Definition for SRS Kicks
+type KickTable = Record<string, [number, number][][]>;
+
+export const KICKS: KickTable = {
+    // SRS Kick data... 
+    // Organized by [Rotation Index (0->1, 1->2 etc..)] -> [Test 1, Test 2, Test 3, Test 4, Test 5]
+    // Each test is [xOffset, yOffset]
     I: [
       [[0, 0], [-2, 0], [1, 0], [-2, -1], [1, 2]],
       [[0, 0], [-1, 0], [2, 0], [-1, 2], [2, -1]],
@@ -193,8 +243,8 @@ export const DEFAULT_CONTROLS = {
     moveLeft: ['ArrowLeft', 'a'],
     moveRight: ['ArrowRight', 'd'],
     softDrop: ['ArrowDown', 's'],
-    hardDrop: [' ', 'w', 'ArrowUp'], // Space, w, up
-    rotateCW: ['x', 'k'],
+    hardDrop: [' ', 'w'], 
+    rotateCW: ['ArrowUp', 'x', 'k'],
     rotateCCW: ['z', 'j', 'Control'],
     hold: ['c', 'Shift'],
     zone: ['v', 'Enter'],
@@ -209,6 +259,16 @@ export const DIFFICULTY_SETTINGS: Record<string, { label: string, das: number, a
     MEDIUM: { label: 'Medium', das: 133, arr: 10, color: 'text-yellow-400' },
     HARD: { label: 'Hard', das: 100, arr: 0, color: 'text-red-400' }
 };
+
+export const GAME_MODES_CONFIG: { id: GameMode; label: string; description: string; icon: string; color: string }[] = [
+    { id: 'MARATHON', label: 'Marathon', description: 'Classic Tetris. 150 Lines to win. Speed increases with levels.', icon: 'Trophy', color: 'text-cyan-400' },
+    { id: 'DAILY', label: 'Daily Challenge', description: 'Unique seed every day. Compete on the same board as everyone else.', icon: 'Calendar', color: 'text-fuchsia-400' },
+    { id: 'BLITZ', label: 'Blitz', description: 'Fast-paced action! Clear for points as the game gets faster over 2 minutes.', icon: 'Zap', color: 'text-yellow-400' },
+    { id: 'COMBO_MASTER', label: 'Combo Master', description: 'Keep the chain alive! Time only increases when you clear lines in a combo.', icon: 'Flame', color: 'text-orange-500' },
+    { id: 'SPRINT', label: 'Sprint', description: 'Clear 40 lines as fast as possible.', icon: 'Clock', color: 'text-green-400' },
+    { id: 'SURVIVAL', label: 'Survival', description: 'Resist incoming garbage lines. Don\'t top out!', icon: 'Skull', color: 'text-red-400' },
+    { id: 'ADVENTURE', label: 'Adventure', description: 'Campaign mode with unique challenges and bosses.', icon: 'Map', color: 'text-purple-400' },
+];
 
 export const BOOSTERS: Record<string, Booster> = {
     BOMB_BOOSTER: { type: 'BOMB_BOOSTER', name: 'Bomb', description: 'Clear specific rows on command.', icon: '💣', cost: 1000, initialQuantity: 1 },
@@ -304,16 +364,16 @@ export const ICE_PATTERN_SVG = "data:image/svg+xml,%3Csvg width='20' height='20'
 
 export const CHAOS_COLORS = ['#ef4444', '#eab308', '#22c55e', '#3b82f6', '#a855f7', '#ec4899'];
 
-export const PUZZLE_LEVELS: { layout: string[] }[] = [
+export const PUZZLE_LEVELS: PuzzleDefinition[] = [
     { layout: [
-        "..........",
-        "..........",
-        "..........",
-        "..........",
-        "XXXX...XXX",
-        "XXXX.XXXXX",
-        "XXXX.XXXXX",
-        "XXXX.XXXXX"
+        "...........", // 11 width
+        "...........",
+        "...........",
+        "...........",
+        "XXXXX.XXXXX", // 11 width
+        "XXXXX.XXXXX",
+        "XXXXX.XXXXX",
+        "XXXXX.XXXXX"
     ]} // Level 0 (I piece hole)
 ];
 

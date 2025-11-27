@@ -18,27 +18,25 @@ jest.mock('../utils/audioManager', () => ({
     playRotate: jest.fn(),
     playHardDrop: jest.fn(),
     playAudio: jest.fn(),
+    isOnBeat: jest.fn().mockReturnValue(false),
+    playPerfectDrop: jest.fn(),
   }
 }));
 
 const mockCore = {
   mode: 'MARATHON',
-  callbacks: {
-    onQueueChange: jest.fn(),
-    onHoldChange: jest.fn(),
-    onGroundedChange: jest.fn(),
-    onAiTrigger: jest.fn(),
-    onAudio: jest.fn(),
-    onVisualEffect: jest.fn(),
-    onStatsChange: jest.fn(),
+  events: {
+    emit: jest.fn(),
   },
   collisionManager: new CollisionManager(),
   boardManager: new BoardManager({} as any), // Circular dependency hack, minimal mock
   scoreManager: { applySoftDrop: jest.fn(), applyHardDrop: jest.fn(), stats: {} },
   boosterManager: { activeBoosters: [], wildcardAvailable: false },
-  adventureManager: { checkObjectives: jest.fn() },
+  adventureManager: { checkObjectives: jest.fn(), config: null },
   flippedGravity: false,
   triggerGameOver: jest.fn(),
+  fxManager: { triggerLockResetFlash: jest.fn(), triggerTSpinFlash: jest.fn() },
+  addFloatingText: jest.fn(),
 } as unknown as GameCore;
 
 // Fix BoardManager circular ref
@@ -62,7 +60,7 @@ describe('PieceManager', () => {
     const startX = pieceManager.player.pos.x;
     pieceManager.move(1);
     expect(pieceManager.player.pos.x).toBe(startX + 1);
-    expect(mockCore.callbacks.onAudio).toHaveBeenCalledWith('MOVE', expect.anything());
+    expect(mockCore.events.emit).toHaveBeenCalledWith('AUDIO', expect.objectContaining({ event: 'MOVE' }));
   });
 
   it('prevents movement into walls', () => {
@@ -87,7 +85,7 @@ describe('PieceManager', () => {
     expect(pieceManager.heldPiece).toBe(initialType);
     expect(pieceManager.player.tetromino.type).not.toBe(initialType); // Spawns new piece
     expect(pieceManager.canHold).toBe(false); // Cannot hold twice
-    expect(mockCore.callbacks.onHoldChange).toHaveBeenCalledWith(initialType, false);
+    expect(mockCore.events.emit).toHaveBeenCalledWith('HOLD_CHANGE', { piece: initialType, canHold: false });
   });
 
   it('updates gravity (drop)', () => {

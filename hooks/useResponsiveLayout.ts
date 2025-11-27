@@ -1,59 +1,87 @@
 
 import { useState, useEffect } from 'react';
+import { STAGE_WIDTH, STAGE_HEIGHT } from '../constants';
+
+export interface LayoutMetrics {
+    cellSize: number;
+    cols: number;
+    rows: number;
+    width: number;
+    height: number;
+    isMobile: boolean;
+}
 
 export const useResponsiveLayout = () => {
-    const [cellSize, setCellSize] = useState(30);
+    const [layout, setLayout] = useState<LayoutMetrics>({
+        cellSize: 24,
+        cols: STAGE_WIDTH,
+        rows: STAGE_HEIGHT,
+        width: 300,
+        height: 600,
+        isMobile: false
+    });
 
     useEffect(() => {
         const handleResize = () => {
-            // Use documentElement.clientHeight for more accurate viewport height on mobile (excludes some browser UI)
-            const vh = window.innerHeight;
-            const vw = window.innerWidth;
-            
-            // Apple-Grade Mobile Layout Optimization
-            // Increased padding to ensure board sits ABOVE the bottom control deck.
-            // Top Bar (~60px) + Bottom Controls/Safe Area (~160px)
-            const MOBILE_VERTICAL_PADDING = 220; 
-            const MOBILE_HORIZONTAL_PADDING = 10; // Slight buffer for edge cases
+            const vw = Math.max(1, window.innerWidth); // Guard against 0
+            const vh = Math.max(1, window.innerHeight); // Guard against 0
+            const isMobile = vw < 1024;
 
-            // Desktop: Needs space for header/margins and sidebars
-            const DESKTOP_VERTICAL_PADDING = 140;
-            const DESKTOP_HORIZONTAL_RESERVE = 650; 
-
-            let maxVerticalSize;
-            let maxHorizontalSize;
-
-            if (vw >= 1024) { 
-                // Desktop Layout
+            if (!isMobile) { 
+                // Desktop Layout (Standard Fixed)
+                const DESKTOP_VERTICAL_PADDING = 60; 
+                const DESKTOP_HORIZONTAL_RESERVE = 400; 
+                
                 const availableHeight = vh - DESKTOP_VERTICAL_PADDING;
                 const availableWidth = vw - DESKTOP_HORIZONTAL_RESERVE;
                 
-                maxVerticalSize = Math.floor(Math.max(0, availableHeight) / 22); // 22 rows high
-                maxHorizontalSize = Math.floor(Math.max(0, availableWidth) / 11); // 11 cols wide
-            } else { 
-                // Mobile Layout
-                const availableHeight = vh - MOBILE_VERTICAL_PADDING;
-                const availableWidth = vw - MOBILE_HORIZONTAL_PADDING;
+                const sizeByHeight = Math.floor(Math.max(0, availableHeight) / STAGE_HEIGHT);
+                const sizeByWidth = Math.floor(Math.max(0, availableWidth) / STAGE_WIDTH);
                 
-                maxVerticalSize = Math.floor(Math.max(0, availableHeight) / 22);
-                maxHorizontalSize = Math.floor(Math.max(0, availableWidth) / 11);
+                const cell = Math.floor(Math.min(sizeByHeight, sizeByWidth, 32)); // Cap size for desktop and floor it
+
+                setLayout({
+                    cellSize: cell,
+                    cols: STAGE_WIDTH,
+                    rows: STAGE_HEIGHT,
+                    width: STAGE_WIDTH * cell,
+                    height: STAGE_HEIGHT * cell,
+                    isMobile: false
+                });
+            } else { 
+                // Mobile "Full Screen" Logic
+                // 1. Determine Density: How many columns fit?
+                const TARGET_CELL_SIZE = 22; // Small blocks for "High Res" feel
+                
+                // Calculate columns to fill width exactly
+                let cols = Math.floor(vw / TARGET_CELL_SIZE);
+                // Ensure even number of columns for symmetry if possible, and min width
+                cols = Math.max(10, cols);
+                
+                // Recalculate exact cell size to fill width (floored to integer to prevent sub-pixel blur)
+                const cell = Math.floor(vw / cols);
+                
+                // Calculate rows to fill available height
+                const rows = Math.ceil(vh / cell);
+
+                setLayout({
+                    cellSize: cell,
+                    cols: cols,
+                    rows: rows,
+                    width: cols * cell, // Use precise integer width
+                    height: rows * cell, 
+                    isMobile: true
+                });
             }
-            
-            // Choose the limiting dimension to ensure the board fits completely
-            const idealSize = Math.min(maxVerticalSize, maxHorizontalSize);
-            
-            // Clamp size:
-            setCellSize(Math.max(12, Math.min(55, idealSize)));
         };
         
         const resizeObserver = new ResizeObserver(() => requestAnimationFrame(handleResize));
         resizeObserver.observe(document.body);
         
-        // Initial calculation
         handleResize(); 
         
         return () => resizeObserver.disconnect();
     }, []);
 
-    return { cellSize };
+    return layout;
 };

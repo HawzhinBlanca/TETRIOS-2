@@ -5,6 +5,8 @@ import { COLORS } from '../../constants';
 import Preview from '../Preview';
 import { Sparkles } from 'lucide-react';
 import Modal from '../ui/Modal';
+import { useGameSettingsStore } from '../../stores/gameSettingsStore';
+import { getPieceColor } from '../../utils/themeUtils';
 
 interface WildcardSelectionModalProps {
     onSelectPiece: (type: TetrominoType) => void;
@@ -17,6 +19,8 @@ const WILD_CARD_PIECES: TetrominoType[] = ['I', 'J', 'L', 'O', 'S', 'T', 'Z'];
 export const WildcardSelectionModal: React.FC<WildcardSelectionModalProps> = ({
     onSelectPiece, handleUiHover, handleUiClick
 }) => {
+    const colorblindMode = useGameSettingsStore(state => state.colorblindMode);
+
     return (
         <Modal variant="skewed" borderColorClass="border-yellow-500" ariaLabel="Wildcard Selection">
             <div className="absolute top-4 right-4 text-yellow-500/20 group-hover:text-yellow-500/50 transition-colors animate-pulse" aria-hidden="true">
@@ -26,25 +30,28 @@ export const WildcardSelectionModal: React.FC<WildcardSelectionModalProps> = ({
             <p className="text-gray-300 text-sm mb-8">Choose your next Tetrimino.</p>
 
             <div className="grid grid-cols-4 gap-4 mb-8">
-                {WILD_CARD_PIECES.map(type => (
-                    <button
-                        key={type}
-                        onClick={() => { handleUiClick(); onSelectPiece(type); }}
-                        onMouseEnter={handleUiHover}
-                        className={`flex flex-col items-center justify-center p-2 md:p-4 rounded-lg border-2 transition-all duration-200
-                            bg-gray-900/50 hover:bg-gray-800
-                        `}
-                        style={{
-                            borderColor: COLORS[type], 
-                            color: COLORS[type],
-                            boxShadow: `0 0 10px ${COLORS[type]}40`, 
-                        }}
-                        aria-label={`Select ${type} Piece`}
-                    >
-                        <Preview title="" type={type} aria-label="" />
-                        <span className="mt-1 text-xs font-bold">{type}</span>
-                    </button>
-                ))}
+                {WILD_CARD_PIECES.map(type => {
+                    const color = getPieceColor(type, colorblindMode);
+                    return (
+                        <button
+                            key={type}
+                            onClick={() => { handleUiClick(); onSelectPiece(type); }}
+                            onMouseEnter={handleUiHover}
+                            className={`flex flex-col items-center justify-center p-2 md:p-4 rounded-lg border-2 transition-all duration-200
+                                bg-gray-900/50 hover:bg-gray-800
+                            `}
+                            style={{
+                                borderColor: color, 
+                                color: color,
+                                boxShadow: `0 0 10px ${color}40`, 
+                            }}
+                            aria-label={`Select ${type} Piece`}
+                        >
+                            <Preview title="" type={type} aria-label="" />
+                            <span className="mt-1 text-xs font-bold">{type}</span>
+                        </button>
+                    );
+                })}
             </div>
         </Modal>
     );

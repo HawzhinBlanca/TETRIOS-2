@@ -1,11 +1,10 @@
 
 import React, { useEffect, useRef, useMemo, useState, useCallback, lazy, Suspense } from 'react';
-import Particles, { ParticlesHandle } from './Particles';
 import MusicVisualizer from './MusicVisualizer';
 import AdventureMap from './AdventureMap';
 import StoryOverlay from './StoryOverlay';
 import TutorialTip from './TutorialTip';
-import GameScreen from './GameScreen';
+import { GameScreen } from './GameScreen';
 import { GameOverlayManager } from './GameOverlayManager';
 import { audioManager } from '../utils/audioManager';
 import { useUiStore } from '../stores/uiStore';
@@ -88,14 +87,13 @@ export const TetriosGame = () => {
 
   const { stats: profileStats } = useProfileStore();
 
-  const { cellSize } = useResponsiveLayout();
+  const { cellSize, isMobile } = useResponsiveLayout();
 
   const [highScore, setHighScore] = useState(0);
   const [currentStory, setCurrentStory] = useState<StoryNode[] | null>(null);
   const [lastRewards, setLastRewards] = useState<LevelRewards | null>(null); 
   const [achievementNotification, setAchievementNotification] = useState<{title: string, icon: string} | null>(null);
 
-  const particlesRef = useRef<ParticlesHandle>(null);
   const gameOverModalRef = useRef<HTMLDivElement>(null);
   const pausedModalRef = useRef<HTMLDivElement>(null);
   const mainMenuRef = useRef<HTMLDivElement>(null);
@@ -218,30 +216,26 @@ export const TetriosGame = () => {
       dismissTutorialTip();
   }, [dismissTutorialTip]);
 
-  useVisualEffects(particlesRef, setShakeClass, setFlashOverlay, cellSize, uiVisualEffect, clearVisualEffect, boardRendererRef);
+  useVisualEffects(setShakeClass, setFlashOverlay, cellSize, uiVisualEffect, clearVisualEffect, boardRendererRef);
 
   useEffect(() => {
       if (gameState === 'GAMEOVER') {
           setShakeClass('shake-hard');
           setFlashOverlay('rgba(255, 0, 0, 0.6)'); 
-          if (particlesRef.current) {
-              particlesRef.current.spawnShockwave(5, 10, '#ef4444');
-              particlesRef.current.spawnExplosion(10, '#f97316', 80);
-              const colors = ['#ef4444', '#dc2626', '#f59e0b', '#ffffff'];
-              for(let i=0; i<6; i++) {
-                  setTimeout(() => {
-                      const rx = 2 + Math.random() * 6;
-                      const ry = 4 + Math.random() * 12;
-                      particlesRef.current?.spawnBurst(rx, ry, colors[i%colors.length], 30);
-                  }, i * 120); 
-              }
+          
+          // Trigger explosions via board renderer if available
+          if (boardRendererRef.current) {
+              boardRendererRef.current.spawnShockwave(5 * cellSize, 10 * cellSize);
+              // More intense particle explosion
+              boardRendererRef.current.spawnParticle(150, 300, '#ef4444', 80, 'explosion');
           }
+          
           setTimeout(() => {
               setShakeClass('');
               setFlashOverlay(null);
           }, SHAKE_DURATION_HARD_MS);
       }
-  }, [gameState, setShakeClass, setFlashOverlay]);
+  }, [gameState, setShakeClass, setFlashOverlay, cellSize]);
 
   const handleToggleMute = () => {
      toggleMute(); 
@@ -303,27 +297,38 @@ export const TetriosGame = () => {
     isZoneActive: stats.isZoneActive,
     zoneLines: stats.zoneLines,
     missedOpportunity,
-    blockSkin // Added skin
-  }), [cellSize, ghostStyle, ghostOpacity, ghostOutlineThickness, ghostGlowIntensity, lockWarning, showAi, currentAdventureLevelConfig?.gimmicks, flippedGravity, stats.wildcardAvailable, colorblindMode, stats.isZoneActive, stats.zoneLines, missedOpportunity, aiHint, blockSkin]);
+    blockSkin 
+  }), [cellSize, ghostStyle, ghostOpacity, ghostGlowIntensity, lockWarning, showAi, currentAdventureLevelConfig?.gimmicks, flippedGravity, stats.wildcardAvailable, colorblindMode, stats.isZoneActive, stats.zoneLines, missedOpportunity, aiHint, blockSkin]);
 
   const handleUiHover = () => audioManager.playUiHover();
   const handleUiClick = () => audioManager.playUiClick();
 
-  const formatTime = (seconds: number): string => {
-    const mins = Math.floor(seconds / 60);
-    const secs = Math.floor(seconds % 60);
-    const ms = Math.floor((seconds % 1) * 10);
-    return `${mins}:${secs.toString().padStart(2, '0')}.${ms}`;
-  };
-
   const handleShareScore = useCallback(async () => {
     // Sharing logic unchanged
-    // ...
   }, [stats.score]);
 
   const calculateStars = (gameInstance: GameCore): number => {
-    // Logic unchanged
-    return 0;
+      if (gameInstance.mode !== 'ADVENTURE') return 0;
+      let stars = 1;
+      const stats = gameInstance.scoreManager.stats;
+      const config = gameInstance.adventureManager.config;
+      if (!config) return 0;
+      if (config.objective.type === 'SCORE') {
+          if (stats.score >= config.objective.target * 1.5) stars++;
+          if (stats.score >= config.objective.target * 2.0) stars++;
+      } else {
+          if (stats.tetrisesAchieved && stats.tetrisesAchieved > 0) stars++;
+          else if (stats.tspinsAchieved && stats.tspinsAchieved > 0) stars++;
+          if (config.constraints?.timeLimit) {
+              const timeUsed = config.constraints.timeLimit - stats.time;
+              if (timeUsed < config.constraints.timeLimit * 0.6) stars++; 
+          } else if (config.constraints?.movesLimit) {
+              if ((stats.movesTaken || 0) < config.constraints.movesLimit * 0.7) stars++;
+          } else {
+              if (stats.maxB2BChain && stats.maxB2BChain >= 2) stars++;
+          }
+      }
+      return Math.min(3, stars);
   };
 
   const calculateCoins = (gameInstance: GameCore, stars: number): number => {
@@ -347,7 +352,7 @@ export const TetriosGame = () => {
   const handleZone = useCallback(() => engine.current?.scoreManager.tryActivateZone(), [engine]);
 
   return (
-    <div className={`h-screen w-full flex flex-col items-center justify-center text-white overflow-hidden font-sans selection:bg-cyan-500/30 ${shakeClass}`} style={{
+    <div className={`fixed inset-0 w-full h-[100dvh] flex flex-col items-center justify-center text-white overflow-hidden font-sans selection:bg-cyan-500/30 touch-none ${shakeClass}`} style={{
         ...backgroundStyle,
         '--audio-energy': 0,
         '--audio-glow': `calc(var(--audio-energy, 0) * 20px)`,
@@ -370,18 +375,17 @@ export const TetriosGame = () => {
           </div>
       )}
 
+      {/* Modals */}
       {isSettingsOpen && (
-          <Suspense fallback={<div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/90 backdrop-blur-xl text-cyan-400 text-xl font-bold uppercase tracking-widest">Loading Settings...</div>}>
+          <Suspense fallback={<div className="fixed inset-0 z-[100] bg-black/90" />}>
               <LazySettings controls={controls} setKeyBinding={setKeyBinding} resetControls={resetControls} />
           </Suspense>
       )}
-
       {isProfileOpen && (
-          <Suspense fallback={<div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/90 backdrop-blur-xl text-cyan-400 text-xl font-bold uppercase tracking-widest">Loading Profile...</div>}>
+          <Suspense fallback={<div className="fixed inset-0 z-[100] bg-black/90" />}>
               <LazyProfile />
           </Suspense>
       )}
-
       {gameState === 'MAP' && (
           <AdventureMap 
             onSelectLevel={launchAdventureLevel} 
@@ -390,25 +394,16 @@ export const TetriosGame = () => {
             getStarsEarned={useAdventureStore.getState().getStarsEarned}
           />
       )}
-
       {gameState === 'STORY' && currentStory && (
           <StoryOverlay story={currentStory} onComplete={onStoryComplete} />
       )}
-
       {activeTutorialTip && gameState === 'PLAYING' && (
           <TutorialTip text={activeTutorialTip} onDismiss={onDismissTutorialTip} />
       )}
-
-      {/* Achievement Unlock Toast */}
       {achievementNotification && (
           <div className="fixed top-8 right-8 z-[100] bg-gray-900/90 border border-yellow-500/50 p-4 rounded-lg shadow-[0_0_20px_rgba(234,179,8,0.4)] flex items-center gap-4 animate-in slide-in-from-right-10 fade-in duration-300 max-w-sm">
-              <div className="bg-yellow-500/20 p-2 rounded-full border border-yellow-500 text-yellow-400">
-                  <Trophy size={24} className="animate-bounce" />
-              </div>
-              <div>
-                  <div className="text-[10px] font-bold uppercase tracking-widest text-yellow-500 mb-0.5">Achievement Unlocked</div>
-                  <div className="text-white font-bold">{achievementNotification.title}</div>
-              </div>
+              <div className="bg-yellow-500/20 p-2 rounded-full border border-yellow-500 text-yellow-400"><Trophy size={24} className="animate-bounce" /></div>
+              <div><div className="text-[10px] font-bold uppercase tracking-widest text-yellow-500 mb-0.5">Achievement Unlocked</div><div className="text-white font-bold">{achievementNotification.title}</div></div>
           </div>
       )}
 
@@ -425,11 +420,12 @@ export const TetriosGame = () => {
       />
 
       {isPlayingState && ( 
-          <div className="relative w-full h-full flex items-center justify-center transition-all duration-100" style={{
-              transform: `perspective(1000px) rotateX(${cameraTransform.rotateX}deg) rotateY(${cameraTransform.rotateY}deg) translateY(${cameraTransform.y}px) scale(${cameraTransform.scale})`
-          }}>
+          // Camera Container - Disabled transform on mobile for pixel-perfect grid
+          <div className="relative w-full h-full flex items-center justify-center transition-all duration-100" 
+               style={!isMobile ? {
+                  transform: `perspective(1000px) rotateX(${cameraTransform.rotateX}deg) rotateY(${cameraTransform.rotateY}deg) translateY(${cameraTransform.y}px) scale(${cameraTransform.scale})`
+               } : undefined}>
               <GameScreen
-                  particlesRef={particlesRef}
                   boardRenderCoreConfig={boardRenderCoreConfig}
                   isMuted={isMuted}
                   toggleMute={handleToggleMute}
@@ -452,28 +448,6 @@ export const TetriosGame = () => {
             isZoneReady={isZoneReady}
             flippedGravity={flippedGravity}
         />
-      )}
-
-      {!enableTouchControls && isPlayingState && (
-        <div className="lg:hidden fixed bottom-0 left-0 right-0 bg-gray-950/90 backdrop-blur-xl p-4 pb-8 pb-safe border-t border-gray-800 z-50 flex justify-between items-center" role="navigation" aria-label="Mobile Game Controls">
-            <div className="flex gap-4">
-                <button onClick={() => { handleUiClick(); canHold && touchControls.hold(); }} disabled={!canHold} className={`w-14 h-14 flex items-center justify-center rounded-full transition-all border ${canHold ? 'bg-gray-800 text-cyan-400 border-cyan-900 active:scale-90 active:bg-cyan-900/50' : 'bg-gray-900 text-gray-700 border-gray-800 cursor-not-allowed'}`} aria-label="Hold Piece"><ArrowLeftRight size={24} aria-hidden="true" /></button>
-                {stats.bombBoosterReady && gameMode === 'ADVENTURE' && !isSelectingBombRows && !isSelectingLine && (
-                    <button onClick={() => { handleUiClick(); touchControls.triggerBombBooster(); }} className="w-14 h-14 flex items-center justify-center rounded-full bg-red-800 text-red-400 border border-red-900 active:scale-90 active:bg-red-900/50" aria-label="Activate Bomb Booster">
-                        <Bomb size={24} />
-                    </button>
-                )}
-                {stats.lineClearerActive && gameMode === 'ADVENTURE' && !isSelectingLine && !isSelectingBombRows && (
-                    <button onClick={() => { handleUiClick(); touchControls.triggerLineClearer(); }} className="w-14 h-14 flex items-center justify-center rounded-full bg-cyan-800 text-cyan-400 border border-cyan-900 active:scale-90 active:bg-cyan-900/50" aria-label="Activate Line Clearer Booster">
-                        <Sparkles size={24} />
-                    </button>
-                )}
-            </div>
-            <div className="flex gap-4">
-                <button onClick={() => { handleUiClick(); setGameState('PAUSED'); }} className="w-14 h-14 flex items-center justify-center bg-yellow-900/20 text-yellow-500 border border-yellow-900/50 rounded-full active:scale-90 active:bg-yellow-900/40" aria-label="Pause Game"><PauseCircle size={24} aria-hidden="true" /></button>
-                <button onClick={() => { handleUiClick(); setGameState('PAUSED'); openSettings(); }} className="w-14 h-14 flex items-center justify-center bg-gray-800 text-gray-400 border border-gray-700 rounded-full active:scale-90 active:bg-gray-700" aria-label="Open Settings"><SettingsIcon size={24} aria-hidden="true"/></button>
-            </div>
-        </div>
       )}
     </div>
   );

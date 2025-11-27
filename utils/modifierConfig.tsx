@@ -1,7 +1,7 @@
 
 import React from 'react';
 import { Bomb, Diamond, Zap, HelpCircle, Skull, Lock, Unlock, Box, Mountain, Clock, Snowflake, ChevronDown } from 'lucide-react';
-import { MODIFIER_COLORS, ICE_PATTERN_SVG } from '../constants';
+import { MODIFIER_COLORS } from '../constants';
 import { CellModifier, CellModifierType } from '../types';
 
 export interface ModifierVisualConfig {
@@ -9,7 +9,6 @@ export interface ModifierVisualConfig {
     baseClass: string;
     iconClass?: string;
     animation?: string;
-    renderContent?: (mod: CellModifier, isClearing?: boolean) => React.ReactNode;
     getStyle?: (mod: CellModifier, isClearing?: boolean) => React.CSSProperties;
     getClass?: (mod: CellModifier, isClearing?: boolean) => string;
     borderColor: string;
@@ -36,28 +35,6 @@ export const MODIFIER_CONFIG: Record<CellModifierType, ModifierVisualConfig> = {
             if (mod.timer !== undefined && mod.timer <= 3) return "shadow-[0_0_30px_rgba(255,50,50,0.9)] !border-white animate-[pulse_0.2s_ease-in-out_infinite] z-20";
             return "";
         },
-        renderContent: (mod, isClearing) => {
-            const isCritical = (mod.timer || 0) <= 3;
-            return (
-                <div className="flex items-center justify-center relative z-10 w-full h-full">
-                    <Bomb size={isCritical ? 14 : 10} className={`absolute transition-all duration-300 ${isClearing ? 'text-green-900 opacity-20' : (isCritical ? '-top-2 -left-2 text-white opacity-80' : '-top-2 -left-2 text-red-950 opacity-50')}`} />
-                    <span 
-                        key={mod.timer} 
-                        className={`
-                            font-mono font-black rounded px-1.5 py-0.5 shadow-sm leading-none backdrop-blur-sm relative z-20
-                            transition-all duration-200
-                            ${isClearing 
-                                ? 'bg-white/20 text-white text-[14px] drop-shadow-md scale-125' 
-                                : (isCritical ? 'bg-white text-red-600 text-[11px] scale-110' : 'bg-black/60 text-white text-[10px]')
-                            }
-                            ${!isClearing && 'animate-[pop-rotate_0.2s_ease-out_backwards]'}
-                        `}
-                    >
-                        {mod.timer}
-                    </span>
-                </div>
-            );
-        },
         getStyle: () => ({ backgroundImage: 'radial-gradient(circle at center, rgba(0,0,0,0.4) 0%, transparent 80%)' })
     },
     ICE: {
@@ -67,13 +44,6 @@ export const MODIFIER_CONFIG: Record<CellModifierType, ModifierVisualConfig> = {
         iconClass: "text-white drop-shadow-[0_2px_4px_rgba(0,0,0,0.5)]",
         animation: "none",
         getClass: (_, isClearing) => isClearing ? "brightness-200 scale-105 border-white shadow-[0_0_30px_cyan]" : "",
-        renderContent: () => (
-            <div className="flex flex-col items-center justify-center w-full h-full">
-                <div className="absolute inset-0 opacity-30" style={{ backgroundImage: `url('${ICE_PATTERN_SVG}')` }}></div>
-                <Lock size={14} strokeWidth={3} className="text-cyan-50 relative z-10 drop-shadow-lg" />
-                <div className="absolute bottom-0.5 right-0.5 text-[7px] font-black text-cyan-100 opacity-80 tracking-tighter">FROZEN</div>
-            </div>
-        )
     },
     CRACKED_ICE: {
         icon: Unlock,
@@ -87,14 +57,7 @@ export const MODIFIER_CONFIG: Record<CellModifierType, ModifierVisualConfig> = {
                 radial-gradient(circle at center, rgba(6,182,212,0.1) 0%, transparent 70%)
             `,
             backgroundSize: '100% 100%, 100% 100%, cover'
-        }),
-        renderContent: () => (
-            <div className="flex items-center justify-center w-full h-full relative overflow-hidden group">
-                <Unlock size={14} strokeWidth={2.5} className="text-cyan-200/80 animate-bounce" />
-                <div className="absolute inset-0 bg-cyan-400/10 mix-blend-overlay" />
-                <div className="absolute top-0.5 left-0.5 text-[7px] font-mono text-cyan-300/90 rotate-[-15deg] font-bold shadow-black drop-shadow-sm">CRACKED</div>
-            </div>
-        )
+        })
     },
     WILDCARD_BLOCK: {
         icon: HelpCircle,
@@ -154,11 +117,6 @@ export const MODIFIER_CONFIG: Record<CellModifierType, ModifierVisualConfig> = {
         borderColor: MODIFIER_COLORS.MULTIPLIER_BLOCK,
         baseClass: "bg-yellow-600/90 border-2 border-yellow-400 shadow-[0_0_20px_rgba(234,179,8,0.5)]",
         animation: "ghost-pulse 1s infinite ease-in-out",
-        renderContent: (_, isClearing) => (
-            <div className="flex items-center justify-center w-full h-full">
-                <span className={`font-black font-mono italic text-yellow-100 drop-shadow-md ${isClearing ? 'scale-150' : 'scale-100'} transition-transform`}>2x</span>
-            </div>
-        ),
         getClass: (_, isClearing) => isClearing ? "brightness-150 scale-110 shadow-[0_0_40px_rgba(234,179,8,1)] border-white z-20" : ""
     },
     FREEZE_BLOCK: {

@@ -35,6 +35,7 @@ export interface Player {
   collided: boolean;
   trail: Position[]; // NEW: For Motion Trails
   colorOverride?: string; // Specific color for this instance
+  ghostY?: number; // OPTIMIZATION: Cached ghost position
 }
 
 export type GameState = 'MENU' | 'COUNTDOWN' | 'PLAYING' | 'PAUSED' | 'GAMEOVER' | 'VICTORY' | 'MAP' | 'STORY' | 'BOOSTER_SELECTION' | 'WILDCARD_SELECTION' | 'BOMB_SELECTION' | 'LINE_SELECTION' | 'REWINDING' | 'REPLAYING';

@@ -1,6 +1,6 @@
 
-import { DEFAULT_GAMESPEED, BLITZ_INITIAL_DROPTIME, SURVIVAL_INITIAL_GARBAGE_INTERVAL, SURVIVAL_MIN_GARBAGE_INTERVAL, SURVIVAL_GARBAGE_DECREMENT, STAGE_HEIGHT } from '../constants';
-import { GameState, TetrominoType, GameMode, KeyAction, FloatingTextVariant, BoosterType, LevelRewards, AdventureLevelConfig, KeyMap, Board, MoveScore, GameSnapshot, GameCallbacks, Difficulty, Player } from '../types';
+import { DEFAULT_GAMESPEED, BLITZ_INITIAL_DROPTIME, SURVIVAL_INITIAL_GARBAGE_INTERVAL, SURVIVAL_MIN_GARBAGE_INTERVAL, SURVIVAL_GARBAGE_DECREMENT, STAGE_HEIGHT, STAGE_WIDTH } from '../constants';
+import { GameState, TetrominoType, GameMode, KeyAction, FloatingTextVariant, BoosterType, LevelRewards, AdventureLevelConfig, KeyMap, MoveScore, GameSnapshot, Difficulty, GameStats } from '../types';
 import { AdventureManager } from './AdventureManager';
 import { BoosterManager } from './BoosterManager';
 import { ScoreManager } from './ScoreManager';
@@ -12,36 +12,23 @@ import { InputManager } from './InputManager';
 import { CollisionManager } from './CollisionManager';
 import { AbilityManager } from './AbilityManager';
 import { engineStore } from '../stores/engineStore';
-import { audioManager } from './audioManager';
 import { setRngSeed } from './gameUtils';
 import { replayManager } from './ReplayManager';
 import { useProfileStore } from '../stores/profileStore';
 import { EventManager } from './EventManager';
+import { StateSyncManager } from './StateSyncManager';
 
 export interface GameCoreConfig {
     keyMap: KeyMap;
     das: number;
     arr: number;
-}
-
-export interface GameManagers {
-    stateManager?: GameStateManager;
-    adventureManager?: AdventureManager;
-    boosterManager?: BoosterManager;
-    scoreManager?: ScoreManager;
-    boardManager?: BoardManager;
-    pieceManager?: PieceManager;
-    fxManager?: FXManager;
-    inputManager?: InputManager;
-    collisionManager?: CollisionManager;
-    abilityManager?: AbilityManager;
+    initialGrid?: { width: number; height: number };
 }
 
 export class GameCore {
     mode: GameMode = 'MARATHON';
-    
-    // Architecture Update: Event Bus
     public events = new EventManager();
+    public grid: { width: number; height: number };
 
     stateManager: GameStateManager;
     adventureManager: AdventureManager;
@@ -53,10 +40,8 @@ export class GameCore {
     inputManager: InputManager;
     collisionManager: CollisionManager;
     abilityManager: AbilityManager;
-
-    // Ghost System
-    public ghostPlayer: Player | null = null;
-    public ghostBoard: Board | null = null;
+    
+    public stateSyncManager: StateSyncManager;
 
     flippedGravity: boolean = false;
     initialFlippedGravityGimmick: boolean = false;
@@ -76,7 +61,10 @@ export class GameCore {
 
     private historyBuffer: GameSnapshot[] = [];
     private readonly MAX_HISTORY = 300; 
-    private isRewinding: boolean = false;
+    public isRewinding: boolean = false;
+    
+    private inputBuffer: KeyAction[] = [];
+    private readonly MAX_BUFFER_SIZE = 3;
 
     public missedOpportunity: MoveScore | null = null;
 
@@ -84,72 +72,15 @@ export class GameCore {
         return engineStore.getState().aiHint;
     }
 
-    private _lastSyncedState = {
-        score: -1,
-        rows: -1,
-        level: -1,
-        time: -1,
-        comboCount: -1,
-        garbagePending: -1,
-        pieceIsGrounded: false,
-        flippedGravity: false,
-        dangerLevel: -1,
-        wildcardPieceActive: false,
-        isSelectingBombRows: false,
-        isSelectingLine: false,
-        focusGauge: -1,
-        isZoneActive: false,
-        missedOpportunity: null as MoveScore | null,
-        isRewinding: false,
-        scoreMultiplierActive: false,
-        timeFreezeActive: false,
-    };
+    constructor(config: GameCoreConfig) {
+        this.grid = config.initialGrid || { width: STAGE_WIDTH, height: STAGE_HEIGHT };
 
-    // Deprecated callback structure (kept for compatibility during refactor)
-    // In fully event-driven system, these would be listeners in UI components
-    public callbacks = {
-        onVisualEffect: (effect: any) => this.events.emit('VISUAL_EFFECT', effect),
-        onGameOver: (state: GameState, id?: string, rewards?: LevelRewards) => this.events.emit('GAME_OVER', { state, id, rewards }),
-        onAudio: (event: any, val?: number, type?: TetrominoType) => this.events.emit('AUDIO_EVENT', { event, val, type }),
-        onAchievementUnlocked: (id: string) => this.events.emit('ACHIEVEMENT', id),
-        onFastScoreUpdate: (score: number, time: number) => this.events.emit('FAST_SCORE', { score, time }),
-        
-        // Proxies for StateManager access
-        onStateChange: (newState: GameState, prevState: GameState) => engineStore.getState().setGameState(newState),
-        onStatsChange: (stats: any) => engineStore.getState().setStats(stats),
-        onQueueChange: (q: any) => engineStore.getState().setQueue(q),
-        onHoldChange: (p: any, c: any) => engineStore.getState().setHold(p, c),
-        onAiTrigger: () => {},
-        onComboChange: (combo: number, isB2B: boolean) => {},
-        onGarbageChange: (garbage: number) => {},
-        onGroundedChange: (isGrounded: boolean) => {},
-        onFlippedGravityChange: (flipped: boolean) => {},
-        onWildcardSelectionTrigger: () => {
-            engineStore.setState({ wildcardPieceActive: true });
-            this.stateManager.transitionTo('WILDCARD_SELECTION');
-        },
-        onWildcardAvailableChange: (avail: boolean) => engineStore.getState().setStats({ wildcardAvailable: avail }),
-        onSlowTimeChange: (active: boolean, timer: number) => engineStore.getState().setStats({ slowTimeActive: active, slowTimeTimer: timer }),
-        onBombBoosterReadyChange: (ready: boolean) => engineStore.getState().setStats({ bombBoosterReady: ready }),
-        onBombSelectionStart: (rows: number) => engineStore.setState({ isSelectingBombRows: true, bombRowsToClear: rows }),
-        onBombSelectionEnd: () => engineStore.setState({ isSelectingBombRows: false, bombRowsToClear: 0 }),
-        onLineClearerActiveChange: (active: boolean) => engineStore.getState().setStats({ lineClearerActive: active }),
-        onLineSelectionStart: () => engineStore.setState({ isSelectingLine: true }),
-        onLineSelectionEnd: () => engineStore.setState({ isSelectingLine: false, selectedLineToClear: null }),
-        onBlitzSpeedUp: (threshold: number) => this.events.emit('VISUAL_EFFECT', { type: 'BLITZ_SPEED_THRESHOLD', payload: { threshold } }),
-        onFlippedGravityTimerChange: (active: boolean, timer: number) => engineStore.getState().setStats({ flippedGravityActive: active, flippedGravityTimer: timer }),
-        onStressChange: (lvl: number) => {
-            audioManager.setIntensity(lvl);
-            audioManager.setTempo(110 + lvl * 50);
-        },
-    };
-
-    constructor(config: GameCoreConfig, managers?: GameManagers) {
-        this.inputManager = managers?.inputManager || new InputManager({
+        this.inputManager = new InputManager({
             keyMap: config.keyMap,
             das: config.das,
             arr: config.arr,
-            flippedGravity: false
+            flippedGravity: false,
+            stageWidth: this.grid.width 
         });
         
         this.inputManager.addActionListener((action) => {
@@ -159,15 +90,46 @@ export class GameCore {
             }
         });
 
-        this.collisionManager = managers?.collisionManager || new CollisionManager();
-        this.stateManager = managers?.stateManager || new GameStateManager(this);
-        this.fxManager = managers?.fxManager || new FXManager(this);
-        this.scoreManager = managers?.scoreManager || new ScoreManager(this);
-        this.boardManager = managers?.boardManager || new BoardManager(this);
-        this.pieceManager = managers?.pieceManager || new PieceManager(this);
-        this.adventureManager = managers?.adventureManager || new AdventureManager(this);
-        this.boosterManager = managers?.boosterManager || new BoosterManager(this);
-        this.abilityManager = managers?.abilityManager || new AbilityManager(this);
+        this.collisionManager = new CollisionManager();
+        this.stateManager = new GameStateManager(this);
+        this.fxManager = new FXManager(this);
+        this.scoreManager = new ScoreManager(this);
+        this.boardManager = new BoardManager(this);
+        this.pieceManager = new PieceManager(this);
+        this.adventureManager = new AdventureManager(this);
+        this.boosterManager = new BoosterManager(this);
+        this.abilityManager = new AbilityManager(this);
+        
+        this.stateSyncManager = new StateSyncManager(this);
+        
+        this.events.on('STATE_CHANGE', ({ newState }) => {
+            engineStore.getState().setGameState(newState as GameState);
+        });
+        this.events.on('STATS_CHANGE', (stats) => {
+            engineStore.getState().setStats(stats);
+        });
+        this.events.on('QUEUE_CHANGE', (queue) => {
+            engineStore.getState().setQueue(queue);
+        });
+        this.events.on('HOLD_CHANGE', ({ piece, canHold }) => {
+            engineStore.getState().setHold(piece, canHold);
+        });
+        this.events.on('BOMB_SELECTION_START', (rows) => {
+            engineStore.setState({ isSelectingBombRows: true, bombRowsToClear: rows });
+        });
+        this.events.on('BOMB_SELECTION_END', () => {
+            engineStore.setState({ isSelectingBombRows: false, bombRowsToClear: 0 });
+        });
+        this.events.on('LINE_SELECTION_START', () => {
+            engineStore.setState({ isSelectingLine: true });
+        });
+        this.events.on('LINE_SELECTION_END', () => {
+            engineStore.setState({ isSelectingLine: false, selectedLineToClear: null });
+        });
+        this.events.on('WILDCARD_SELECTION_START', () => {
+            engineStore.setState({ wildcardPieceActive: true });
+            this.stateManager.transitionTo('WILDCARD_SELECTION');
+        });
     }
 
     destroy(): void {
@@ -176,77 +138,7 @@ export class GameCore {
     }
 
     public syncState() {
-        const currentStats = this.scoreManager.stats;
-        const dangerLevel = this._calculateStressLevel();
-        
-        this.callbacks.onFastScoreUpdate(currentStats.score, currentStats.time);
-        
-        // Audio System Integration (Improvement #3)
-        audioManager.updateDynamicMix({
-            dangerLevel,
-            comboCount: this.scoreManager.comboCount,
-            isZoneActive: currentStats.isZoneActive,
-            isFrenzy: currentStats.isFrenzyActive
-        });
-
-        if (
-            currentStats.score !== this._lastSyncedState.score ||
-            currentStats.rows !== this._lastSyncedState.rows ||
-            currentStats.level !== this._lastSyncedState.level ||
-            Math.abs(currentStats.time - this._lastSyncedState.time) > 0.1 || 
-            this.scoreManager.comboCount !== this._lastSyncedState.comboCount ||
-            this.boardManager.garbagePending !== this._lastSyncedState.garbagePending ||
-            this.pieceManager.pieceIsGrounded !== this._lastSyncedState.pieceIsGrounded ||
-            this.flippedGravity !== this._lastSyncedState.flippedGravity ||
-            Math.abs(dangerLevel - this._lastSyncedState.dangerLevel) > 0.05 ||
-            engineStore.getState().wildcardPieceActive !== this._lastSyncedState.wildcardPieceActive ||
-            this.boosterManager.isSelectingBombRows !== this._lastSyncedState.isSelectingBombRows ||
-            this.boosterManager.isSelectingLine !== this._lastSyncedState.isSelectingLine ||
-            currentStats.focusGauge !== this._lastSyncedState.focusGauge ||
-            currentStats.isZoneActive !== this._lastSyncedState.isZoneActive ||
-            this.missedOpportunity !== this._lastSyncedState.missedOpportunity ||
-            this.isRewinding !== this._lastSyncedState.isRewinding ||
-            currentStats.scoreMultiplierActive !== this._lastSyncedState.scoreMultiplierActive ||
-            this.boosterManager.timeFreezeActive !== this._lastSyncedState.timeFreezeActive
-        ) {
-            // Update stats with latest booster states
-            currentStats.timeFreezeActive = this.boosterManager.timeFreezeActive;
-            currentStats.timeFreezeTimer = this.boosterManager.timeFreezeTimer;
-
-            engineStore.setState({
-                stats: { ...currentStats, isRewinding: this.isRewinding }, 
-                garbagePending: this.boardManager.garbagePending,
-                comboCount: this.scoreManager.comboCount,
-                isBackToBack: this.scoreManager.isBackToBack,
-                pieceIsGrounded: this.pieceManager.pieceIsGrounded,
-                flippedGravity: this.flippedGravity,
-                dangerLevel: dangerLevel,
-                focusGauge: currentStats.focusGauge,
-                zoneActive: currentStats.isZoneActive,
-                missedOpportunity: this.missedOpportunity 
-            });
-
-            this._lastSyncedState = {
-                score: currentStats.score,
-                rows: currentStats.rows,
-                level: currentStats.level,
-                time: currentStats.time,
-                comboCount: this.scoreManager.comboCount,
-                garbagePending: this.boardManager.garbagePending,
-                pieceIsGrounded: this.pieceManager.pieceIsGrounded,
-                flippedGravity: this.flippedGravity,
-                dangerLevel: dangerLevel,
-                wildcardPieceActive: engineStore.getState().wildcardPieceActive,
-                isSelectingBombRows: this.boosterManager.isSelectingBombRows,
-                isSelectingLine: this.boosterManager.isSelectingLine,
-                focusGauge: currentStats.focusGauge,
-                isZoneActive: currentStats.isZoneActive,
-                missedOpportunity: this.missedOpportunity,
-                isRewinding: this.isRewinding,
-                scoreMultiplierActive: currentStats.scoreMultiplierActive,
-                timeFreezeActive: this.boosterManager.timeFreezeActive
-            };
-        }
+        this.stateSyncManager.sync();
     }
 
     setGameConfig(config: { speed?: number, das?: number, arr?: number }): void {
@@ -269,11 +161,16 @@ export class GameCore {
         this.flippedGravity = isFlipped;
         this.inputManager.updateConfig({ flippedGravity: isFlipped });
         engineStore.setState({ flippedGravity: isFlipped });
-        this.callbacks.onVisualEffect({ type: isFlipped ? 'FLIPPED_GRAVITY_ACTIVATE' : 'FLIPPED_GRAVITY_END' });
+        this.events.emit('VISUAL_EFFECT', { type: isFlipped ? 'FLIPPED_GRAVITY_ACTIVATE' : 'FLIPPED_GRAVITY_END' });
     }
 
-    resetGame(mode: GameMode = 'MARATHON', startLevel: number = 0, adventureLevelConfig: AdventureLevelConfig | undefined, assistRows: number = 0, activeBoosters: BoosterType[] = [], difficulty: Difficulty = 'MEDIUM'): void {
+    resetGame(mode: GameMode = 'MARATHON', startLevel: number = 0, adventureLevelConfig: AdventureLevelConfig | undefined, assistRows: number = 0, activeBoosters: BoosterType[] = [], difficulty: Difficulty = 'MEDIUM', gridConfig?: { width: number, height: number }): void {
         this.mode = mode;
+        if (gridConfig) {
+            this.grid = gridConfig;
+            this.inputManager.updateConfig({ stageWidth: gridConfig.width });
+        }
+
         this.accumulator = 0;
         this.gameStartTime = Date.now();
         this.totalPausedDuration = 0;
@@ -282,7 +179,7 @@ export class GameCore {
         this.historyBuffer = [];
         this.isRewinding = false;
         this.frameCount = 0;
-        this.ghostPlayer = null;
+        this.inputBuffer = [];
         
         const seed = mode === 'DAILY' ? new Date().toDateString() : Date.now().toString();
         setRngSeed(seed);
@@ -322,7 +219,7 @@ export class GameCore {
         
         engineStore.getState().setGameMode(mode, difficulty); 
         
-        this._lastSyncedState = { ...this._lastSyncedState, score: -999 }; 
+        this.stateSyncManager.reset();
         this.syncState();
     }
 
@@ -331,7 +228,6 @@ export class GameCore {
         this.boosterManager.isSelectingLine = false;
         this.boosterManager.selectedLineToClear = null;
         this.missedOpportunity = null;
-        
         engineStore.setState({
             isSelectingBombRows: false,
             bombRowsToClear: 0,
@@ -343,19 +239,11 @@ export class GameCore {
 
     public triggerGameOver(state: GameState, rewards?: LevelRewards): void {
         if (this.stateManager.currentState === 'GAMEOVER' || this.stateManager.currentState === 'VICTORY') return;
-
-        if (!replayManager.isReplaying) {
-            replayManager.finishRecording(this.scoreManager.stats.score);
-        }
-
-        this.callbacks.onGameOver(state, this.adventureManager.config?.id, rewards);
-        
-        if (state === 'VICTORY') {
-            this.stateManager.transitionTo('VICTORY');
-        } else {
-            this.stateManager.transitionTo('GAMEOVER');
-        }
-        this._lastSyncedState.score = -1;
+        if (!replayManager.isReplaying) replayManager.finishRecording(this.scoreManager.stats.score);
+        this.events.emit('GAME_OVER', { state, levelId: this.adventureManager.config?.id, rewards });
+        if (state === 'VICTORY') this.stateManager.transitionTo('VICTORY');
+        else this.stateManager.transitionTo('GAMEOVER');
+        this.stateSyncManager.reset(); 
         this.syncState();
     }
 
@@ -389,7 +277,6 @@ export class GameCore {
         this.updateSpeed();
         this.addFloatingText(`LEVEL ${newLevel}`, '#fbbf24', 1.0);
         this.playAudio('LEVEL_UP');
-        
         if (newLevel >= 20) {
              this.pieceManager.lockDelayDuration = Math.max(150, 500 - (newLevel - 20) * 15);
         } else {
@@ -427,7 +314,17 @@ export class GameCore {
     handleAction(action: KeyAction): void {
         if (!this.stateManager.isPlaying() && this.stateManager.currentState !== 'BOMB_SELECTION' && this.stateManager.currentState !== 'LINE_SELECTION') return;
         if (this.boosterManager.isSelectingBombRows || this.boosterManager.isSelectingLine) return;
+        const isBusy = this.pieceManager.isLocking || this.boardManager.isClearing;
+        if (isBusy) {
+            if (['rotateCW', 'rotateCCW', 'hold', 'hardDrop'].includes(action)) {
+                if (this.inputBuffer.length < this.MAX_BUFFER_SIZE) this.inputBuffer.push(action);
+                return;
+            }
+        }
+        this.executeAction(action);
+    }
 
+    private executeAction(action: KeyAction): void {
         switch (action) {
             case 'moveLeft': this.pieceManager.move(-1); break;
             case 'moveRight': this.pieceManager.move(1); break;
@@ -444,8 +341,19 @@ export class GameCore {
         }
     }
 
-    spawnPiece(): void { this.pieceManager.spawnPiece(); }
-    sweepRows(newStage: Board, isTSpinDetected: boolean = false, manualClearedRows?: number[]): void { 
+    public processBufferedInputs(): void {
+        if (this.inputBuffer.length > 0) {
+            this.inputBuffer.forEach(action => this.executeAction(action));
+            this.inputBuffer = [];
+        }
+    }
+
+    spawnPiece(): void { 
+        this.pieceManager.spawnPiece();
+        this.processBufferedInputs(); 
+    }
+    
+    sweepRows(newStage: any, isTSpinDetected: boolean = false, manualClearedRows?: number[]): void { 
         this.boardManager.sweepRows(newStage, isTSpinDetected, manualClearedRows); 
     }
     clearBottomLine(): void { this.boardManager.clearBottomLine(); }
@@ -465,7 +373,7 @@ export class GameCore {
     }
     
     public playAudio(event: any, val?: number, type?: TetrominoType) {
-        this.callbacks.onAudio(event, val, type);
+        this.events.emit('AUDIO', { event, val, type });
     }
 
     public getElapsedGameTime(): number {
@@ -475,7 +383,6 @@ export class GameCore {
         return Math.max(0, Date.now() - this.gameStartTime - this.totalPausedDuration);
     }
 
-    // --- REWIND SYSTEM ---
     private snapshotState(): void {
         const snapshot: GameSnapshot = {
             board: this.boardManager.stage.map(row => row.map(cell => [...cell])),
@@ -490,7 +397,6 @@ export class GameCore {
             canHold: this.pieceManager.canHold,
             timestamp: Date.now()
         };
-
         this.historyBuffer.push(snapshot);
         if (this.historyBuffer.length > this.MAX_HISTORY) {
             this.historyBuffer.shift();
@@ -502,12 +408,10 @@ export class GameCore {
             this.isRewinding = true;
             const steps = 2; 
             let snapshot: GameSnapshot | undefined;
-            
             for(let i=0; i<steps; i++) snapshot = this.historyBuffer.pop();
-            
             if (snapshot) {
                 this.restoreSnapshot(snapshot);
-                this.callbacks.onAudio('REWIND');
+                this.events.emit('AUDIO', { event: 'REWIND' });
             } else {
                 this.isRewinding = false;
             }
@@ -527,22 +431,18 @@ export class GameCore {
         this.pieceManager.nextQueue = snapshot.nextQueue;
         this.pieceManager.heldPiece = snapshot.heldPiece;
         this.pieceManager.canHold = snapshot.canHold;
-        
         this.boardManager.revision++;
     }
 
     update(deltaTime: number): void {
         if (this._gameLoopPaused) return;
-
         try {
             if (replayManager.isReplaying) {
                 const elapsed = this.getElapsedGameTime();
                 const actions = replayManager.getPlaybackInput(elapsed);
                 actions.forEach(action => this.handleAction(action));
             }
-
             const isRewindHeld = !replayManager.isReplaying && this.inputManager.isRewindHeld(); 
-            
             if (isRewindHeld && this.mode !== 'SURVIVAL' && this.mode !== 'BLITZ' && this.mode !== 'DAILY') { 
                 this.rewind();
                 this.syncState();
@@ -554,19 +454,14 @@ export class GameCore {
                     this.snapshotState();
                 }
             }
-
             const safeDelta = Math.min(deltaTime, 100);
-            if (deltaTime > 500) {
-                this.accumulator = 0; 
-            } else {
-                this.accumulator += safeDelta;
-            }
+            if (deltaTime > 500) this.accumulator = 0; 
+            else this.accumulator += safeDelta;
 
             while (this.accumulator >= this.TIME_STEP) {
                 this.fixedUpdate(this.TIME_STEP);
                 this.accumulator -= this.TIME_STEP;
             }
-
             this.updateEphemeralStates(deltaTime);
             this.syncState(); 
         } catch (e) {
@@ -606,19 +501,20 @@ export class GameCore {
         }
     }
 
-    private _calculateStressLevel(): number {
+    public calculateStressLevel(): number {
         let maxHeight = 0;
-        for (let x = 0; x < 10; x++) {
-            for (let y = 0; y < STAGE_HEIGHT; y++) {
+        // Calculate derived danger based on board height relative to dynamic grid
+        for (let x = 0; x < this.grid.width; x++) {
+            for (let y = 0; y < this.grid.height; y++) {
                 if (this.boardManager.stage[y][x][1] !== 'clear') {
-                    const h = this.flippedGravity ? y + 1 : STAGE_HEIGHT - y;
+                    const h = this.flippedGravity ? y + 1 : this.grid.height - y;
                     if (h > maxHeight) maxHeight = h;
                     break;
                 }
             }
         }
         
-        const heightRatio = maxHeight / STAGE_HEIGHT;
+        const heightRatio = maxHeight / this.grid.height;
         const comboIntensity = Math.min(this.scoreManager.comboCount / 10, 0.8);
         const speedIntensity = Math.max(0, (1000 - this.pieceManager.dropTime) / 900);
 

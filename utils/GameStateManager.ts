@@ -125,7 +125,7 @@ export class GameStateManager {
         }
 
         // Notify React/UI
-        this.core.callbacks.onStateChange(newState, previousState);
+        this.core.events.emit('STATE_CHANGE', { newState, previousState });
 
         return true;
     }
@@ -141,7 +141,7 @@ export class GameStateManager {
         const targetConfig = this.stateConfig[newState];
         if (targetConfig?.onEnter) targetConfig.onEnter();
 
-        this.core.callbacks.onStateChange(newState, previousState);
+        this.core.events.emit('STATE_CHANGE', { newState, previousState });
     }
 
     public isPlaying(): boolean {
