@@ -2,7 +2,7 @@
 import { useCallback, useEffect, useRef, useMemo } from 'react';
 import { GameCore } from '../utils/GameCore';
 import { createAiWorker } from '../utils/aiWorker';
-import { GameMode, TetrominoType, AdventureLevelConfig, BoosterType, LevelRewards, Difficulty } from '../types';
+import { GameMode, TetrominoType, AdventureLevelConfig, BoosterType, LevelRewards, Difficulty, AudioEvent } from '../types';
 import { useEffectStore } from '../stores/effectStore';
 import { useAdventureStore } from '../stores/adventureStore';
 import { useBoosterStore } from '../stores/boosterStore';
@@ -62,7 +62,7 @@ export const useTetrios = () => {
       });
       
       engine.current.events.on('VISUAL_EFFECT', (effect) => triggerVisualEffect(effect.type, effect.payload));
-      engine.current.events.on('AUDIO', (payload) => handleAudioEvent(payload.event, payload.val, payload.type));
+      engine.current.events.on('AUDIO', (payload) => handleAudioEvent(payload.event as AudioEvent, payload.val, payload.type));
       
       engine.current.events.on('GAME_OVER', ({ state, levelId, rewards }) => {
             if (state === 'GAMEOVER' && levelId) {

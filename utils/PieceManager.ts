@@ -1,7 +1,7 @@
 
 import type { GameCore } from './GameCore';
 import { Player, TetrominoType, AdventureLevelConfig } from '../types';
-import { TETROMINOS, CHAOS_COLORS, EXTENDED_SHAPES } from '../constants';
+import { TETROMINOS, CHAOS_COLORS, EXTENDED_SHAPES, DIFFICULTY_SETTINGS } from '../constants';
 import { generateBag, rotateMatrix } from './gameUtils';
 import { audioManager } from './audioManager';
 import { useProfileStore } from '../stores/profileStore';
@@ -84,6 +84,11 @@ export class PieceManager {
         this.heldPiece = null;
         this.canHold = this.core.mode !== 'PUZZLE' && (!adventureLevelConfig?.rules?.includes('NO_HOLD'));
         this.wildcardNextPieceType = null;
+        
+        // Apply difficulty based lock delay
+        const diffSettings = DIFFICULTY_SETTINGS[this.core.difficulty];
+        this.lockDelayDuration = diffSettings ? diffSettings.lockDelay : LOCK_DELAY_MS;
+
         this.core.events.emit('QUEUE_CHANGE', [...this.nextQueue]);
         this.core.events.emit('HOLD_CHANGE', { piece: this.heldPiece, canHold: this.canHold });
         this.core.events.emit('GROUNDED_CHANGE', false);

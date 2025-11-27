@@ -39,13 +39,16 @@ export const useResponsiveLayout = () => {
                 const sizeByWidth = Math.floor(Math.max(0, availableWidth) / STAGE_WIDTH);
                 
                 const cell = Math.floor(Math.min(sizeByHeight, sizeByWidth, 32)); // Cap size for desktop and floor it
+                
+                // Safety clamp
+                const safeCell = Math.max(10, cell);
 
                 setLayout({
-                    cellSize: cell,
+                    cellSize: safeCell,
                     cols: STAGE_WIDTH,
                     rows: STAGE_HEIGHT,
-                    width: STAGE_WIDTH * cell,
-                    height: STAGE_HEIGHT * cell,
+                    width: STAGE_WIDTH * safeCell,
+                    height: STAGE_HEIGHT * safeCell,
                     isMobile: false
                 });
             } else { 
@@ -59,17 +62,21 @@ export const useResponsiveLayout = () => {
                 cols = Math.max(10, cols);
                 
                 // Recalculate exact cell size to fill width (floored to integer to prevent sub-pixel blur)
-                const cell = Math.floor(vw / cols);
+                // Critical Fix: Ensure cell is at least 1 to prevent division by zero
+                const cell = Math.max(1, Math.floor(vw / cols));
                 
                 // Calculate rows to fill available height
                 const rows = Math.ceil(vh / cell);
+                
+                // Safety cap on rows to prevent infinite/massive arrays
+                const safeRows = Math.min(rows, 100); 
 
                 setLayout({
                     cellSize: cell,
                     cols: cols,
-                    rows: rows,
+                    rows: safeRows,
                     width: cols * cell, // Use precise integer width
-                    height: rows * cell, 
+                    height: safeRows * cell, 
                     isMobile: true
                 });
             }

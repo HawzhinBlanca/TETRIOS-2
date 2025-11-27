@@ -38,9 +38,15 @@ export const PALETTES: Record<ColorblindMode, Record<string, string>> = {
         T: '#CC79A7', // Reddish Purple
         Z: '#D55E00', // Vermilion
         WILDCARD_SHAPE: '#FFFFFF',
-        M1: '#CC79A7', D2: '#CC79A7', T3: '#CC79A7', P5: '#CC79A7',
-        D2_H: '#CC79A7', D2_V: '#CC79A7', T3_L: '#CC79A7', T3_I: '#CC79A7',
-        P5_P: '#CC79A7', P5_X: '#CC79A7', P5_F: '#CC79A7'
+        // Distinct mapping for extended shapes
+        // M1: White (High Contrast)
+        // D2: Yellow (Like O)
+        // T3: Orange (Like L)
+        // P5: Blue (Like J) - Changed from Vermilion to distinguish from Z (Hazard)
+        M1: '#FFFFFF', D2: '#F0E442', T3: '#E69F00', P5: '#0072B2',
+        D2_H: '#F0E442', D2_V: '#F0E442', 
+        T3_L: '#E69F00', T3_I: '#E69F00',
+        P5_P: '#0072B2', P5_X: '#0072B2', P5_F: '#0072B2'
     },
     DEUTERANOPIA: {
         // Similar to Protanopia, this high contrast palette works well for both
@@ -52,9 +58,11 @@ export const PALETTES: Record<ColorblindMode, Record<string, string>> = {
         T: '#CC79A7', 
         Z: '#D55E00',
         WILDCARD_SHAPE: '#FFFFFF',
-        M1: '#CC79A7', D2: '#CC79A7', T3: '#CC79A7', P5: '#CC79A7',
-        D2_H: '#CC79A7', D2_V: '#CC79A7', T3_L: '#CC79A7', T3_I: '#CC79A7',
-        P5_P: '#CC79A7', P5_X: '#CC79A7', P5_F: '#CC79A7'
+        // Distinct mapping for extended shapes
+        M1: '#FFFFFF', D2: '#F0E442', T3: '#E69F00', P5: '#0072B2',
+        D2_H: '#F0E442', D2_V: '#F0E442', 
+        T3_L: '#E69F00', T3_I: '#E69F00',
+        P5_P: '#0072B2', P5_X: '#0072B2', P5_F: '#0072B2'
     },
     TRITANOPIA: {
         I: '#66CCEE', // Cyan/Blue
@@ -65,9 +73,12 @@ export const PALETTES: Record<ColorblindMode, Record<string, string>> = {
         T: '#AA3377', // Purple
         Z: '#AA6677', // Rose
         WILDCARD_SHAPE: '#FFFFFF',
-        M1: '#AA3377', D2: '#AA3377', T3: '#AA3377', P5: '#AA3377',
-        D2_H: '#AA3377', D2_V: '#AA3377', T3_L: '#AA3377', T3_I: '#AA3377',
-        P5_P: '#AA3377', P5_X: '#AA3377', P5_F: '#AA3377'
+        // Distinct mapping for extended shapes
+        // P5: Green (Like J) - Changed from Rose to distinguish from Z
+        M1: '#FFFFFF', D2: '#CCBB44', T3: '#EE6677', P5: '#228833',
+        D2_H: '#CCBB44', D2_V: '#CCBB44', 
+        T3_L: '#EE6677', T3_I: '#EE6677',
+        P5_P: '#228833', P5_X: '#228833', P5_F: '#228833'
     }
 };
 
@@ -254,10 +265,10 @@ export const DEFAULT_CONTROLS = {
     ability3: ['3']
 };
 
-export const DIFFICULTY_SETTINGS: Record<string, { label: string, das: number, arr: number, color: string }> = {
-    EASY: { label: 'Easy', das: 200, arr: 30, color: 'text-green-400' },
-    MEDIUM: { label: 'Medium', das: 133, arr: 10, color: 'text-yellow-400' },
-    HARD: { label: 'Hard', das: 100, arr: 0, color: 'text-red-400' }
+export const DIFFICULTY_SETTINGS: Record<string, { label: string, das: number, arr: number, color: string, gravityMult: number, lockDelay: number, scoreMult: number }> = {
+    EASY: { label: 'Easy', das: 200, arr: 30, color: 'text-green-400', gravityMult: 0.8, lockDelay: 500, scoreMult: 1.0 },
+    MEDIUM: { label: 'Medium', das: 133, arr: 10, color: 'text-yellow-400', gravityMult: 1.0, lockDelay: 500, scoreMult: 1.5 },
+    HARD: { label: 'Hard', das: 100, arr: 0, color: 'text-red-400', gravityMult: 1.5, lockDelay: 350, scoreMult: 2.0 }
 };
 
 export const GAME_MODES_CONFIG: { id: GameMode; label: string; description: string; icon: string; color: string }[] = [

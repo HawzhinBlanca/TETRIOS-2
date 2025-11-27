@@ -130,17 +130,19 @@ export const TetriosGame = () => {
 
   useEffect(() => {
       if (engine.current) {
-          engine.current.events.onAudio = (event, val, type) => {
-              // Proxy
-          };
-          
-          engine.current.events.onAchievementUnlocked = (id: string) => {
+          const handleAchievement = (id: string) => {
               const ach = ACHIEVEMENTS.find(a => a.id === id);
               if (ach) {
                   setAchievementNotification({ title: ach.title, icon: ach.icon });
                   audioManager.playUiSelect();
                   setTimeout(() => setAchievementNotification(null), 4000);
               }
+          };
+
+          engine.current.events.on('ACHIEVEMENT_UNLOCKED', handleAchievement);
+          
+          return () => {
+              engine.current.events.off('ACHIEVEMENT_UNLOCKED', handleAchievement);
           };
       }
   }, [engine]);

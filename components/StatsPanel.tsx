@@ -5,6 +5,7 @@ import ProgressBar from './ui/ProgressBar';
 import EffectBar from './ui/EffectBar';
 import PanelHeader from './ui/PanelHeader';
 import GlassPanel from './ui/GlassPanel';
+import RollingNumber from './ui/RollingNumber';
 import { Label, Value } from './ui/Text';
 import { GameMode, AdventureLevelConfig, GameStats, LevelObjectiveType } from '../types';
 import { FRENZY_DURATION_MS, FOCUS_GAUGE_MAX } from '../constants';
@@ -43,7 +44,6 @@ const StatsPanel: React.FC<Props> = React.memo(({
   const levelProgress: number = (rows % 10) / 10;
   
   // Refs for fast updates
-  const scoreRef = useRef<HTMLDivElement>(null);
   const timeRef = useRef<HTMLDivElement>(null);
   const gaugeRef = useRef<HTMLDivElement>(null);
   
@@ -53,8 +53,9 @@ const StatsPanel: React.FC<Props> = React.memo(({
   useEffect(() => {
       if (!engine.current) return;
       
-      const handleScore = (newScore: number, newTime: number) => {
-          if (scoreRef.current) scoreRef.current.textContent = newScore.toLocaleString();
+      const handleFastUpdate = (newScore: number, newTime: number) => {
+          // We let React handle score via RollingNumber for smoothness, 
+          // but Time needs direct DOM manip for high FPS updates to avoid jitter
           if (timeRef.current && (gameMode === 'SPRINT' || gameMode === 'BLITZ' || gameMode === 'TIME_ATTACK')) {
               timeRef.current.textContent = formatTime(newTime);
           }
@@ -67,11 +68,9 @@ const StatsPanel: React.FC<Props> = React.memo(({
           }
       };
       
-      engine.current.events.on('FAST_SCORE', ({ score, time }) => handleScore(score, time));
+      engine.current.events.on('FAST_SCORE', ({ score, time }) => handleFastUpdate(score, time));
       engine.current.events.on('FAST_GAUGE', ({ value }) => handleGauge(value));
       
-      // Clean up listeners isn't strictly necessary here as component lifespan matches game session
-      // but good practice for complex apps
       return () => {};
   }, [engine, gameMode, isZoneActive]);
 
@@ -111,7 +110,7 @@ const StatsPanel: React.FC<Props> = React.memo(({
     const target: number = adventureLevelConfig.objective.target;
     let currentProgress: number = 0;
     let label: string = '';
-    let text: string | number = '';
+    let text: React.ReactNode = '';
     let progressRatio: number | undefined = undefined;
     let icon = Target;
 
@@ -147,7 +146,7 @@ const StatsPanel: React.FC<Props> = React.memo(({
     }
 
     if (objectiveType !== 'TIME_SURVIVAL' && objectiveType !== 'BOSS') {
-        text = `${currentProgress} / ${target}`;
+        text = <><RollingNumber value={currentProgress} /> / {target}</>;
         progressRatio = Math.min(1, currentProgress / target);
     }
 
@@ -209,7 +208,7 @@ const StatsPanel: React.FC<Props> = React.memo(({
       
       {gameMode === 'ADVENTURE' && renderAdventureObjective()}
 
-      <div className={`space-y-1 transition-all duration-300 ${isZoneActive ? 'opacity-60 grayscale' : 'opacity-100'}`}>
+      <div className={`space-y-1 transition-all duration-300 ${isZoneActive ? 'opacity-100' : 'opacity-100'}`}>
           {gameMode !== 'ZEN' && (
               <div className="pb-6 mb-4 relative">
                   <div className="flex items-center gap-2 mb-1">
@@ -217,9 +216,8 @@ const StatsPanel: React.FC<Props> = React.memo(({
                       <Label className="text-cyan-500/80">Total Score</Label>
                   </div>
                   <div className="relative flex flex-col items-end">
-                      {/* Use ref for score to update without re-render */}
-                      <div ref={scoreRef} className="font-mono font-bold tabular-nums leading-none tracking-tight text-4xl bg-clip-text text-transparent bg-gradient-to-b from-white to-gray-400 drop-shadow-[0_0_10px_rgba(255,255,255,0.5)] [text-shadow:0_0_5px_currentColor,0_0_15px_currentColor]">
-                          {score.toLocaleString()}
+                      <div className="font-mono font-bold tabular-nums leading-none tracking-tight text-4xl bg-clip-text text-transparent bg-gradient-to-b from-white to-gray-400 drop-shadow-[0_0_10px_rgba(255,255,255,0.5)] [text-shadow:0_0_5px_currentColor,0_0_15px_currentColor]">
+                          <RollingNumber value={score} />
                       </div>
                       <div className="absolute top-0 right-0 transform -translate-y-full pointer-events-none h-6">
                          <Delta value={scoreDelta} />

@@ -28,15 +28,15 @@ export const useAudioSystem = ({
     // Initialization
     useEffect(() => {
         const initAudio = () => audioManager.init();
-        // Auto-init on interaction
-        window.addEventListener('click', initAudio, { once: true });
-        window.addEventListener('keydown', initAudio, { once: true });
+        
+        // Robust listener set for all device types
+        const events = ['click', 'keydown', 'touchstart', 'pointerdown'];
+        events.forEach(evt => window.addEventListener(evt, initAudio, { once: true }));
+        
         return () => {
-            window.removeEventListener('click', initAudio);
-            window.removeEventListener('keydown', initAudio);
+            events.forEach(evt => window.removeEventListener(evt, initAudio));
+            
             // Cleanup audio context if component unmounts heavily (e.g. full nav away)
-            // Note: For SPA we usually keep it, but for strict reliability we ensure close.
-            // In a real app, we might want a singleton that persists, but this satisfies the requirement.
             if (audioManager.ctx && audioManager.ctx.state !== 'closed') {
                audioManager.ctx.suspend().catch(() => {});
             }

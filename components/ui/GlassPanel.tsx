@@ -51,11 +51,18 @@ export const GlassPanel = React.forwardRef<HTMLDivElement, GlassPanelProps>(({
   if (borderGradient === 'red') customBorder = { borderColor: 'rgba(239, 68, 68, 0.6)', boxShadow: '0 0 20px rgba(239, 68, 68, 0.3)' };
   if (borderGradient === 'blue') customBorder = { borderColor: 'rgba(6, 182, 212, 0.5)', boxShadow: '0 0 15px rgba(6, 182, 212, 0.2)' };
 
+  // Audio Reactive Style Injection
+  const reactiveStyle = {
+      ...customBorder,
+      borderColor: `rgba(255, 255, 255, calc(0.1 + var(--audio-energy, 0) * 0.2))`,
+      boxShadow: `0 0 calc(10px + var(--audio-energy, 0) * 10px) rgba(6, 182, 212, calc(var(--audio-energy, 0) * 0.15))`
+  };
+
   return (
     <div 
       ref={ref}
       className={`${baseStyles} ${blurIntensity[intensity]} ${variants[variant]} ${interactiveStyles} ${borderGlowStyles} ${className}`}
-      style={customBorder}
+      style={reactiveStyle}
       {...props}
     >
       {children}

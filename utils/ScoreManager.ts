@@ -1,7 +1,7 @@
 
 import type { GameCore } from './GameCore';
 import { GameStats, GameMode, ScoreResult } from '../types';
-import { SCORES, FRENZY_DURATION_MS, FRENZY_COMBO_THRESHOLD, BLITZ_DURATION_MS, BLITZ_SPEED_THRESHOLDS, LEVEL_PASS_COIN_REWARD, COMBO_MASTER_INITIAL_TIME, COMBO_MASTER_TIME_BONUS_BASE, COMBO_MASTER_TIME_BONUS_MULTIPLIER, FOCUS_GAUGE_PER_LINE, FOCUS_GAUGE_MAX, ZONE_DURATION_MS, ACHIEVEMENTS } from '../constants';
+import { SCORES, FRENZY_DURATION_MS, FRENZY_COMBO_THRESHOLD, BLITZ_DURATION_MS, BLITZ_SPEED_THRESHOLDS, LEVEL_PASS_COIN_REWARD, COMBO_MASTER_INITIAL_TIME, COMBO_MASTER_TIME_BONUS_BASE, COMBO_MASTER_TIME_BONUS_MULTIPLIER, FOCUS_GAUGE_PER_LINE, FOCUS_GAUGE_MAX, ZONE_DURATION_MS, ACHIEVEMENTS, DIFFICULTY_SETTINGS } from '../constants';
 import { calculateScore } from './scoreRules';
 import { useProfileStore } from '../stores/profileStore';
 import { audioManager } from './audioManager';
@@ -364,7 +364,8 @@ export class ScoreManager {
 
     public applyScore(amount: number): void {
         if (this.core.mode !== 'ZEN' && this.core.mode !== 'PUZZLE') {
-            this.stats.score += amount * this.frenzyMultiplier * this.powerupMultiplier;
+            const diffMult = DIFFICULTY_SETTINGS[this.core.difficulty]?.scoreMult || 1.0;
+            this.stats.score += amount * this.frenzyMultiplier * this.powerupMultiplier * diffMult;
         }
         this.core.adventureManager.applyBossDamage(amount);
 

@@ -1,5 +1,5 @@
 
-import { DEFAULT_GAMESPEED, BLITZ_INITIAL_DROPTIME, SURVIVAL_INITIAL_GARBAGE_INTERVAL, SURVIVAL_MIN_GARBAGE_INTERVAL, SURVIVAL_GARBAGE_DECREMENT, STAGE_HEIGHT, STAGE_WIDTH } from '../constants';
+import { DEFAULT_GAMESPEED, BLITZ_INITIAL_DROPTIME, SURVIVAL_INITIAL_GARBAGE_INTERVAL, SURVIVAL_MIN_GARBAGE_INTERVAL, SURVIVAL_GARBAGE_DECREMENT, STAGE_HEIGHT, STAGE_WIDTH, DIFFICULTY_SETTINGS } from '../constants';
 import { GameState, TetrominoType, GameMode, KeyAction, FloatingTextVariant, BoosterType, LevelRewards, AdventureLevelConfig, KeyMap, MoveScore, GameSnapshot, Difficulty, GameStats } from '../types';
 import { AdventureManager } from './AdventureManager';
 import { BoosterManager } from './BoosterManager';
@@ -27,6 +27,7 @@ export interface GameCoreConfig {
 
 export class GameCore {
     mode: GameMode = 'MARATHON';
+    difficulty: Difficulty = 'MEDIUM';
     public events = new EventManager();
     public grid: { width: number; height: number };
 
@@ -166,6 +167,7 @@ export class GameCore {
 
     resetGame(mode: GameMode = 'MARATHON', startLevel: number = 0, adventureLevelConfig: AdventureLevelConfig | undefined, assistRows: number = 0, activeBoosters: BoosterType[] = [], difficulty: Difficulty = 'MEDIUM', gridConfig?: { width: number, height: number }): void {
         this.mode = mode;
+        this.difficulty = difficulty;
         if (gridConfig) {
             this.grid = gridConfig;
             this.inputManager.updateConfig({ stageWidth: gridConfig.width });
@@ -277,11 +279,9 @@ export class GameCore {
         this.updateSpeed();
         this.addFloatingText(`LEVEL ${newLevel}`, '#fbbf24', 1.0);
         this.playAudio('LEVEL_UP');
-        if (newLevel >= 20) {
-             this.pieceManager.lockDelayDuration = Math.max(150, 500 - (newLevel - 20) * 15);
-        } else {
-             this.pieceManager.lockDelayDuration = 500;
-        }
+        // Lock delay logic is now handled in PieceManager based on difficulty/level combo if needed,
+        // but core difficulty sets baseline. We can add scaling here if desired.
+        // For now, let's keep it simple or delegate to PieceManager update.
         this.syncState();
     }
 
@@ -299,16 +299,20 @@ export class GameCore {
         if (this.mode === 'SURVIVAL' || this.mode === 'COMBO_MASTER') {
             const effectiveLevel = Math.max(1, level);
             baseDropTime = Math.max(150, Math.pow(0.85 - ((effectiveLevel - 1) * 0.005), effectiveLevel - 1) * 800);
-            return baseDropTime / this.speedMultiplier;
-        }
-        if (this.mode === 'ADVENTURE') {
+        } else if (this.mode === 'ADVENTURE') {
              const lvlIndex = this.adventureManager.config?.index || 0;
              baseDropTime = Math.max(100, Math.pow(0.95, lvlIndex) * 1000);
         } else {
              const effectiveLevel = Math.max(1, level);
              baseDropTime = Math.max(100, Math.pow(0.8 - ((effectiveLevel - 1) * 0.007), effectiveLevel - 1) * 1000);
         }
-        return baseDropTime / this.speedMultiplier;
+        
+        // Apply Difficulty Modifier (higher mult = faster drop)
+        // We divide drop time by gravity multiplier.
+        const diffConfig = DIFFICULTY_SETTINGS[this.difficulty];
+        const difficultyGravity = diffConfig ? diffConfig.gravityMult : 1.0;
+        
+        return baseDropTime / (this.speedMultiplier * difficultyGravity);
     }
 
     handleAction(action: KeyAction): void {

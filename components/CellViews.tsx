@@ -1,3 +1,4 @@
+
 import React, { useMemo } from 'react';
 import { GhostStyle } from '../types';
 
@@ -14,8 +15,9 @@ export const GhostView: React.FC<{
     const currentOpacity = warning ? 1 : opacity;
     const glowMult = warning ? 1.5 : 1;
 
-    const minBlur = Math.max(2, 4 * glow * glowMult);
-    const maxBlur = Math.max(8, 16 * glow * glowMult);
+    // Allow 0 blur if glow is 0
+    const minBlur = glow === 0 ? 0 : Math.max(2, 4 * glow * glowMult);
+    const maxBlur = glow === 0 ? 0 : Math.max(8, 16 * glow * glowMult);
 
     const baseStyle: React.CSSProperties = {
         '--cell-rgb': displayRgb,
@@ -50,12 +52,14 @@ export const GhostView: React.FC<{
             case 'neon':
             default:
                 // Static fallback if animation not supported
-                const blur = 8 * glow * glowMult;
-                const spread = 4 * glow * glowMult;
+                const blur = glow === 0 ? 0 : 8 * glow * glowMult;
+                const spread = glow === 0 ? 0 : 4 * glow * glowMult;
+                const shadow = blur > 0 ? `0 0 ${blur}px rgba(${displayRgb}, 0.8), inset 0 0 ${spread}px rgba(${displayRgb}, 0.4)` : 'none';
+                
                 return {
                     background: `rgba(${displayRgb}, 0.1)`,
                     border: `${outlineWidth} solid rgba(${displayRgb}, 0.8)`,
-                    boxShadow: `0 0 ${blur}px rgba(${displayRgb}, 0.8), inset 0 0 ${spread}px rgba(${displayRgb}, 0.4)`,
+                    boxShadow: shadow,
                 };
         }
     }, [style, displayRgb, outlineWidth, warning, glow, glowMult]);

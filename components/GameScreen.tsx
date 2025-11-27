@@ -104,12 +104,26 @@ export const GameScreen: React.FC<GameScreenProps> = ({
         }
     };
 
+    // Zone Reality Distortion Effect
+    const zoneStyle = stats.isZoneActive ? {
+        filter: 'hue-rotate(180deg) contrast(1.2)',
+        textShadow: '-2px 0 red, 2px 0 cyan'
+    } : {};
+
     return (
         <div className="relative w-full h-full flex justify-center items-center overflow-hidden">
             <A11yAnnouncer lastEvent={announcement} />
             
+            {/* Zone Full-Screen Distortion Overlay */}
+            <div className={`fixed inset-0 pointer-events-none z-[60] transition-opacity duration-500 mix-blend-overlay ${stats.isZoneActive ? 'opacity-100' : 'opacity-0'}`}
+                 style={{ 
+                     background: 'radial-gradient(circle, transparent 40%, rgba(255,255,255,0.2) 100%)',
+                     boxShadow: 'inset 0 0 100px rgba(0,255,255,0.5)' 
+                 }}>
+            </div>
+
             {/* Main Container */}
-            <div className="relative flex justify-center items-start gap-0 w-full h-full md:w-auto md:h-auto md:gap-8 md:p-4">
+            <div className="relative flex justify-center items-start gap-0 w-full h-full md:w-auto md:h-auto md:gap-8 md:p-4" style={zoneStyle}>
                 
                 {/* Desktop Left HUD */}
                 <div className="hidden lg:flex flex-col w-64 gap-4 transition-all duration-500 ease-out animate-slide-in-left pt-4">
@@ -156,7 +170,8 @@ export const GameScreen: React.FC<GameScreenProps> = ({
                     
                     {/* Overlays */}
                     <div className="absolute top-0 left-0 w-full h-full pointer-events-none z-20 overflow-visible">
-                        <div className="absolute top-1/2 left-full ml-4 transform -translate-y-1/2 hidden md:block">
+                        {/* Hype Stack: Left Side of board now */}
+                        <div className="absolute top-1/4 -left-4 transform -translate-x-full hidden md:block">
                             <ComboIndicator comboCount={comboCount} isBackToBack={isBackToBack} />
                         </div>
                         

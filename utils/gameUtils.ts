@@ -4,19 +4,28 @@ import { Board, CellData, TetrominoType, Player, TetrominoShape, Position, CellM
 
 export const createStage = (width: number = STAGE_WIDTH, height: number = STAGE_HEIGHT): Board => {
   // Safety: Ensure integer dimensions >= 0 to prevent 'Invalid array length' errors
-  // Explicitly handle NaN or undefined by defaulting to 0 in Math.max
-  const h = Math.floor(Math.max(0, height || 0));
-  const w = Math.floor(Math.max(0, width || 0));
-  // If height is 0, return empty array immediately to avoid potential issues down the line
-  if (h === 0) return [];
+  // Explicitly handle NaN, undefined, or Infinity
+  let h = Math.floor(Math.max(0, height || 0));
+  let w = Math.floor(Math.max(0, width || 0));
+  
+  // Safety caps to prevent memory exhaustion or invalid array length
+  if (!Number.isFinite(h) || h > 1000) h = STAGE_HEIGHT; 
+  if (!Number.isFinite(w) || w > 100) w = STAGE_WIDTH;
+
+  // If dimensions are 0 (e.g. initialization race condition), return default to avoid downstream crashes
+  if (h === 0) h = STAGE_HEIGHT;
+  if (w === 0) w = STAGE_WIDTH;
   
   try {
       return Array.from(Array(h), () =>
         Array.from({ length: w }, () => [null, 'clear'] as CellData)
       );
   } catch (e) {
-      console.error("Failed to create stage", e);
-      return [];
+      console.error("Failed to create stage with dims:", w, h, e);
+      // Fallback to default small stage to prevent crash loop
+      return Array.from(Array(STAGE_HEIGHT), () =>
+        Array.from({ length: STAGE_WIDTH }, () => [null, 'clear'] as CellData)
+      );
   }
 };
 
