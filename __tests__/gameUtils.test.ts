@@ -1,5 +1,6 @@
 
-import { rotateMatrix, generateBag, parseRgb, createStage } from '../utils/gameUtils';
+
+import { rotateMatrix, generateBag, parseRgb, createStage, SeededRNG } from '../utils/gameUtils';
 import { STAGE_WIDTH, STAGE_HEIGHT } from '../constants';
 
 declare var describe: any;
@@ -36,7 +37,8 @@ describe('gameUtils', () => {
 
   describe('generateBag', () => {
     it('returns a shuffled bag of 7 unique tetrominos', () => {
-      const bag = generateBag();
+      const rng = new SeededRNG('test');
+      const bag = generateBag(rng);
       expect(bag.length).toBe(7);
       const unique = new Set(bag);
       expect(unique.size).toBe(7);

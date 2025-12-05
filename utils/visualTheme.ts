@@ -39,7 +39,7 @@ export const VISUAL_THEME = {
     SPRITE: {
         GLOW_SCALE: 2.5,
     },
-    // Evolving Themes
+    // Evolving Themes - Updated for higher impact
     THEMES: [
         { threshold: 0, name: 'VOID', background: 'radial-gradient(circle at 50% -10%, #0f172a 0%, #000000 80%)' },
         { threshold: 5, name: 'DAWN', background: 'radial-gradient(circle at 50% -10%, #4c1d95 0%, #1e1b4b 80%)' },

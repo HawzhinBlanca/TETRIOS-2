@@ -1,18 +1,21 @@
 
 import { STAGE_HEIGHT, STAGE_WIDTH, TETROMINOS, KICKS, MODIFIER_COLORS, COLORS } from '../constants';
-import { Board, CellData, TetrominoType, Player, TetrominoShape, Position, CellModifier, AdventureLevelConfig, InitialBoardModifierType, PuzzleDefinition } from '../types';
+import { Board, CellData, TetrominoType, Player, TetrominoShape, Position, CellModifier, AdventureLevelConfig, InitialBoardModifierType, PuzzleDefinition, Tetromino } from '../types';
 
+/**
+ * Creates a new empty game board.
+ * @param width Grid width (default: 10)
+ * @param height Grid height (default: 24)
+ * @returns An initialized 2D array representing the board.
+ */
 export const createStage = (width: number = STAGE_WIDTH, height: number = STAGE_HEIGHT): Board => {
-  // Safety: Ensure integer dimensions >= 0 to prevent 'Invalid array length' errors
-  // Explicitly handle NaN, undefined, or Infinity
   let h = Math.floor(Math.max(0, height || 0));
   let w = Math.floor(Math.max(0, width || 0));
   
-  // Safety caps to prevent memory exhaustion or invalid array length
+  // Safety caps to prevent memory exhaustion crashes
   if (!Number.isFinite(h) || h > 1000) h = STAGE_HEIGHT; 
   if (!Number.isFinite(w) || w > 100) w = STAGE_WIDTH;
 
-  // If dimensions are 0 (e.g. initialization race condition), return default to avoid downstream crashes
   if (h === 0) h = STAGE_HEIGHT;
   if (w === 0) w = STAGE_WIDTH;
   
@@ -22,14 +25,18 @@ export const createStage = (width: number = STAGE_WIDTH, height: number = STAGE_
       );
   } catch (e) {
       console.error("Failed to create stage with dims:", w, h, e);
-      // Fallback to default small stage to prevent crash loop
+      // Fallback
       return Array.from(Array(STAGE_HEIGHT), () =>
         Array.from({ length: STAGE_WIDTH }, () => [null, 'clear'] as CellData)
       );
   }
 };
 
-class SeededRNG {
+/**
+ * A seedable Random Number Generator using a Linear Congruential Generator (LCG).
+ * Useful for deterministic replays and consistent level generation.
+ */
+export class SeededRNG {
     private _seed: number;
     
     constructor(seed: string) {
@@ -46,26 +53,24 @@ class SeededRNG {
         return Math.abs(hash);
     }
 
+    /**
+     * Returns a float between 0 and 1.
+     */
     public next(): number {
         this._seed = (this._seed * 9301 + 49297) % 233280;
         return this._seed / 233280;
     }
     
+    /**
+     * Returns an integer between min and max (inclusive).
+     */
     public nextInt(min: number, max: number): number {
         return Math.floor(this.next() * (max - min + 1)) + min;
     }
+
+    public get state(): number { return this._seed; }
+    public set state(val: number) { this._seed = val; }
 }
-
-let rngInstance: SeededRNG | null = null;
-
-export const setRngSeed = (seed: string | null) => {
-    if (seed) rngInstance = new SeededRNG(seed);
-    else rngInstance = null;
-};
-
-const random = (): number => {
-    return rngInstance ? rngInstance.next() : Math.random();
-};
 
 export const createPuzzleStage = (puzzle: PuzzleDefinition): Board => {
     const stage = createStage();
@@ -84,103 +89,82 @@ export const createPuzzleStage = (puzzle: PuzzleDefinition): Board => {
     return stage;
 };
 
-export const fillRandomClearCell = (board: Board, modifier: CellModifier, attempts: number = 100, flippedGravity: boolean = false): boolean => {
+// Helper to find a random valid position
+const findRandomClearPosition = (board: Board, rng: SeededRNG, flippedGravity: boolean, startBuffer: number = 4, attempts: number = 100): Position | null => {
     const height = board.length;
-    if (height === 0) return false;
+    if (height === 0) return null;
     const width = board[0].length;
-    
+
+    const yStart = flippedGravity ? 0 : startBuffer;
+    const yEnd = flippedGravity ? height - startBuffer : height;
+
     for (let i = 0; i < attempts; i++) {
-        const startBuffer = 4; 
-        const yStart = flippedGravity ? 0 : startBuffer;
-        const yEnd = flippedGravity ? height - startBuffer : height;
-        const y = Math.floor(random() * (yEnd - yStart)) + yStart;
-        
-        const x = Math.floor(random() * width);
+        const y = Math.floor(rng.next() * (yEnd - yStart)) + yStart;
+        const x = Math.floor(rng.next() * width);
         if (board[y] && board[y][x] && board[y][x][1] === 'clear' && !board[y][x][2]) {
-            board[y][x][2] = { ...modifier }; 
-            return true;
+            return { x, y };
         }
+    }
+    return null;
+}
+
+export const applyModifierToRandomSlot = (board: Board, rng: SeededRNG, modifier: CellModifier, asGarbage: boolean = false, flippedGravity: boolean = false, attempts: number = 100): boolean => {
+    const pos = findRandomClearPosition(board, rng, flippedGravity, 4, attempts);
+    if (pos) {
+        if (asGarbage) {
+            board[pos.y][pos.x] = ['G', 'merged', { ...modifier }];
+        } else {
+            board[pos.y][pos.x][2] = { ...modifier };
+        }
+        return true;
     }
     return false;
 };
 
-export const fillRandomWithGarbageAndModifier = (board: Board, modifier: CellModifier, attempts: number = 100, flippedGravity: boolean = false): boolean => {
-    const height = board.length;
-    if (height === 0) return false;
-    const width = board[0].length;
-
-    for (let i = 0; i < attempts; i++) {
-        const startBuffer = 4; 
-        const yStart = flippedGravity ? 0 : startBuffer;
-        const yEnd = flippedGravity ? height - startBuffer : height;
-        const y = Math.floor(random() * (yEnd - yStart)) + yStart;
-        const x = Math.floor(random() * width);
-        
-        if (board[y] && board[y][x] && board[y][x][1] === 'clear' && !board[y][x][2]) {
-            board[y][x] = ['G', 'merged', { ...modifier }];
-            return true;
-        }
-    }
-    return false;
+const MODIFIER_HANDLERS: Record<string, (stage: Board, rng: SeededRNG, item: any, flipped: boolean) => void> = {
+    'GEMS': (stage, rng, _, flipped) => applyModifierToRandomSlot(stage, rng, { type: 'GEM' }, false, flipped),
+    'BOMBS': (stage, rng, item, flipped) => applyModifierToRandomSlot(stage, rng, { type: 'BOMB', timer: item.modifierProps?.timer || 10 }, true, flipped),
+    'ICE': (stage, rng, item, flipped) => applyModifierToRandomSlot(stage, rng, { type: 'ICE', hits: item.modifierProps?.hits || 2 }, true, flipped),
+    'WILDCARD_BLOCK': (stage, rng, _, flipped) => applyModifierToRandomSlot(stage, rng, { type: 'WILDCARD_BLOCK' }, false, flipped),
+    'LASER_BLOCK': (stage, rng, _, flipped) => applyModifierToRandomSlot(stage, rng, { type: 'LASER_BLOCK' }, false, flipped),
+    'NUKE_BLOCK': (stage, rng, _, flipped) => applyModifierToRandomSlot(stage, rng, { type: 'NUKE_BLOCK' }, false, flipped),
+    'SOFT_BLOCKS': (stage, rng, _, flipped) => applyModifierToRandomSlot(stage, rng, { type: 'SOFT_BLOCK' }, true, flipped),
+    'BEDROCK': (stage, rng, _, flipped) => applyModifierToRandomSlot(stage, rng, { type: 'BEDROCK' }, true, flipped),
 };
 
-const _populateStageWithInitialBoardItems = (stage: Board, item: { type: any; amount: number; modifierProps?: { timer?: number; hits?: number; }; }, flippedGravity: boolean): Board => {
+const _populateStageWithInitialBoardItems = (stage: Board, rng: SeededRNG, item: { type: any; amount: number; modifierProps?: { timer?: number; hits?: number; }; }, flippedGravity: boolean): Board => {
     let currentStage = stage;
     const width = stage[0].length;
     const height = stage.length;
 
     for (let i = 0; i < item.amount; i++) {
-        switch (item.type) {
-            case 'GEMS':
-                fillRandomClearCell(currentStage, { type: 'GEM' }, 100, flippedGravity);
-                break;
-            case 'BOMBS':
-                fillRandomWithGarbageAndModifier(currentStage, { type: 'BOMB', timer: item.modifierProps?.timer || 10 }, 100, flippedGravity);
-                break;
-            case 'ICE':
-                fillRandomWithGarbageAndModifier(currentStage, { type: 'ICE', hits: item.modifierProps?.hits || 2 }, 100, flippedGravity);
-                break;
-            case 'GARBAGE':
-                currentStage = addGarbageLines(currentStage, 1, true, flippedGravity); 
-                break;
-            case 'WILDCARD_BLOCK':
-                fillRandomClearCell(currentStage, { type: 'WILDCARD_BLOCK' }, 100, flippedGravity);
-                break;
-            case 'LASER_BLOCK':
-                fillRandomClearCell(currentStage, { type: 'LASER_BLOCK' }, 100, flippedGravity);
-                break;
-            case 'NUKE_BLOCK': 
-                fillRandomClearCell(currentStage, { type: 'NUKE_BLOCK' }, 100, flippedGravity);
-                break;
-            case 'SOFT_BLOCKS':
-                fillRandomWithGarbageAndModifier(currentStage, { type: 'SOFT_BLOCK' }, 100, flippedGravity);
-                break;
-            case 'BEDROCK':
-                fillRandomWithGarbageAndModifier(currentStage, { type: 'BEDROCK' }, 100, flippedGravity);
-                break;
-            case 'PILLARS':
-                const col = Math.floor(random() * width);
-                const pillarHeight = 10 + Math.floor(random() * 5);
-                for(let y=0; y<pillarHeight; y++) {
-                    const stageY = flippedGravity ? y : height - 1 - y;
-                    if (currentStage[stageY]) {
-                        currentStage[stageY][col] = ['G', 'merged', { type: 'BEDROCK' }]; 
-                    }
+        if (item.type === 'GARBAGE') {
+            currentStage = addGarbageLines(currentStage, rng, 1, true, flippedGravity);
+        } else if (item.type === 'PILLARS') {
+            const col = Math.floor(rng.next() * width);
+            const pillarHeight = 10 + Math.floor(rng.next() * 5);
+            for(let y=0; y<pillarHeight; y++) {
+                const stageY = flippedGravity ? y : height - 1 - y;
+                if (currentStage[stageY]) {
+                    currentStage[stageY][col] = ['G', 'merged', { type: 'BEDROCK' }]; 
                 }
-                break;
+            }
+        } else {
+            const handler = MODIFIER_HANDLERS[item.type];
+            if (handler) {
+                handler(currentStage, rng, item, flippedGravity);
+            }
         }
     }
     return currentStage;
 };
 
-export const generateAdventureStage = (config: AdventureLevelConfig, assistRows: number = 0): Board => {
-    // Adventure mode typically uses standard grid unless overridden, but we respect mobile dynamic height here too if passed implicitly
-    // However, for now we use default unless context changes
+export const generateAdventureStage = (config: AdventureLevelConfig, rng: SeededRNG, assistRows: number = 0): Board => {
     let stage = createStage();
     const flippedGravity = config.gimmicks?.some(g => g.type === 'FLIPPED_GRAVITY');
 
     config.initialBoard?.forEach(item => {
-        stage = _populateStageWithInitialBoardItems(stage, item, flippedGravity || false);
+        stage = _populateStageWithInitialBoardItems(stage, rng, item, flippedGravity || false);
     });
 
     const height = stage.length;
@@ -196,14 +180,14 @@ export const generateAdventureStage = (config: AdventureLevelConfig, assistRows:
     return stage;
 };
 
-export const addGarbageLines = (stage: Board, count: number, initialPlacement: boolean = false, flippedGravity: boolean = false): Board => {
+export const addGarbageLines = (stage: Board, rng: SeededRNG, count: number, initialPlacement: boolean = false, flippedGravity: boolean = false): Board => {
     const newStage = stage.map(row => [...row]);
     const width = stage[0]?.length || 0;
     
     if (width === 0) return newStage;
 
     for(let i=0; i<count; i++) {
-        const hole = Math.floor(random() * width);
+        const hole = Math.floor(rng.next() * width);
         const garbageRow: CellData[] = Array.from({ length: width }, (_, x) => 
             x === hole ? [null, 'clear'] : ['G', 'merged']
         );
@@ -223,13 +207,24 @@ export const addGarbageLines = (stage: Board, count: number, initialPlacement: b
     return newStage;
 };
 
-export const generateBag = (customPool?: TetrominoType[]): TetrominoType[] => {
+export const generateBag = (rng: SeededRNG, customPool?: TetrominoType[], trueRandom: boolean = false): TetrominoType[] => {
   const shapes: TetrominoType[] = customPool ? [...customPool] : ['I', 'J', 'L', 'O', 'S', 'T', 'Z'];
-  for (let i = shapes.length - 1; i > 0; i--) {
-    const j = Math.floor(random() * (i + 1));
-    [shapes[i], shapes[j]] = [shapes[j], shapes[i]];
+  
+  if (trueRandom) {
+      const randomBag: TetrominoType[] = [];
+      for (let i = 0; i < 7; i++) {
+          const randomIndex = Math.floor(rng.next() * shapes.length);
+          randomBag.push(shapes[randomIndex]);
+      }
+      return randomBag;
   }
-  return shapes;
+
+  const bag = [...shapes];
+  for (let i = bag.length - 1; i > 0; i--) {
+    const j = Math.floor(rng.next() * (i + 1));
+    [bag[i], bag[j]] = [bag[j], bag[i]];
+  }
+  return bag;
 };
 
 export const rotateMatrix = (matrix: TetrominoShape, dir: number): TetrominoShape => {

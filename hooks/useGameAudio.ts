@@ -1,21 +1,24 @@
 
-
 import { useCallback } from 'react';
 import { AudioEvent, TetrominoType } from '../types';
 import { audioManager } from '../utils/audioManager';
+import { useGameSettingsStore } from '../stores/gameSettingsStore';
 
 // Helper for haptic feedback
 const vibrate = (pattern: number | number[]) => {
-    if (typeof navigator !== 'undefined' && navigator.vibrate) {
+    // Only vibrate if enabled in settings
+    const enabled = useGameSettingsStore.getState().vibrationEnabled;
+    if (enabled && typeof navigator !== 'undefined' && navigator.vibrate) {
         navigator.vibrate(pattern);
     }
 };
 
 export const useGameAudio = () => {
-  const handleAudioEvent = useCallback((event: AudioEvent, val?: number, type?: TetrominoType) => {
+  const handleAudioEvent = useCallback((event: AudioEvent, val?: number, type?: TetrominoType, extra?: any) => {
     // Normalize x position (0-9) to stereo pan (-1 to 1)
     let pan = 0;
-    if (val !== undefined) {
+    // Strict finite check to prevent "The provided value is non-finite" error
+    if (val !== undefined && typeof val === 'number' && Number.isFinite(val)) {
         // Center is 4.5. 
         pan = (val - 4.5) / 5.0;
         pan = Math.max(-1, Math.min(1, pan));
@@ -24,7 +27,10 @@ export const useGameAudio = () => {
     // Exhaustive mapping for all AudioEvents
     switch(event) {
         case 'MOVE': 
-            audioManager.playMove(pan); 
+            // We pass 'val' (which is column X) directly to playMove to determine note pitch
+            // If val is not provided, default to center (col 5)
+            const col = (typeof val === 'number' && Number.isFinite(val)) ? val : 5;
+            audioManager.playMove(col); 
             break;
         case 'ROTATE': 
             audioManager.playRotate(pan); 
@@ -35,11 +41,12 @@ export const useGameAudio = () => {
             break;
         case 'HARD_DROP': 
             audioManager.playHardDrop(pan); 
-            vibrate(15);
+            vibrate(20); // Beefed up
             break;
         case 'LOCK': 
-            audioManager.playLock(pan, type); 
-            vibrate(10);
+            // Lock event sometimes passes type as payload in val, ignore pan for lock if not number
+            audioManager.playLock(0, type); 
+            vibrate(15);
             break;
         case 'SOFT_LAND': 
             audioManager.playSoftLand(pan); 
@@ -47,35 +54,38 @@ export const useGameAudio = () => {
             break;
         case 'TSPIN': 
             audioManager.playTSpin(); 
-            vibrate([10, 30, 10]);
+            // Double beat for T-Spin
+            vibrate([15, 30, 20]);
             break;
         case 'CLEAR_1': 
-            audioManager.playClear(1); 
-            vibrate(20); 
+            audioManager.playClear(1, extra?.combo, extra?.isB2B); 
+            vibrate(30); 
             break;
         case 'CLEAR_2': 
-            audioManager.playClear(2); 
-            vibrate(25); 
+            audioManager.playClear(2, extra?.combo, extra?.isB2B); 
+            vibrate([30, 50]); 
             break;
         case 'CLEAR_3': 
-            audioManager.playClear(3); 
-            vibrate(35); 
+            audioManager.playClear(3, extra?.combo, extra?.isB2B); 
+            vibrate([30, 30, 50]); 
             break;
         case 'CLEAR_4': 
-            audioManager.playClear(4); 
-            vibrate([30, 50, 30]);
+            audioManager.playClear(4, extra?.combo, extra?.isB2B); 
+            // HAPTIC OVERLOAD: The heartbeat of a Tetris
+            vibrate([50, 50, 50, 50, 100]); 
             break;
         case 'GAME_OVER': 
             audioManager.playGameOver(); 
-            vibrate([50, 100, 50, 100]);
+            // Long decay vibration
+            vibrate([100, 50, 100, 50, 200, 50, 500]);
             break;
         case 'VICTORY': 
             audioManager.playClear(4); 
-            vibrate([50, 50, 50, 50, 100]);
+            vibrate([50, 50, 50, 50, 100, 50, 100, 50, 500]);
             break; 
         case 'FRENZY_START': 
             audioManager.playFrenzyStart(); 
-            vibrate([20, 20, 20, 20]); 
+            vibrate([20, 20, 20, 20, 20, 20]); 
             break;
         case 'FRENZY_END': 
             audioManager.playFrenzyEnd(); 
@@ -89,7 +99,7 @@ export const useGameAudio = () => {
             break;
         case 'ZONE_CLEAR':
             audioManager.playZoneClear();
-            vibrate(5);
+            vibrate(10);
             break;
         case 'WILDCARD_SPAWN': 
             audioManager.playWildcardSpawn(); 
@@ -97,11 +107,11 @@ export const useGameAudio = () => {
             break;
         case 'LASER_CLEAR': 
             audioManager.playLaserClear(); 
-            vibrate(40);
+            vibrate(50);
             break;
         case 'NUKE_CLEAR': 
             audioManager.playNukeClear(); 
-            vibrate(100);
+            vibrate([100, 50, 100]);
             break;
         case 'NUKE_SPAWN': 
             audioManager.playNukeSpawn(); 
@@ -121,7 +131,7 @@ export const useGameAudio = () => {
             break;
         case 'GRAVITY_FLIP_START': 
             audioManager.playFlippedGravityActivate(); 
-            vibrate([20, 50]); 
+            vibrate([20, 50, 20, 50]); 
             break;
         case 'GRAVITY_FLIP_END': 
             audioManager.playFlippedGravityEnd(); 
@@ -129,7 +139,7 @@ export const useGameAudio = () => {
             break;
         case 'LEVEL_UP': 
             audioManager.playLevelUp(); 
-            vibrate([10, 20, 30]);
+            vibrate([10, 20, 30, 40]);
             break;
         case 'UI_HOVER': 
             audioManager.playUiHover(); 
@@ -154,11 +164,9 @@ export const useGameAudio = () => {
             audioManager.playCountdown();
             break;
         case 'REWIND':
-            // GameCore usually plays the sound too, but we ensure UI feedback here
             audioManager.playUiHover(); 
             break;
         case 'COACH_WARN':
-            // Subtle warning sound for missed opportunity
             audioManager.playUiBack(); 
             break;
         case 'ACHIEVEMENT_UNLOCK':
@@ -177,8 +185,40 @@ export const useGameAudio = () => {
             audioManager.playUiSelect();
             break;
         case 'ABILITY_ACTIVATE':
-            audioManager.playLineClearerActivate();
+            audioManager.playLineClearerActivate(); // Re-use laser sound
+            vibrate(40);
+            break;
+        case 'PERFECT_DROP':
+            audioManager.playPerfectDrop(val || 1);
+            vibrate(25);
+            break;
+        case 'TRICK':
+            audioManager.playUiSelect();
+            vibrate([10, 30, 10]);
+            break;
+        case 'HEARTBEAT':
+            audioManager.playHeartbeat();
+            vibrate(10);
+            break;
+        case 'CHAIN_REACTION':
+            audioManager.playChainReaction();
+            vibrate([20, 20, 20, 50]); // Stutter vibration
+            break;
+        case 'OVERDRIVE_START':
+            audioManager.playOverdriveStart();
+            vibrate([30, 30, 50, 100]);
+            break;
+        case 'OVERDRIVE_END':
+            audioManager.playOverdriveEnd();
             vibrate(20);
+            break;
+        case 'FUSE_DETONATE':
+            audioManager.playFuseDetonate();
+            vibrate([50, 50, 100, 100]);
+            break;
+        case 'FINISHER_READY':
+            audioManager.playUiSelect();
+            vibrate([50, 20, 50]);
             break;
         default:
             const _exhaustiveCheck: never = event;

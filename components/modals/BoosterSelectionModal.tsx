@@ -1,12 +1,15 @@
 
 import React, { useState } from 'react';
-import { AdventureLevelConfig, BoosterType, AbilityType } from '../../types';
+import { AdventureLevelConfig, BoosterType } from '../../types';
 import { BOOSTERS, ABILITIES } from '../../constants';
-import { Bomb, Clock, RotateCcw, Sparkles, ArrowDownUp, Palette, ArrowDown, Hammer, Lock } from 'lucide-react';
 import { useAdventureStore } from '../../stores/adventureStore';
 import { useProfileStore } from '../../stores/profileStore';
-import { audioManager } from '../../utils/audioManager';
 import Modal from '../ui/Modal';
+import Button from '../ui/Button';
+import { getIcon } from '../../utils/icons';
+import { useUiSound } from '../../hooks/useUiSound';
+import { TabSwitcher } from '../ui/TabSwitcher';
+import { ModalHeader } from '../ui/ModalHeader';
 
 interface BoosterSelectionModalProps {
     onStartGame: (config: AdventureLevelConfig, assistRows: number, activeBoosters: BoosterType[]) => void;
@@ -27,37 +30,31 @@ export const BoosterSelectionModal: React.FC<BoosterSelectionModalProps> = ({
     const { getFailedAttempts } = useAdventureStore();
     const { stats, equipAbility, unequipAbility } = useProfileStore();
     const [activeTab, setActiveTab] = useState<'BOOSTERS' | 'ABILITIES'>('BOOSTERS');
+    const { playUiBack } = useUiSound();
     
     const failedAttempts = getFailedAttempts(currentLevelConfig?.id || '');
     const assistRows = failedAttempts >= 3 ? 1 : 0;
-
-    const IconMap: Record<string, React.ElementType> = {
-        Bomb, Clock, RotateCcw, Sparkles, ArrowDownUp, Palette, ArrowDown, Hammer
-    };
 
     if (!currentLevelConfig) return null;
 
     return (
         <Modal onClose={onBack} ariaLabel="Mission Loadout" className="flex flex-col max-w-4xl h-[85vh]">
-            <div className="flex-shrink-0 mb-4 border-b border-gray-800 pb-4">
-                <h2 className="text-3xl font-black text-white uppercase tracking-wider mb-2">Mission Loadout</h2>
-                <p className="text-gray-400 text-sm mb-4">Target: <span className="text-cyan-400 font-bold">{currentLevelConfig.title}</span></p>
-
-                <div className="flex gap-2 justify-center">
-                    <button 
-                        onClick={() => setActiveTab('BOOSTERS')}
-                        className={`px-6 py-2 rounded text-xs font-bold uppercase tracking-wider transition-all ${activeTab === 'BOOSTERS' ? 'bg-cyan-600 text-white shadow-lg' : 'bg-gray-800 text-gray-400 hover:bg-gray-700'}`}
-                    >
-                        Boosters
-                    </button>
-                    <button 
-                        onClick={() => setActiveTab('ABILITIES')}
-                        className={`px-6 py-2 rounded text-xs font-bold uppercase tracking-wider transition-all ${activeTab === 'ABILITIES' ? 'bg-purple-600 text-white shadow-lg' : 'bg-gray-800 text-gray-400 hover:bg-gray-700'}`}
-                    >
-                        Abilities ({stats.equippedAbilities.length}/3)
-                    </button>
+            <ModalHeader 
+                title="Mission Loadout" 
+                subtitle={<>Target: <span className="text-cyan-400 font-bold">{currentLevelConfig.title}</span></>}
+            >
+                <div className="flex justify-center">
+                    <TabSwitcher 
+                        tabs={[
+                            { id: 'BOOSTERS', label: 'Boosters' },
+                            { id: 'ABILITIES', label: `Abilities (${stats.equippedAbilities.length}/3)` }
+                        ]}
+                        activeTab={activeTab}
+                        onSelect={(id) => setActiveTab(id as any)}
+                        activeVariant="primary"
+                    />
                 </div>
-            </div>
+            </ModalHeader>
 
             <div className="flex-1 overflow-y-auto min-h-0 pr-2 mb-6 custom-scrollbar">
                 {activeTab === 'BOOSTERS' && (
@@ -70,12 +67,12 @@ export const BoosterSelectionModal: React.FC<BoosterSelectionModalProps> = ({
                                 const count = ownedBoosters[booster.type] || 0;
                                 const isActive = activeBoosters.includes(booster.type);
                                 const canActivate = count > 0;
-                                const Icon = IconMap[booster.type === 'BOMB_BOOSTER' ? 'Bomb' : (booster.type === 'SLOW_TIME_BOOSTER' ? 'Clock' : (booster.type === 'PIECE_SWAP_BOOSTER' ? 'RotateCcw' : (booster.type === 'LINE_CLEARER_BOOSTER' ? 'Sparkles' : 'ArrowDownUp')))];
+                                const Icon = getIcon(booster.icon);
 
                                 return (
                                     <button
                                         key={booster.type}
-                                        onClick={() => { if (canActivate) { handleUiClick(); toggleActiveBooster(booster.type); } else { audioManager.playUiBack(); }}}
+                                        onClick={() => { if (canActivate) { handleUiClick(); toggleActiveBooster(booster.type); } else { playUiBack(); }}}
                                         onMouseEnter={handleUiHover}
                                         className={`p-4 border rounded-lg flex flex-col items-center justify-center transition-all duration-200 relative overflow-hidden
                                             ${isActive ? 'bg-cyan-900/50 border-cyan-500 text-cyan-300 shadow-[0_0_20px_rgba(6,182,212,0.3)]' :
@@ -106,13 +103,14 @@ export const BoosterSelectionModal: React.FC<BoosterSelectionModalProps> = ({
                         {Object.values(ABILITIES).map(ability => {
                             const isUnlocked = stats.unlockedAbilities.includes(ability.id);
                             const isEquipped = stats.equippedAbilities.includes(ability.id);
-                            const Icon = IconMap[ability.icon];
+                            const Icon = getIcon(ability.icon);
+                            const LockIcon = getIcon('Lock');
 
                             return (
                                 <button
                                     key={ability.id}
                                     onClick={() => {
-                                        if (!isUnlocked) { audioManager.playUiBack(); return; }
+                                        if (!isUnlocked) { playUiBack(); return; }
                                         handleUiClick();
                                         if (isEquipped) unequipAbility(ability.id);
                                         else equipAbility(ability.id);
@@ -124,7 +122,7 @@ export const BoosterSelectionModal: React.FC<BoosterSelectionModalProps> = ({
                                         'bg-black/40 border-gray-800 text-gray-600 cursor-not-allowed opacity-50 grayscale'}
                                     `}
                                 >
-                                    {!isUnlocked && <div className="absolute top-2 right-2 text-gray-600"><Lock size={16} /></div>}
+                                    {!isUnlocked && <div className="absolute top-2 right-2 text-gray-600"><LockIcon size={16} /></div>}
                                     <div className={`text-3xl mb-2 ${isEquipped ? 'text-purple-400' : (isUnlocked ? 'text-gray-400' : 'text-gray-700')}`}>
                                         {Icon && <Icon size={24} />}
                                     </div>
@@ -142,20 +140,14 @@ export const BoosterSelectionModal: React.FC<BoosterSelectionModalProps> = ({
             </div>
 
             <div className="flex-shrink-0 flex justify-center gap-4 pt-4 border-t border-gray-800">
-                <button
-                    onClick={() => { handleUiClick(); onBack(); }}
-                    onMouseEnter={handleUiHover}
-                    className="px-8 py-3 bg-gray-700 hover:bg-gray-600 text-white font-bold uppercase tracking-widest rounded transition-colors"
-                >
-                    Back to Map
-                </button>
-                <button
-                    onClick={() => { handleUiClick(); onStartGame(currentLevelConfig, assistRows, activeBoosters); }}
-                    onMouseEnter={handleUiHover}
-                    className="px-8 py-3 bg-cyan-600 hover:bg-cyan-500 text-white font-bold uppercase tracking-widest rounded transition-colors shadow-[0_0_15px_rgba(6,182,212,0.4)] hover:shadow-[0_0_25px_rgba(6,182,212,0.6)]"
+                <Button onClick={() => { handleUiClick(); onBack(); }} variant="secondary" size="xl">Back to Map</Button>
+                <Button 
+                    onClick={() => { handleUiClick(); onStartGame(currentLevelConfig, assistRows, activeBoosters); }} 
+                    variant="primary" 
+                    size="xl"
                 >
                     Start Mission
-                </button>
+                </Button>
             </div>
         </Modal>
     );

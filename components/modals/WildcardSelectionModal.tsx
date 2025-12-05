@@ -1,12 +1,10 @@
 
 import React from 'react';
 import { TetrominoType } from '../../types';
-import { COLORS } from '../../constants';
 import Preview from '../Preview';
-import { Sparkles } from 'lucide-react';
-import Modal from '../ui/Modal';
 import { useGameSettingsStore } from '../../stores/gameSettingsStore';
 import { getPieceColor } from '../../utils/themeUtils';
+import { SelectionModalLayout } from '../ui/SelectionModalLayout';
 
 interface WildcardSelectionModalProps {
     onSelectPiece: (type: TetrominoType) => void;
@@ -22,13 +20,13 @@ export const WildcardSelectionModal: React.FC<WildcardSelectionModalProps> = ({
     const colorblindMode = useGameSettingsStore(state => state.colorblindMode);
 
     return (
-        <Modal variant="skewed" borderColorClass="border-yellow-500" ariaLabel="Wildcard Selection">
-            <div className="absolute top-4 right-4 text-yellow-500/20 group-hover:text-yellow-500/50 transition-colors animate-pulse" aria-hidden="true">
-                <Sparkles size={80} />
-            </div>
-            <h2 className="text-4xl md:text-5xl font-black text-white mb-2 tracking-tighter italic" role="heading" aria-level={2}>WILDCARD!</h2>
-            <p className="text-gray-300 text-sm mb-8">Choose your next Tetrimino.</p>
-
+        <SelectionModalLayout
+            icon="Sparkles"
+            title="WILDCARD!"
+            description="Choose your next Tetrimino."
+            borderColorClass="border-yellow-500"
+            ariaLabel="Wildcard Selection"
+        >
             <div className="grid grid-cols-4 gap-4 mb-8">
                 {WILD_CARD_PIECES.map(type => {
                     const color = getPieceColor(type, colorblindMode);
@@ -53,6 +51,6 @@ export const WildcardSelectionModal: React.FC<WildcardSelectionModalProps> = ({
                     );
                 })}
             </div>
-        </Modal>
+        </SelectionModalLayout>
     );
 };

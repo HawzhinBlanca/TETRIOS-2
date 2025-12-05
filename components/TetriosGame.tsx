@@ -14,20 +14,20 @@ import { useGameSettingsStore } from '../stores/gameSettingsStore';
 import { useAdventureStore } from '../stores/adventureStore';
 import { useBoosterStore } from '../stores/boosterStore';
 import { useProfileStore } from '../stores/profileStore';
-import { SHAKE_DURATION_HARD_MS, LEVEL_PASS_COIN_REWARD, MAX_STARS_PER_LEVEL, STAR_COIN_BONUS, ACHIEVEMENTS, FOCUS_GAUGE_MAX } from '../constants';
+import { SHAKE_DURATION_HARD_MS, ACHIEVEMENTS } from '../constants';
 import { StoryNode, LevelRewards, BoardRenderConfig } from '../types';
 import { useGameContext } from '../contexts/GameContext';
-import { GameCore } from '../utils/GameCore';
 import { useVisualEffects } from '../hooks/useVisualEffects';
 import { useResponsiveLayout } from '../hooks/useResponsiveLayout';
 import { useAudioSystem } from '../hooks/useAudioSystem';
 import { useCameraSystem } from '../hooks/useCameraSystem';
-import { Settings as SettingsIcon, PauseCircle, Bomb, Sparkles, ArrowLeftRight, Trophy, Rewind } from 'lucide-react';
+import { Trophy, Rewind } from 'lucide-react';
 import { BoardRenderer } from '../utils/BoardRenderer'; 
 import TouchControls from './TouchControls'; 
 import { VISUAL_THEME } from '../utils/visualTheme';
 import { safeStorage } from '../utils/safeStorage';
 import { replayManager } from '../utils/ReplayManager';
+import DynamicBackground from './DynamicBackground';
 
 const LazySettings = lazy(() => import('./Settings'));
 const LazyProfile = lazy(() => import('./modals/ProfileModal'));
@@ -72,8 +72,10 @@ export const TetriosGame = () => {
 
   const {
       ghostStyle, ghostOpacity, ghostOutlineThickness, ghostGlowIntensity,
+      blockGlowIntensity,
       gameSpeed, lockWarning, das, arr, showAi, toggleShowAi,
       masterVolume, musicVolume, sfxVolume, uiVolume,
+      bassVolume, drumVolume, padVolume, arpVolume,
       cameraShake, enableTouchControls, colorblindMode, blockSkin
   } = useGameSettingsStore();
 
@@ -108,6 +110,10 @@ export const TetriosGame = () => {
       musicVolume,
       sfxVolume,
       uiVolume,
+      bassVolume,
+      drumVolume,
+      padVolume,
+      arpVolume,
       isOverlayOpen: isSettingsOpen || isProfileOpen || gameState === 'PAUSED' || gameState === 'GAMEOVER' || gameState === 'VICTORY'
   });
 
@@ -153,33 +159,30 @@ export const TetriosGame = () => {
   }, [stats.score, gameMode, profileStats.highScores]);
   
   useEffect(() => {
-      if (gameState === 'VICTORY' && gameMode === 'ADVENTURE') {
-          const config = getCurrentLevelConfig();
-          if (config) {
-              const calculatedStars = calculateStars(engine.current);
-              const calculatedCoins = calculateCoins(engine.current, calculatedStars);
-              const boosterRewards = config.rewards?.boosters || []; 
-              const rewards: LevelRewards = { coins: calculatedCoins, stars: calculatedStars, boosterRewards };
-              setLastRewards(rewards);
-              applyLevelRewards(rewards, config); 
+      if (!engine.current) return;
 
-              if (config.storyEnd) {
-                  setCurrentStory(config.storyEnd); 
-              } 
-              unlockNextLevel(); 
+      const finishGame = () => {
+          const rewards = engine.current.scoreManager.calculateLevelRewards(gameState as 'VICTORY' | 'GAMEOVER');
+          setLastRewards(rewards);
+          
+          if (gameState === 'VICTORY') {
+              const config = getCurrentLevelConfig();
+              if (config && gameMode === 'ADVENTURE') {
+                  applyLevelRewards(rewards, config);
+                  if (config.storyEnd) {
+                      setCurrentStory(config.storyEnd);
+                  }
+                  unlockNextLevel();
+              } else if (gameMode !== 'ADVENTURE') {
+                  applyLevelRewards(rewards);
+              }
+          } else if (gameState === 'GAMEOVER' && gameMode !== 'ADVENTURE') {
+              applyLevelRewards(rewards);
           }
-      } else if (gameState === 'GAMEOVER' && gameMode === 'ADVENTURE') {
-        setLastRewards(null); 
-      } else if ((gameState === 'GAMEOVER' || gameState === 'VICTORY') && gameMode !== 'ADVENTURE') {
-          // If replaying, don't award coins
-          if (!replayManager.isReplaying) {
-              const calculatedCoins = calculateCoins(engine.current, 0); 
-              const rewards: LevelRewards = { coins: calculatedCoins, stars: 0 };
-              setLastRewards(rewards);
-              applyLevelRewards(rewards); 
-          } else {
-              setLastRewards(null);
-          }
+      };
+
+      if (gameState === 'VICTORY' || gameState === 'GAMEOVER') {
+          finishGame();
       }
   }, [gameState, gameMode, getCurrentLevelConfig, unlockNextLevel, applyLevelRewards]);
 
@@ -199,6 +202,7 @@ export const TetriosGame = () => {
               const assistRows = failedAttempts >= 3 ? 1 : 0; 
               resetGame(0, 'ADVENTURE', config, assistRows, storeActiveBoosters); 
               setCurrentStory(null);
+              setGameState('COUNTDOWN');
               if (config.tutorialTip) {
                   setTutorialTip(config.tutorialTip.text);
               }
@@ -225,10 +229,8 @@ export const TetriosGame = () => {
           setShakeClass('shake-hard');
           setFlashOverlay('rgba(255, 0, 0, 0.6)'); 
           
-          // Trigger explosions via board renderer if available
           if (boardRendererRef.current) {
               boardRendererRef.current.spawnShockwave(5 * cellSize, 10 * cellSize);
-              // More intense particle explosion
               boardRendererRef.current.spawnParticle(150, 300, '#ef4444', 80, 'explosion');
           }
           
@@ -247,46 +249,13 @@ export const TetriosGame = () => {
 
   const currentAdventureLevelConfig = getCurrentLevelConfig();
 
-  const backgroundStyle = useMemo(() => {
-      if (gameMode === 'ADVENTURE' && currentAdventureLevelConfig) {
-          if (flippedGravity) {
-              const bg = currentAdventureLevelConfig.style.background;
-              if (bg.startsWith('linear-gradient(to bottom')) {
-                  return {
-                      background: bg.replace('to bottom', 'to top'),
-                      transition: 'background 2s cubic-bezier(0.4, 0, 0.2, 1)'
-                  };
-              }
-              return {
-                  background: currentAdventureLevelConfig.style.background,
-                  transition: 'background 2s cubic-bezier(0.4, 0, 0.2, 1)'
-              };
-          }
-          return currentAdventureLevelConfig.style;
-      }
-      
-      let activeTheme = VISUAL_THEME.THEMES[0];
-      for (let i = VISUAL_THEME.THEMES.length - 1; i >= 0; i--) {
-          if (stats.level >= VISUAL_THEME.THEMES[i].threshold) {
-              activeTheme = VISUAL_THEME.THEMES[i];
-              break;
-          }
-      }
-
-      const vignette = `radial-gradient(circle at 50% 50%, transparent 40%, rgba(0,0,0, ${Math.min(0.8, dangerLevel)}) 100%)`;
-
-      return {
-          background: `${vignette}, ${activeTheme.background}`,
-          transition: 'background 2s ease-in-out'
-      };
-  }, [stats.level, gameMode, currentAdventureLevelConfig, flippedGravity, dangerLevel]);
-
   const boardRenderCoreConfig = useMemo<Omit<BoardRenderConfig, 'bombSelectionRows' | 'lineClearerSelectedRow'>>(() => ({
     cellSize,
     ghostStyle,
     ghostOpacity,
     ghostOutlineThickness,
     ghostGlowIntensity,
+    blockGlowIntensity,
     ghostShadow: GHOST_SHADOW,
     lockWarningEnabled: lockWarning,
     showAi,
@@ -300,7 +269,7 @@ export const TetriosGame = () => {
     zoneLines: stats.zoneLines,
     missedOpportunity,
     blockSkin 
-  }), [cellSize, ghostStyle, ghostOpacity, ghostGlowIntensity, lockWarning, showAi, currentAdventureLevelConfig?.gimmicks, flippedGravity, stats.wildcardAvailable, colorblindMode, stats.isZoneActive, stats.zoneLines, missedOpportunity, aiHint, blockSkin]);
+  }), [cellSize, ghostStyle, ghostOpacity, ghostGlowIntensity, blockGlowIntensity, lockWarning, showAi, currentAdventureLevelConfig?.gimmicks, flippedGravity, stats.wildcardAvailable, colorblindMode, stats.isZoneActive, stats.zoneLines, missedOpportunity, aiHint, blockSkin]);
 
   const handleUiHover = () => audioManager.playUiHover();
   const handleUiClick = () => audioManager.playUiClick();
@@ -309,58 +278,23 @@ export const TetriosGame = () => {
     // Sharing logic unchanged
   }, [stats.score]);
 
-  const calculateStars = (gameInstance: GameCore): number => {
-      if (gameInstance.mode !== 'ADVENTURE') return 0;
-      let stars = 1;
-      const stats = gameInstance.scoreManager.stats;
-      const config = gameInstance.adventureManager.config;
-      if (!config) return 0;
-      if (config.objective.type === 'SCORE') {
-          if (stats.score >= config.objective.target * 1.5) stars++;
-          if (stats.score >= config.objective.target * 2.0) stars++;
-      } else {
-          if (stats.tetrisesAchieved && stats.tetrisesAchieved > 0) stars++;
-          else if (stats.tspinsAchieved && stats.tspinsAchieved > 0) stars++;
-          if (config.constraints?.timeLimit) {
-              const timeUsed = config.constraints.timeLimit - stats.time;
-              if (timeUsed < config.constraints.timeLimit * 0.6) stars++; 
-          } else if (config.constraints?.movesLimit) {
-              if ((stats.movesTaken || 0) < config.constraints.movesLimit * 0.7) stars++;
-          } else {
-              if (stats.maxB2BChain && stats.maxB2BChain >= 2) stars++;
-          }
-      }
-      return Math.min(3, stars);
-  };
-
-  const calculateCoins = (gameInstance: GameCore, stars: number): number => {
-      let earnedCoins = LEVEL_PASS_COIN_REWARD; 
-      if (gameInstance.mode === 'ADVENTURE') {
-          earnedCoins += stars * STAR_COIN_BONUS;
-          earnedCoins += gameInstance.adventureManager.config?.rewards?.coins || 0;
-      } else if (gameInstance.mode === 'BLITZ') { 
-          earnedCoins = Math.floor(gameInstance.scoreManager.stats.score / 500); 
-      }
-      else if (gameInstance.mode !== 'ZEN' && gameInstance.mode !== 'PUZZLE') {
-          earnedCoins += Math.floor(gameInstance.scoreManager.stats.score / 100);
-      }
-      return earnedCoins;
-  };
-
   const isPlayingState = gameState !== 'MENU' && gameState !== 'MAP' && gameState !== 'STORY' && gameState !== 'BOOSTER_SELECTION';
-  const isZoneReady = stats.focusGauge >= FOCUS_GAUGE_MAX;
+  const isZoneReady = stats.focusGauge >= 100; 
 
   const handlePause = useCallback(() => setGameState('PAUSED'), [setGameState]);
   const handleZone = useCallback(() => engine.current?.scoreManager.tryActivateZone(), [engine]);
 
   return (
     <div className={`fixed inset-0 w-full h-[100dvh] flex flex-col items-center justify-center text-white overflow-hidden font-sans selection:bg-cyan-500/30 touch-none ${shakeClass}`} style={{
-        ...backgroundStyle,
+        background: '#030712', // Background handled by DynamicBackground component now
         '--audio-energy': 0,
         '--audio-glow': `calc(var(--audio-energy, 0) * 20px)`,
         '--audio-border': `rgba(6, 182, 212, calc(var(--audio-energy, 0) * 0.5))`
     } as unknown as React.CSSProperties}>
+      
+      <DynamicBackground />
       <MusicVisualizer />
+      
       <div className="fixed inset-0 pointer-events-none z-[5] bg-[linear-gradient(rgba(18,16,20,0)_50%,rgba(0,0,0,0.1)_50%),linear-gradient(90deg,rgba(255,0,0,0.03),rgba(0,255,0,0.01),rgba(0,0,255,0.03))] bg-[length:100%_2px,3px_100%] pointer-events-none"></div>
       <div className={`fixed inset-0 pointer-events-none z-[60] transition-opacity duration-300 ${flashOverlay ? 'opacity-40' : 'opacity-0'}`} style={{ backgroundColor: flashOverlay || 'transparent', mixBlendMode: 'screen' }}></div>
       
@@ -377,7 +311,6 @@ export const TetriosGame = () => {
           </div>
       )}
 
-      {/* Modals */}
       {isSettingsOpen && (
           <Suspense fallback={<div className="fixed inset-0 z-[100] bg-black/90" />}>
               <LazySettings controls={controls} setKeyBinding={setKeyBinding} resetControls={resetControls} />
@@ -422,7 +355,6 @@ export const TetriosGame = () => {
       />
 
       {isPlayingState && ( 
-          // Camera Container - Disabled transform on mobile for pixel-perfect grid
           <div className="relative w-full h-full flex items-center justify-center transition-all duration-100" 
                style={!isMobile ? {
                   transform: `perspective(1000px) rotateX(${cameraTransform.rotateX}deg) rotateY(${cameraTransform.rotateY}deg) translateY(${cameraTransform.y}px) scale(${cameraTransform.scale})`

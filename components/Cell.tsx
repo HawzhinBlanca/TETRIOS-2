@@ -17,12 +17,9 @@ interface Props {
   modifier?: CellModifier;
   isClearing?: boolean;
   
-  // Customization Props
+  // Customization Props (Optional overrides)
   ghostStyle?: GhostStyle;
-  ghostOutline?: string;
   ghostOutlineThickness?: number;
-  ghostAnimationDuration?: string;
-  ghostShadow?: string;
   ghostOpacity?: number;
   ghostGlowIntensity?: number;
   
@@ -37,14 +34,36 @@ const Cell: React.FC<Props> = ({
   lockWarning,
   modifier,
   isClearing,
-  ghostStyle = 'neon',
-  ghostOutlineThickness, 
-  ghostOpacity = 0.6, 
-  ghostGlowIntensity = 1,
+  ghostStyle: propGhostStyle,
+  ghostOutlineThickness: propGhostThickness, 
+  ghostOpacity: propGhostOpacity, 
+  ghostGlowIntensity: propGhostGlow,
   children
 }) => {
-  const colorblindMode = useGameSettingsStore(state => state.colorblindMode);
+  const { 
+      colorblindMode, 
+      blockGlowIntensity, 
+      blockSkin,
+      storeGhostStyle,
+      storeGhostOpacity,
+      storeGhostThickness,
+      storeGhostGlow
+  } = useGameSettingsStore(state => ({
+      colorblindMode: state.colorblindMode,
+      blockGlowIntensity: state.blockGlowIntensity,
+      blockSkin: state.blockSkin,
+      storeGhostStyle: state.ghostStyle,
+      storeGhostOpacity: state.ghostOpacity,
+      storeGhostThickness: state.ghostOutlineThickness,
+      storeGhostGlow: state.ghostGlowIntensity
+  }));
   
+  // Use props if provided, else fall back to store settings
+  const ghostStyle = propGhostStyle ?? storeGhostStyle;
+  const ghostOpacity = propGhostOpacity ?? storeGhostOpacity;
+  const ghostThickness = propGhostThickness ?? storeGhostThickness;
+  const ghostGlow = propGhostGlow ?? storeGhostGlow;
+
   const color = useMemo(() => {
       return type ? getPieceColor(type as TetrominoType, colorblindMode) : null;
   }, [type, colorblindMode]);
@@ -56,9 +75,9 @@ const Cell: React.FC<Props> = ({
           rgb={rgb} 
           warning={!!isGhostWarning} 
           style={ghostStyle} 
-          thickness={ghostOutlineThickness}
+          thickness={ghostThickness}
           opacity={ghostOpacity}
-          glow={ghostGlowIntensity}
+          glow={ghostGlow}
       />;
   }
 
@@ -73,6 +92,9 @@ const Cell: React.FC<Props> = ({
           color={color} 
           rotating={!!isRotating} 
           locked={!!lockWarning}
+          glowIntensity={blockGlowIntensity}
+          skin={blockSkin}
+          type={type}
       >
           {children}
       </ActiveView>;

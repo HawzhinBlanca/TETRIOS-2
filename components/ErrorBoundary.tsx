@@ -1,6 +1,6 @@
-
 import React, { ReactNode, ErrorInfo } from 'react';
 import { safeStorage } from '../utils/safeStorage';
+import { telemetry } from '../utils/TelemetryManager';
 
 interface ErrorBoundaryProps {
   children?: ReactNode;
@@ -26,9 +26,20 @@ class ErrorBoundary extends React.Component<ErrorBoundaryProps, ErrorBoundarySta
 
   componentDidCatch(error: Error, errorInfo: ErrorInfo) {
     console.error("Uncaught error:", error, errorInfo);
+    
+    // Telemetry: Capture critical crash
+    telemetry.log('ERROR', 'App Crash Detected', {
+        name: error.name,
+        message: error.message,
+        stack: error.stack,
+        componentStack: errorInfo.componentStack
+    });
+    
+    telemetry.incrementCounter('app_crash_total', 1);
   }
 
   handleReset = () => {
+      telemetry.log('INFO', 'User initiated system reboot');
       window.location.reload();
   }
 
@@ -37,6 +48,7 @@ class ErrorBoundary extends React.Component<ErrorBoundaryProps, ErrorBoundarySta
       // Clears volatile UI/Settings state that might be causing render crashes
       // but PRESERVES critical progression data (Adventure/Profile)
       if (window.confirm("This will reset Game Settings and UI state but keep your Adventure progress. Continue?")) {
+          telemetry.log('WARN', 'Performing Safe Recovery');
           safeStorage.removeItem('tetrios-game-settings-store');
           safeStorage.removeItem('tetrios-ui-store');
           safeStorage.removeItem('tetrios-effect-store'); // Also clear effects
@@ -47,6 +59,7 @@ class ErrorBoundary extends React.Component<ErrorBoundaryProps, ErrorBoundarySta
 
   handleFactoryReset = () => {
       if (window.confirm("WARNING: This will clear ALL progress including Adventure Mode and High Scores. Are you sure?")) {
+          telemetry.log('WARN', 'Performing Factory Reset');
           safeStorage.clear();
           window.location.reload();
       }

@@ -23,6 +23,15 @@ export const useVisualEffects = (
                 setShakeClass(cls);
                 setTimeout(() => setShakeClass(''), effect.payload === 'hard' ? SHAKE_DURATION_HARD_MS : SHAKE_DURATION_SOFT_MS);
                 break;
+            case 'TETRIS_CLEAR':
+            case 'ABERRATION':
+                setShakeClass('deep-fry');
+                setFlashOverlay('rgba(255, 255, 255, 0.3)');
+                setTimeout(() => {
+                    setShakeClass('');
+                    setFlashOverlay(null);
+                }, 300);
+                break;
             case 'PARTICLE':
                 if (rendererRef && rendererRef.current) {
                     const { isExplosion, isBurst, clearedRows, y, x, color, amount } = effect.payload || {};
@@ -31,90 +40,52 @@ export const useVisualEffects = (
                     const safeColor = color || '#ffffff';
 
                     if (isExplosion) {
-                        // Row explosions
+                        // Row explosions now spawn lateral sparks
                         if (Array.isArray(clearedRows)) {
                             clearedRows.forEach((rowY: number) => {
-                                rendererRef.current?.spawnParticle(200, rowY * cellSize, safeColor, amount || 50, 'explosion'); 
+                                // Spawn at center of row
+                                const centerX = (10 * cellSize) / 2; // Assuming width 10
+                                rendererRef.current?.spawnParticle(centerX, rowY * cellSize + (cellSize/2), safeColor, amount || 30, 'lateral'); 
                             });
                         } else if (typeof clearedRows === 'number') {
-                            rendererRef.current?.spawnParticle(200, clearedRows * cellSize, safeColor, amount || 50, 'explosion');
-                        } else if (y !== undefined) {
+                            const centerX = (10 * cellSize) / 2;
+                            rendererRef.current?.spawnParticle(centerX, clearedRows * cellSize + (cellSize/2), safeColor, amount || 30, 'lateral');
+                        } else {
                             rendererRef.current?.spawnParticle(scaleX, scaleY, safeColor, amount || 50, 'explosion');
                         }
                     } else if (isBurst) {
-                        rendererRef.current.spawnParticle(scaleX, scaleY, safeColor, amount || 20, 'burst');
+                        rendererRef.current?.spawnParticle(scaleX, scaleY, safeColor, amount || 20, 'burst');
                     } else {
-                        rendererRef.current.spawnParticle(scaleX, scaleY, safeColor, amount || 10, 'flow');
+                        // Normal land particles
+                        rendererRef.current?.spawnParticle(scaleX, scaleY, safeColor, amount || 10, 'normal');
                     }
                 }
-                break;
-            case 'FLASH':
-                const { color: flashColor, duration } = effect.payload || {};
-                if (flashColor) {
-                    setFlashOverlay(flashColor);
-                    setTimeout(() => setFlashOverlay(null), duration || FLASH_DURATION_MS);
-                }
-                break;
-            case 'FRENZY_START':
-                setFlashOverlay(effect.payload?.color || 'rgba(255, 215, 0, 0.5)');
-                setTimeout(() => setFlashOverlay(null), 300);
-                rendererRef?.current?.spawnParticle(150, 300, '#ffd700', 100, 'burst');
-                break;
-            case 'FRENZY_END':
-                setFlashOverlay(effect.payload?.color || 'rgba(255, 215, 0, 0.2)');
-                setTimeout(() => setFlashOverlay(null), 200);
-                break;
-            case 'POWERUP_ACTIVATE':
-                if (rendererRef && rendererRef.current) {
-                    const { x, y, color } = effect.payload || {};
-                    if (x !== undefined && y !== undefined && color) {
-                        rendererRef.current.spawnParticle(x * cellSize + cellSize/2, y * cellSize + cellSize/2, color, 40, 'burst');
-                        rendererRef.current.spawnShockwave(x * cellSize, y * cellSize);
-                    }
-                }
-                break;
-            case 'BLITZ_SPEED_THRESHOLD':
-                setFlashOverlay('rgba(255, 165, 0, 0.3)');
-                setTimeout(() => setFlashOverlay(null), 200);
-                break;
-            case 'FLIPPED_GRAVITY_ACTIVATE':
-                setFlashOverlay('rgba(59, 130, 246, 0.5)');
-                setTimeout(() => setFlashOverlay(null), 300);
-                break;
-            case 'FLIPPED_GRAVITY_END':
-                setFlashOverlay('rgba(59, 130, 246, 0.2)');
-                setTimeout(() => setFlashOverlay(null), 200);
                 break;
             case 'HARD_DROP_BEAM':
                 if (rendererRef && rendererRef.current) {
-                    const { x, startY, endY, color } = effect.payload;
-                    rendererRef.current.addBeam(x, startY, endY, color);
+                    rendererRef.current.addBeam(effect.payload.x, effect.payload.startY, effect.payload.endY, effect.payload.color);
                 }
+                break;
+            case 'FLASH':
+                setFlashOverlay(effect.payload?.color || 'white');
+                setTimeout(() => setFlashOverlay(null), effect.payload?.duration || FLASH_DURATION_MS);
                 break;
             case 'ROW_CLEAR':
                 if (rendererRef && rendererRef.current) {
-                    rendererRef.current.addClearingRows(effect.payload.rows);
+                    rendererRef.current.addClearingRows(effect.payload.rows, effect.payload.color, effect.payload.isOnBeat);
                 }
                 break;
             case 'SHOCKWAVE':
                 if (rendererRef && rendererRef.current) {
-                    const { x, y } = effect.payload || {};
-                    const sx = x !== undefined ? x * cellSize : 150;
-                    const sy = y !== undefined ? y * cellSize : 300;
-                    rendererRef.current.spawnShockwave(sx, sy);
+                    const { x, y, color, size } = effect.payload || {};
+                    // If no specific coords, use center
+                    const centerX = x !== undefined ? x * cellSize : (10 * cellSize) / 2;
+                    const centerY = y !== undefined ? y * cellSize : (20 * cellSize) / 2;
+                    rendererRef.current.spawnShockwave(centerX, centerY, color);
                 }
-                break;
-            case 'TSPIN_CLEAR':
-                if (rendererRef && rendererRef.current) {
-                    const { x, y, color } = effect.payload || {};
-                    rendererRef.current.spawnParticle(x * cellSize, y * cellSize, color || '#d946ef', 50, 'burst');
-                }
-                setFlashOverlay(effect.payload?.color || '#d946ef');
-                setTimeout(() => setFlashOverlay(null), 150);
-                break;
-            default:
                 break;
         }
-        clearVisualEffect(); 
-    }, [uiVisualEffect, setShakeClass, setFlashOverlay, clearVisualEffect, cellSize, rendererRef]);
+
+        clearVisualEffect();
+    }, [uiVisualEffect, setShakeClass, setFlashOverlay, cellSize, rendererRef, clearVisualEffect]);
 };

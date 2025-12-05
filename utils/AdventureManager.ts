@@ -99,8 +99,13 @@ export class AdventureManager {
         if (!this.config) return;
 
         this._handleBombExplosions();
+        
+        // Calculate Proximity to victory for Finisher State
+        this._updateFinisherState();
 
         if (this._checkVictory()) {
+            this.core.events.emit('VISUAL_EFFECT', { type: 'SHOCKWAVE', payload: { size: 1000, color: 'gold' } }); // Big Explosion
+            this.core.events.emit('VISUAL_EFFECT', { type: 'FLASH', payload: { color: 'white', duration: 1000 } });
             this.core.triggerGameOver('VICTORY', { coins: LEVEL_PASS_COIN_REWARD, stars: 3 });
             return;
         }
@@ -108,6 +113,32 @@ export class AdventureManager {
         if (this._checkLoss()) {
             this.core.triggerGameOver('GAMEOVER');
             return;
+        }
+    }
+    
+    private _updateFinisherState(): void {
+        if (!this.config) return;
+        const obj = this.config.objective;
+        const stats = this.core.scoreManager.stats;
+        let isClose = false;
+        
+        if (obj.type === 'LINES') {
+            isClose = (obj.target - stats.rows) <= 2;
+        } else if (obj.type === 'SCORE') {
+            isClose = (obj.target - stats.score) <= 500;
+        } else if (obj.type === 'BOSS') {
+            isClose = this.bossHp <= (obj.target * 0.1); // 10% HP left
+        } else if (obj.type === 'GEMS') {
+            isClose = (obj.target - (stats.gemsCollected || 0)) <= 1;
+        }
+        
+        // Trigger state change if different
+        if (isClose !== stats.isFinisherReady) {
+            stats.isFinisherReady = isClose;
+            if (isClose) {
+                this.core.events.emit('AUDIO', { event: 'FINISHER_READY' });
+                this.core.addFloatingText("FINISH IT!", "#fbbf24", 1.2, 'frenzy');
+            }
         }
     }
 
@@ -149,6 +180,7 @@ export class AdventureManager {
                 this.core.events.emit('VISUAL_EFFECT', { type: 'SHOCKWAVE', payload: { color: '#ef4444' } });
 
                 if (this.bossHp <= 0) {
+                    this.core.events.emit('VISUAL_EFFECT', { type: 'SHOCKWAVE', payload: { size: 1000, color: 'gold' } });
                     this.core.triggerGameOver('VICTORY', { coins: LEVEL_PASS_COIN_REWARD, stars: 3 });
                 }
             }

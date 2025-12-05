@@ -11,6 +11,11 @@ interface UseAudioSystemProps {
     musicVolume: number;
     sfxVolume: number;
     uiVolume: number;
+    // Granular volumes
+    bassVolume?: number;
+    drumVolume?: number;
+    padVolume?: number;
+    arpVolume?: number;
     isOverlayOpen: boolean;
 }
 
@@ -21,6 +26,10 @@ export const useAudioSystem = ({
     musicVolume,
     sfxVolume,
     uiVolume,
+    bassVolume = 0.8,
+    drumVolume = 0.7,
+    padVolume = 0.6,
+    arpVolume = 0.5,
     isOverlayOpen
 }: UseAudioSystemProps) => {
     const audioRafRef = useRef<number | null>(null);
@@ -43,13 +52,17 @@ export const useAudioSystem = ({
         };
     }, []);
 
-    // Sync Volumes
+    // Sync Volumes (Including new granular channels)
     useEffect(() => {
         audioManager.setMasterVolume(masterVolume);
         audioManager.setMusicVolume(musicVolume);
         audioManager.setSfxVolume(sfxVolume);
         audioManager.setUiVolume(uiVolume);
-    }, [masterVolume, musicVolume, sfxVolume, uiVolume]);
+        audioManager.setBassVolume(bassVolume);
+        audioManager.setDrumVolume(drumVolume);
+        audioManager.setPadVolume(padVolume);
+        audioManager.setArpVolume(arpVolume);
+    }, [masterVolume, musicVolume, sfxVolume, uiVolume, bassVolume, drumVolume, padVolume, arpVolume]);
 
     // Enable/Disable Music
     useEffect(() => {

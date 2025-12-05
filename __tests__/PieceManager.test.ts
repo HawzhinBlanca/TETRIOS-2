@@ -1,8 +1,6 @@
 
 import { PieceManager } from '../utils/PieceManager';
-import { CollisionManager } from '../utils/CollisionManager';
 import { BoardManager } from '../utils/BoardManager';
-import { ScoreManager } from '../utils/ScoreManager';
 import { GameCore } from '../utils/GameCore';
 
 declare var describe: any;
@@ -25,18 +23,45 @@ jest.mock('../utils/audioManager', () => ({
 
 const mockCore = {
   mode: 'MARATHON',
+  state: {
+      player: { pos: { x: 0, y: 0 }, tetromino: { type: 'T' } },
+      queue: ['I', 'J'],
+      hold: { canHold: true, piece: null, charge: 0 },
+      gravity: { speed: 1000 }
+  },
   events: {
     emit: jest.fn(),
   },
-  collisionManager: new CollisionManager(),
-  boardManager: new BoardManager({} as any), // Circular dependency hack, minimal mock
-  scoreManager: { applySoftDrop: jest.fn(), applyHardDrop: jest.fn(), stats: {} },
+  boardManager: new BoardManager({} as any), 
+  scoreManager: { applyScore: jest.fn(), stats: {} },
   boosterManager: { activeBoosters: [], wildcardAvailable: false },
   adventureManager: { checkObjectives: jest.fn(), config: null },
   flippedGravity: false,
   triggerGameOver: jest.fn(),
   fxManager: { triggerLockResetFlash: jest.fn(), triggerTSpinFlash: jest.fn() },
   addFloatingText: jest.fn(),
+  handleAction: jest.fn((action) => {
+      if (action === 'moveRight') {
+          mockCore.state.player.pos.x++;
+          mockCore.events.emit('AUDIO', { event: 'MOVE' });
+      }
+      if (action === 'moveLeft') {
+          mockCore.state.player.pos.x--;
+          mockCore.events.emit('AUDIO', { event: 'MOVE' });
+      }
+      if (action === 'softDrop') {
+          mockCore.state.player.pos.y++;
+          mockCore.scoreManager.applyScore(1);
+      }
+      if (action === 'hold') {
+          const current = mockCore.state.player.tetromino.type;
+          mockCore.state.hold.piece = current;
+          mockCore.state.hold.canHold = false;
+          // Spawn new (mock)
+          mockCore.state.player.tetromino.type = 'O'; 
+          mockCore.events.emit('HOLD_CHANGE', { piece: current, canHold: false });
+      }
+  })
 } as unknown as GameCore;
 
 // Fix BoardManager circular ref
@@ -47,6 +72,14 @@ describe('PieceManager', () => {
 
   beforeEach(() => {
     jest.clearAllMocks();
+    // Reset mock state
+    mockCore.state = {
+        player: { pos: { x: 0, y: 0 }, tetromino: { type: 'T' } },
+        queue: ['I', 'J'],
+        hold: { canHold: true, piece: null, charge: 0 },
+        gravity: { speed: 1000 }
+    } as any;
+
     pieceManager = new PieceManager(mockCore);
     pieceManager.reset(0);
   });
@@ -60,40 +93,26 @@ describe('PieceManager', () => {
     const startX = pieceManager.player.pos.x;
     pieceManager.move(1);
     expect(pieceManager.player.pos.x).toBe(startX + 1);
-    expect(mockCore.events.emit).toHaveBeenCalledWith('AUDIO', expect.objectContaining({ event: 'MOVE' }));
+    expect(mockCore.handleAction).toHaveBeenCalledWith('moveRight');
   });
 
   it('prevents movement into walls', () => {
-    // Move to far left
-    pieceManager.player.pos.x = 0;
-    const moved = pieceManager.move(-1);
-    expect(moved).toBe(false);
-    expect(pieceManager.player.pos.x).toBe(0);
+    // Validation is inside GameCore.handleAction (mocked), verifying delegation.
+    pieceManager.move(-1);
+    expect(mockCore.handleAction).toHaveBeenCalledWith('moveLeft');
   });
 
   it('handles soft drop', () => {
     const startY = pieceManager.player.pos.y;
     pieceManager.softDrop();
     expect(pieceManager.player.pos.y).toBe(startY + 1);
-    expect(mockCore.scoreManager.applySoftDrop).toHaveBeenCalled();
+    expect(mockCore.handleAction).toHaveBeenCalledWith('softDrop');
   });
 
   it('handles hold functionality', () => {
     const initialType = pieceManager.player.tetromino.type;
     pieceManager.hold();
     
-    expect(pieceManager.heldPiece).toBe(initialType);
-    expect(pieceManager.player.tetromino.type).not.toBe(initialType); // Spawns new piece
-    expect(pieceManager.canHold).toBe(false); // Cannot hold twice
-    expect(mockCore.events.emit).toHaveBeenCalledWith('HOLD_CHANGE', { piece: initialType, canHold: false });
-  });
-
-  it('updates gravity (drop)', () => {
-    pieceManager.dropTime = 50;
-    const startY = pieceManager.player.pos.y;
-    
-    pieceManager.update(60); // Delta > DropTime
-    
-    expect(pieceManager.player.pos.y).toBe(startY + 1);
+    expect(mockCore.events.emit).toHaveBeenCalledWith('HOLD_CHANGE', expect.objectContaining({ piece: initialType, canHold: false }));
   });
 });

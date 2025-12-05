@@ -1,22 +1,24 @@
 
-import React, { useRef, useEffect, useState, useMemo } from 'react';
+import React, { useEffect, useState, useMemo } from 'react';
 import BoardCanvas from './BoardCanvas';
 import Preview from './Preview';
-import StatsPanel from './StatsPanel';
 import ComboIndicator from './ComboIndicator';
 import GarbageDisplay from './GarbageDisplay';
 import RhythmIndicator from './RhythmIndicator'; 
-import { Settings as SettingsIcon, Brain, Pause, ArrowLeftRight } from 'lucide-react';
+import AbilityHUD from './AbilityHUD';
+import { Settings as SettingsIcon, Pause, RefreshCw } from 'lucide-react';
 import { BoardRenderConfig, AdventureLevelConfig } from '../types';
 import { useGameContext } from '../contexts/GameContext';
 import { useGameSettingsStore } from '../stores/gameSettingsStore';
 import { useEffectStore } from '../stores/effectStore';
-import { ADVENTURE_CAMPAIGN } from '../constants';
 import { BoardRenderer } from '../utils/BoardRenderer'; 
-import GlassPanel from './ui/GlassPanel';
-import { Label } from './ui/Text';
-import PanelHeader from './ui/PanelHeader';
+import { Value } from './ui/Text';
 import { audioManager } from '../utils/audioManager';
+import { useUIRecoil } from '../hooks/useUIRecoil';
+import { useBoosterStore } from '../stores/boosterStore';
+import { formatTime } from '../utils/formatters';
+import { useUpdateFlash } from '../hooks/useUpdateFlash';
+import ActiveEffectsList from './ActiveEffectsList';
 
 interface GameScreenProps {
     boardRenderCoreConfig: Omit<BoardRenderConfig, 'bombSelectionRows' | 'lineClearerSelectedRow'>;
@@ -41,11 +43,8 @@ const A11yAnnouncer = ({ lastEvent }: { lastEvent: string | null }) => {
 
 export const GameScreen: React.FC<GameScreenProps> = ({
     boardRenderCoreConfig,
-    showAi,
-    toggleShowAi,
     openSettings,
-    adventureLevelConfig,
-    rendererRef
+    rendererRef,
 }) => {
     const {
         engine,
@@ -53,8 +52,7 @@ export const GameScreen: React.FC<GameScreenProps> = ({
         nextQueue,
         heldPiece,
         canHold,
-        gameMode,
-        difficulty,
+        lastHoldTime,
         comboCount,
         isBackToBack,
         garbagePending,
@@ -66,31 +64,19 @@ export const GameScreen: React.FC<GameScreenProps> = ({
     } = useGameContext();
 
     const { visualEffect } = useEffectStore();
+    const { activeBoosters } = useBoosterStore();
+    const hasHoldPlus = activeBoosters.includes('PIECE_SWAP_BOOSTER');
     
-    const currentWorld = useMemo(() => {
-        if (!adventureLevelConfig) return null;
-        return ADVENTURE_CAMPAIGN.find(w => w.id === adventureLevelConfig.worldId);
-    }, [adventureLevelConfig]);
-
+    const hudRecoil = useUIRecoil(8, 0.5, 0.7);
+    const holdFlash = useUpdateFlash(lastHoldTime);
     const [announcement, setAnnouncement] = useState<string | null>(null);
-    const scoreRef = useRef<HTMLDivElement>(null);
-
-    useEffect(() => {
-        if (engine.current) {
-            engine.current.events.on('FAST_SCORE', ({ score }) => {
-                if (scoreRef.current) scoreRef.current.textContent = score.toLocaleString();
-            });
-        }
-    }, [engine]);
 
     useEffect(() => {
         if (visualEffect?.type === 'FRENZY_START') setAnnouncement("Frenzy Mode Activated!");
         else if (stats.score > 0 && stats.score % 1000 === 0) setAnnouncement(`Score ${stats.score}`);
     }, [visualEffect, stats.score]);
 
-    const bombSelectionRows = useMemo(() => {
-        return isSelectingBombRows ? [] : undefined;
-    }, [isSelectingBombRows]);
+    const bombSelectionRows = useMemo(() => isSelectingBombRows ? [] : undefined, [isSelectingBombRows]);
 
     const handleMobilePause = () => {
         audioManager.playUiClick();
@@ -104,159 +90,136 @@ export const GameScreen: React.FC<GameScreenProps> = ({
         }
     };
 
-    // Zone Reality Distortion Effect
-    const zoneStyle = stats.isZoneActive ? {
-        filter: 'hue-rotate(180deg) contrast(1.2)',
-        textShadow: '-2px 0 red, 2px 0 cyan'
-    } : {};
+    const boardContainerStyle = visualEffect?.type === 'ABERRATION' ? { animation: 'deep-fry 0.2s linear' } : {};
 
     return (
-        <div className="relative w-full h-full flex justify-center items-center overflow-hidden">
+        <div className="relative w-full h-full flex flex-col items-center justify-center bg-[#030712] select-none overflow-hidden">
             <A11yAnnouncer lastEvent={announcement} />
             
-            {/* Zone Full-Screen Distortion Overlay */}
-            <div className={`fixed inset-0 pointer-events-none z-[60] transition-opacity duration-500 mix-blend-overlay ${stats.isZoneActive ? 'opacity-100' : 'opacity-0'}`}
-                 style={{ 
-                     background: 'radial-gradient(circle, transparent 40%, rgba(255,255,255,0.2) 100%)',
-                     boxShadow: 'inset 0 0 100px rgba(0,255,255,0.5)' 
-                 }}>
-            </div>
-
-            {/* Main Container */}
-            <div className="relative flex justify-center items-start gap-0 w-full h-full md:w-auto md:h-auto md:gap-8 md:p-4" style={zoneStyle}>
-                
-                {/* Desktop Left HUD */}
-                <div className="hidden lg:flex flex-col w-64 gap-4 transition-all duration-500 ease-out animate-slide-in-left pt-4">
-                    <div className="flex items-center gap-4 mb-2">
-                        <GlassPanel variant="dark" className="p-3 flex items-center justify-center" interactive onClick={openSettings} aria-label="Settings">
-                            <SettingsIcon size={20} className="text-gray-400 hover:text-white transition-colors" />
-                        </GlassPanel>
-                        <div>
-                            <Label className="text-cyan-400">{gameMode}</Label>
-                            <div className="text-white font-bold text-sm opacity-80">{currentWorld ? currentWorld.name : difficulty}</div>
-                        </div>
-                    </div>
-
-                    <GlassPanel variant="dark" className="p-4 flex flex-col items-center justify-center min-h-[140px]">
-                        <PanelHeader title="HOLD" className="mb-2 w-full" />
-                        <div className="flex-1 flex items-center justify-center w-full relative">
-                            {heldPiece ? (
-                                <Preview title="" type={heldPiece} isLocked={!canHold} variant="recessed" className="w-20 h-20" />
-                            ) : (
-                                <div className="text-gray-600 text-xs font-mono">EMPTY</div>
-                            )}
-                            {!canHold && <div className="absolute inset-0 bg-black/40 rounded flex items-center justify-center"><Label className="text-red-400 bg-black/80 px-1">LOCKED</Label></div>}
-                        </div>
-                    </GlassPanel>
-
-                    <StatsPanel 
-                        gameStats={stats} 
-                        gameMode={gameMode} 
-                        adventureLevelConfig={adventureLevelConfig} 
-                    />
-                </div>
-
-                {/* Center Board Area */}
-                <div className="relative flex flex-col items-center justify-center w-full h-full md:w-auto z-10">
-                    {/* The Board Canvas fills this container */}
-                    <BoardCanvas 
-                        engine={engine}
-                        renderConfig={boardRenderCoreConfig}
-                        bombSelectionRows={bombSelectionRows}
-                        lineClearerSelectedRow={selectedLineToClear}
-                        className="z-10"
-                        rendererRef={rendererRef}
-                    />
+            {/* --- TOP HUD (Dynamic Island Style) --- */}
+            <div 
+                className="absolute top-0 left-0 right-0 z-50 flex justify-center pt-[max(env(safe-area-inset-top),16px)] pointer-events-none"
+                style={{ transform: hudRecoil }}
+            >
+                <div className="bg-black/60 backdrop-blur-xl border border-white/10 rounded-full px-4 py-2 flex items-center gap-5 shadow-2xl pointer-events-auto transition-all duration-300 hover:bg-black/80">
                     
-                    {/* Overlays */}
-                    <div className="absolute top-0 left-0 w-full h-full pointer-events-none z-20 overflow-visible">
-                        {/* Hype Stack: Left Side of board now */}
-                        <div className="absolute top-1/4 -left-4 transform -translate-x-full hidden md:block">
-                            <ComboIndicator comboCount={comboCount} isBackToBack={isBackToBack} />
-                        </div>
-                        
-                        <div className={`absolute ${flippedGravity ? 'top-20' : 'bottom-32 md:bottom-0'} left-1/2 -translate-x-1/2 md:left-auto md:-left-20 md:translate-x-0 h-full flex flex-col justify-center py-10`}>
-                            <GarbageDisplay garbagePending={garbagePending} flippedGravity={flippedGravity} />
-                        </div>
-
-                        <div className={`absolute ${flippedGravity ? 'top-4' : 'bottom-4'} left-0 right-0 flex justify-center opacity-80`}>
-                            <RhythmIndicator />
-                        </div>
-                    </div>
-                </div>
-
-                {/* Desktop Right HUD */}
-                <div className="hidden lg:flex flex-col w-48 gap-4 transition-all duration-500 ease-out animate-slide-in-right pt-4">
-                    <GlassPanel variant="dark" className="p-4 flex flex-col h-full max-h-[600px]">
-                        <PanelHeader title="NEXT" className="mb-4 w-full" />
-                        <div className="flex flex-col gap-3 items-center flex-1 overflow-hidden">
-                            <div className="scale-110 mb-2">
-                                <Preview title="" type={nextQueue[0]} variant="recessed" className="w-24 h-24 border-cyan-500/30" />
-                            </div>
-                            <div className="flex flex-col gap-2 opacity-80">
-                                {nextQueue.slice(1, 5).map((type, i) => (
-                                    <Preview key={i} title="" type={type} variant="small" className="scale-90" />
-                                ))}
-                            </div>
-                        </div>
-                    </GlassPanel>
-                    
-                    <div className="flex justify-between gap-2">
-                       <button onClick={toggleShowAi} className={`flex-1 p-3 rounded-lg border border-white/5 flex flex-col items-center gap-1 transition-colors ${boardRenderCoreConfig.showAi ? 'bg-cyan-900/20 text-cyan-400 border-cyan-500/30' : 'bg-black/40 text-gray-500 hover:bg-white/5'}`}>
-                           <Brain size={16} />
-                           <span className="text-[9px] font-bold">AI HINT</span>
-                       </button>
-                    </div>
-                </div>
-            </div>
-            
-            {/* Mobile Overlay HUD (Completely transparent, floats over board) */}
-            <div className="lg:hidden absolute top-0 left-0 right-0 p-2 pt-safe-top flex justify-between items-start pointer-events-none z-50">
-                <div className="flex flex-col gap-2 pointer-events-auto">
-                    <button 
-                        onClick={handleMobilePause} 
-                        className="w-12 h-12 flex items-center justify-center bg-black/40 border border-white/10 rounded-full text-white backdrop-blur-md shadow-lg active:scale-95"
-                        aria-label="Pause Game"
-                    >
-                        <Pause size={20} fill="currentColor" />
+                    {/* Pause */}
+                    <button onClick={handleMobilePause} className="text-white/70 hover:text-white transition-colors p-1">
+                        <Pause size={16} />
                     </button>
-                    <div className="pl-1">
-                        <div ref={scoreRef} className="text-2xl font-black text-white tabular-nums leading-none drop-shadow-[0_2px_4px_rgba(0,0,0,0.9)] text-shadow-neon">
+
+                    {/* Stats */}
+                    <div className="flex flex-col items-center min-w-[100px]">
+                        <Value size="2xl" glow className="leading-none text-white tracking-tighter">
                             {stats.score.toLocaleString()}
+                        </Value>
+                        <div className="flex gap-2 text-[10px] font-bold text-gray-400 uppercase tracking-wider leading-none mt-1">
+                            <span className="text-cyan-400">LVL {stats.level}</span>
+                            <span className="w-px h-2 bg-white/10"></span>
+                            <span>{formatTime(stats.time, false)}</span>
                         </div>
                     </div>
+
+                    {/* Settings */}
+                    <button onClick={openSettings} className="text-white/70 hover:text-white transition-colors p-1">
+                        <SettingsIcon size={16} />
+                    </button>
                 </div>
+            </div>
 
-                {comboCount > 0 && (
-                    <div className="absolute left-1/2 -translate-x-1/2 top-20 pointer-events-none">
-                        <div className="text-5xl font-black text-yellow-400 italic drop-shadow-[0_0_15px_rgba(0,0,0,1)] animate-bounce whitespace-nowrap stroke-black stroke-2">
-                            {comboCount}x
-                        </div>
-                    </div>
-                )}
-
-                <div className="flex flex-col items-end gap-2 pointer-events-auto">
-                    <div className="bg-black/60 border border-white/20 rounded p-1 backdrop-blur-md shadow-lg">
-                        <Preview title="" type={nextQueue[0]} variant="small" className="scale-90" />
-                    </div>
-                    
+            {/* --- FLOATING WIDGETS (Hold / Next) --- */}
+            {/* Positioned comfortably below header but kept to edges to avoid spawn area */}
+            <div className="absolute top-[max(env(safe-area-inset-top),20px)] mt-16 w-full max-w-[600px] px-4 flex justify-between pointer-events-none z-40" style={{ transform: hudRecoil }}>
+                
+                {/* Hold Widget */}
+                <div className="pointer-events-auto">
                     <button 
                         onClick={handleMobileHold}
                         disabled={!canHold}
                         className={`
-                            flex items-center justify-center w-12 h-12
-                            bg-black/40 border border-white/10 rounded-full backdrop-blur-md shadow-lg
-                            ${!canHold ? 'opacity-50 grayscale' : 'active:bg-white/10 active:scale-95'}
+                            w-14 h-14 bg-black/40 border border-white/10 rounded-2xl backdrop-blur-xl shadow-lg
+                            flex flex-col items-center justify-center relative overflow-hidden transition-all duration-200
+                            ${!canHold ? 'opacity-50 grayscale' : 'active:scale-95 active:bg-white/10'}
+                            ${holdFlash ? 'ring-2 ring-yellow-400/50 shadow-[0_0_15px_rgba(234,179,8,0.4)] !bg-yellow-500/10 scale-105' : ''}
                         `}
                     >
-                        {heldPiece ? (
-                            <Preview title="" type={heldPiece} variant="small" className="scale-50" isLocked={!canHold} />
-                        ) : (
-                            <ArrowLeftRight size={18} className="text-gray-300" />
-                        )}
+                        <span className="absolute top-1 left-1.5 text-[7px] font-bold text-white/40 uppercase tracking-wider">Hold</span>
+                        <div className="flex-1 flex items-center justify-center p-1 mt-1">
+                            {heldPiece ? (
+                                <Preview title="" type={heldPiece} variant="small" className="scale-[0.65] origin-center" isLocked={!canHold} />
+                            ) : (
+                                <div className="w-1.5 h-1.5 rounded-full bg-white/5"></div>
+                            )}
+                        </div>
+                        {hasHoldPlus && <div className="absolute top-1.5 right-1.5 text-purple-400 animate-pulse"><RefreshCw size={10} /></div>}
                     </button>
                 </div>
+
+                {/* Next Widget */}
+                <div className="flex flex-col gap-2 pointer-events-auto items-end">
+                    {/* Primary Next */}
+                    <div className="w-14 h-14 bg-black/40 border border-white/10 rounded-2xl backdrop-blur-xl shadow-lg flex flex-col relative overflow-hidden">
+                        <span className="absolute top-1 right-1.5 text-[7px] font-bold text-white/40 uppercase tracking-wider">Next</span>
+                        <div className="flex-1 flex items-center justify-center p-1 mt-1">
+                            {nextQueue.length > 0 ? (
+                                <Preview title="" type={nextQueue[0]} variant="small" className="scale-[0.65] origin-center" />
+                            ) : (
+                                <div className="animate-pulse w-2 h-2 bg-white/10 rounded-full"></div>
+                            )}
+                        </div>
+                    </div>
+                    
+                    {/* Secondary Queue (Mini) */}
+                    <div className="flex flex-col gap-1.5 opacity-80 mr-1">
+                        {nextQueue.slice(1, 4).map((type, i) => (
+                            <div key={i} className="w-9 h-7 bg-black/30 border border-white/5 rounded-md flex items-center justify-center backdrop-blur-md">
+                                <Preview title="" type={type} variant="small" className="scale-[0.35]" />
+                            </div>
+                        ))}
+                    </div>
+                </div>
+            </div>
+
+            {/* --- CENTER STAGE --- */}
+            <div className="relative z-10 flex flex-col items-center justify-center h-full w-full" style={boardContainerStyle}>
+                
+                {/* Floating Notifications Layer */}
+                <div className="absolute top-[20%] left-0 right-0 flex flex-col items-center pointer-events-none z-50">
+                    <ComboIndicator comboCount={comboCount} isBackToBack={isBackToBack} />
+                    <div className="mt-2 scale-75 origin-top opacity-90">
+                        <GarbageDisplay garbagePending={garbagePending} flippedGravity={flippedGravity} />
+                    </div>
+                </div>
+
+                {/* Main Board */}
+                <BoardCanvas 
+                    engine={engine}
+                    renderConfig={boardRenderCoreConfig}
+                    bombSelectionRows={bombSelectionRows}
+                    lineClearerSelectedRow={selectedLineToClear}
+                    rendererRef={rendererRef}
+                    className="shadow-2xl shadow-black/90" 
+                />
+            </div>
+
+            {/* --- BOTTOM HUD (Rhythm & Abilities) --- */}
+            <div className="absolute bottom-[110px] left-0 right-0 flex flex-col items-center pointer-events-none z-20 pb-[env(safe-area-inset-bottom)]">
+                <div className="scale-75 opacity-60 mb-2">
+                    <RhythmIndicator />
+                </div>
+                <div className="pointer-events-auto scale-90">
+                    <AbilityHUD />
+                </div>
+            </div>
+            
+            {/* Zone Overlay */}
+            <div className={`fixed inset-0 pointer-events-none z-[60] transition-opacity duration-500 mix-blend-overlay ${stats.isZoneActive ? 'opacity-100' : 'opacity-0'}`}
+                 style={{ 
+                     background: 'radial-gradient(circle, transparent 40%, rgba(255,255,255,0.15) 100%)',
+                     boxShadow: 'inset 0 0 50px rgba(0,255,255,0.3)' 
+                 }}>
             </div>
         </div>
     );
 };
+    

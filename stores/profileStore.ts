@@ -2,7 +2,7 @@
 import { create } from 'zustand';
 import { persist, createJSONStorage } from 'zustand/middleware';
 import { safeStorage } from '../utils/safeStorage';
-import { TetrominoType, AbilityType } from '../types';
+import { TetrominoType, AbilityType, HighScoreEntry, Difficulty } from '../types';
 
 interface ProfileStats {
   totalGamesPlayed: number;
@@ -11,6 +11,7 @@ interface ProfileStats {
   highestLevelReached: number;
   highScore: number; // Global all-time best
   highScores: Record<string, number>; // Best score per game mode
+  leaderboards: Record<string, HighScoreEntry[]>; // Top 10 scores per mode
   unlockedAchievements: string[]; // List of achievement IDs
   unlockedShapes: TetrominoType[]; // Shapes earned
   enabledShapes: TetrominoType[]; // Deck configuration
@@ -22,7 +23,7 @@ interface ProfileState {
   playerName: string;
   stats: ProfileStats;
   setPlayerName: (name: string) => void;
-  updateStats: (gameStats: { score: number; rows: number; level: number }, mode?: string) => void;
+  updateStats: (gameStats: { score: number; rows: number; level: number; time: number }, mode?: string, difficulty?: Difficulty) => void;
   unlockAchievement: (id: string) => boolean; // Returns true if newly unlocked
   toggleShape: (shape: TetrominoType) => void;
   unlockAbility: (ability: AbilityType) => void;
@@ -43,6 +44,7 @@ export const useProfileStore = create<ProfileState>()(
         highestLevelReached: 0,
         highScore: 0,
         highScores: {},
+        leaderboards: {}, // Initialize leaderboards
         unlockedAchievements: [],
         unlockedShapes: [...STANDARD_SHAPES],
         enabledShapes: [...STANDARD_SHAPES],
@@ -50,13 +52,35 @@ export const useProfileStore = create<ProfileState>()(
         equippedAbilities: ['COLOR_SWAP'],
       },
       setPlayerName: (name) => set({ playerName: name }),
-      updateStats: (gameStats, mode) => set((state) => {
+      updateStats: (gameStats, mode, difficulty) => set((state) => {
         const currentHighScores = state.stats.highScores || {};
         const modeHighScore = mode ? (currentHighScores[mode] || 0) : 0;
         const newModeHighScore = Math.max(modeHighScore, gameStats.score);
         
         const newHighScores = mode ? { ...currentHighScores, [mode]: newModeHighScore } : currentHighScores;
         const newGlobalHighScore = Math.max(state.stats.highScore || 0, gameStats.score);
+
+        // Update Leaderboards
+        let newLeaderboards = { ...state.stats.leaderboards };
+        if (mode && gameStats.score > 0) {
+            const currentBoard = newLeaderboards[mode] || [];
+            
+            const newEntry: HighScoreEntry = {
+                name: state.playerName,
+                score: gameStats.score,
+                date: Date.now(),
+                difficulty: difficulty || 'MEDIUM',
+                level: gameStats.level,
+                lines: gameStats.rows,
+                time: gameStats.time
+            };
+
+            const updatedBoard = [...currentBoard, newEntry]
+                .sort((a, b) => b.score - a.score)
+                .slice(0, 10); // Keep Top 10
+
+            newLeaderboards[mode] = updatedBoard;
+        }
 
         return {
           stats: {
@@ -67,6 +91,7 @@ export const useProfileStore = create<ProfileState>()(
             highestLevelReached: Math.max(state.stats.highestLevelReached, gameStats.level),
             highScore: newGlobalHighScore,
             highScores: newHighScores,
+            leaderboards: newLeaderboards
           }
         };
       }),
@@ -125,7 +150,7 @@ export const useProfileStore = create<ProfileState>()(
     }),
     {
       name: 'tetrios-profile-store',
-      version: 5, // Version bumped for abilities
+      version: 6, // Version bumped for leaderboards
       storage: createJSONStorage(() => safeStorage),
       migrate: (persistedState: any, currentVersion) => {
         if (currentVersion < 2) {
@@ -142,6 +167,9 @@ export const useProfileStore = create<ProfileState>()(
         if (currentVersion < 5) {
             if (!persistedState.stats.unlockedAbilities) persistedState.stats.unlockedAbilities = ['COLOR_SWAP'];
             if (!persistedState.stats.equippedAbilities) persistedState.stats.equippedAbilities = ['COLOR_SWAP'];
+        }
+        if (currentVersion < 6) {
+            if (!persistedState.stats.leaderboards) persistedState.stats.leaderboards = {};
         }
         return persistedState as ProfileState;
       },

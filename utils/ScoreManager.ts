@@ -1,10 +1,20 @@
 
 import type { GameCore } from './GameCore';
-import { GameStats, GameMode, ScoreResult } from '../types';
-import { SCORES, FRENZY_DURATION_MS, FRENZY_COMBO_THRESHOLD, BLITZ_DURATION_MS, BLITZ_SPEED_THRESHOLDS, LEVEL_PASS_COIN_REWARD, COMBO_MASTER_INITIAL_TIME, COMBO_MASTER_TIME_BONUS_BASE, COMBO_MASTER_TIME_BONUS_MULTIPLIER, FOCUS_GAUGE_PER_LINE, FOCUS_GAUGE_MAX, ZONE_DURATION_MS, ACHIEVEMENTS, DIFFICULTY_SETTINGS } from '../constants';
+import { GameStats, GameMode, ScoreResult, LevelRewards, TetrominoType } from '../types';
+import { SCORES, FRENZY_DURATION_MS, FRENZY_COMBO_THRESHOLD, BLITZ_DURATION_MS, BLITZ_SPEED_THRESHOLDS, LEVEL_PASS_COIN_REWARD, COMBO_MASTER_INITIAL_TIME, COMBO_MASTER_TIME_BONUS_BASE, COMBO_MASTER_TIME_BONUS_MULTIPLIER, FOCUS_GAUGE_PER_LINE, FOCUS_GAUGE_MAX, ZONE_DURATION_MS, ACHIEVEMENTS, DIFFICULTY_SETTINGS, STAR_COIN_BONUS, MOMENTUM_GAINS, MOMENTUM_MAX, MOMENTUM_DECAY_PER_SEC, OVERDRIVE_DURATION_MS, OVERDRIVE_SCORE_MULTIPLIER } from '../constants';
 import { calculateScore } from './scoreRules';
 import { useProfileStore } from '../stores/profileStore';
 import { audioManager } from './audioManager';
+import { replayManager } from './ReplayManager';
+
+const HYPE_PHRASES = {
+    SINGLE: ['MID', 'NPC ENERGY', 'BASIC', 'MEH', 'LOW KEY', 'OK I GUESS'],
+    DOUBLE: ['BET', 'VALID', 'W', 'NO CAP', 'COOKING', 'SOLID'],
+    TRIPLE: ['SHEESH', 'POP OFF', 'HIM', 'ON GOD', 'ATE THAT', 'CRACKED'],
+    TETRIS: ['MAIN CHARACTER', 'ABSOLUTE CINEMA', 'EMOTIONAL DAMAGE', 'SLAY', 'GOATED', 'BUILT DIFFERENT'],
+    TSPIN: ['AURA +9999', 'BIG BRAIN', '5HEAD', 'GIGACHAD', 'TECHNIQUE', 'CALCULATED'],
+    COMBO: ['UNSTOPPABLE', 'GOD MODE', 'LUDICROUS', 'SAVAGE', 'RIZZ GOD', 'INFINITE AURA']
+};
 
 export class ScoreManager {
     private core: GameCore;
@@ -31,23 +41,27 @@ export class ScoreManager {
     private _getInitialStats(): GameStats {
         return {
             score: 0, rows: 0, level: 0, time: 0,
-            movesTaken: 0, gemsCollected: 0, bombsDefused: 0, tetrisesAchieved: 0, tspinsAchieved: 0, combosAchieved: 0,
-            currentB2BChain: 0, maxB2BChain: 0, bossHp: 0,
+            movesTaken: 0, gemsCollected: 0, bombsDefused: 0, tetrisesAchieved: 0, combosAchieved: 0,
+            currentB2BChain: 0, maxB2BChain: 0, b2bMultiplier: 1, bossHp: 0,
             isFrenzyActive: false, frenzyTimer: 0, slowTimeActive: false, slowTimeTimer: 0,
             wildcardAvailable: false, bombBoosterReady: false, lineClearerActive: false,
             flippedGravityActive: false, flippedGravityTimer: 0,
             focusGauge: 0, isZoneActive: false, zoneTimer: 0, zoneLines: 0,
-            colorStreak: 0, lastClearColor: undefined,
-            colorClears: {},
-            scoreMultiplierActive: false,
-            scoreMultiplierTimer: 0
+            perfectDropStreak: 0,
+            momentum: 0, isOverdriveActive: false, overdriveTimer: 0,
+            holdCharge: 0, holdDecay: 0, isFinisherReady: false
         };
     }
 
     public reset(mode: GameMode, startLevel: number): void {
         this.stats = this._getInitialStats();
         this.comboMasterExtraTime = 0;
-        
+        this._initModeDefaults(mode, startLevel);
+        this._resetEphemeralState();
+        this.core.events.emit('STATS_CHANGE', this.stats);
+    }
+
+    private _initModeDefaults(mode: GameMode, startLevel: number): void {
         if (mode === 'TIME_ATTACK') {
             this.stats.time = 180;
         } else if (mode === 'BLITZ') {
@@ -59,9 +73,6 @@ export class ScoreManager {
         } else {
             this.stats.level = startLevel;
         }
-
-        this._resetEphemeralState();
-        this.core.events.emit('STATS_CHANGE', this.stats);
     }
 
     private _resetEphemeralState(): void {
@@ -79,234 +90,143 @@ export class ScoreManager {
         this.core.events.emit('COMBO_CHANGE', { combo: this.comboCount, backToBack: this.isBackToBack });
     }
 
+    // --- MAIN UPDATE LOOP ---
+
     public update(deltaTime: number): void {
-        if (!this.stats.isZoneActive) {
-            const elapsedSecs = this.core.getElapsedGameTime() / 1000;
-
-            if (this.core.mode === 'TIME_ATTACK' || this.core.mode === 'SPRINT' || this.core.mode === 'SURVIVAL') {
-                this.stats.time = elapsedSecs;
-            } else if (this.core.mode === 'BLITZ') {
-                this.stats.time = Math.max(0, (BLITZ_DURATION_MS / 1000) - elapsedSecs);
-                if (this.stats.time <= 0) {
-                    this.core.triggerGameOver('VICTORY', { coins: LEVEL_PASS_COIN_REWARD, stars: 3 }); 
-                }
-            } else if (this.core.mode === 'COMBO_MASTER') {
-                const remaining = (COMBO_MASTER_INITIAL_TIME + this.comboMasterExtraTime) - elapsedSecs;
-                this.stats.time = Math.max(0, remaining);
-                if (this.stats.time <= 0) {
-                    this.core.triggerGameOver('GAMEOVER');
-                }
-            } else if (this.core.mode === 'ADVENTURE') {
-                const adventureConfig = this.core.adventureManager.config;
-                if (adventureConfig) {
-                    const timeLimit = adventureConfig.constraints?.timeLimit;
-                    if (timeLimit) {
-                        this.stats.time = Math.max(0, timeLimit - elapsedSecs);
-                    } else {
-                        this.stats.time = elapsedSecs;
-                    }
-                }
-            }
-        }
-
-        if (this.frenzyActive) {
-            this.frenzyTimer -= deltaTime;
-            if (this.frenzyTimer <= 0) {
-                this._deactivateFrenzy();
-            } else {
-                this.stats.frenzyTimer = this.frenzyTimer;
-            }
-        }
-
-        if (this.scoreMultiplierActive) {
-            this.scoreMultiplierTimer -= deltaTime;
-            if (this.scoreMultiplierTimer <= 0) {
-                this._deactivateScoreMultiplier();
-            } else {
-                this.stats.scoreMultiplierTimer = this.scoreMultiplierTimer;
-            }
-        }
-        
-        if (this.stats.isZoneActive) {
-            this.stats.zoneTimer -= deltaTime;
-            if (this.stats.zoneTimer <= 0) {
-                this.deactivateZone();
-            }
-        }
+        this._updateTimers(deltaTime);
+        this._updateModeSpecifics();
         
         this.core.events.emit('STATS_CHANGE', this.stats);
     }
 
-    public activateScoreMultiplier(duration: number): void {
-        this.scoreMultiplierActive = true;
-        this.scoreMultiplierTimer = duration;
-        this.powerupMultiplier = 2; 
-        this.stats.scoreMultiplierActive = true;
-        this.stats.scoreMultiplierTimer = duration;
-        this.core.addFloatingText("DOUBLE SCORE!", "#ffd700", 0.9, 'powerup');
-        this.core.events.emit('VISUAL_EFFECT', { type: 'FLASH', payload: { color: '#ffd700', duration: 300 } });
-    }
+    private _updateTimers(deltaTime: number): void {
+        // Frenzy Timer
+        if (this.frenzyActive) {
+            this.frenzyTimer -= deltaTime;
+            if (this.frenzyTimer <= 0) this._deactivateFrenzy();
+            else this.stats.frenzyTimer = this.frenzyTimer;
+        }
 
-    private _deactivateScoreMultiplier(): void {
-        this.scoreMultiplierActive = false;
-        this.powerupMultiplier = 1;
-        this.stats.scoreMultiplierActive = false;
-        this.core.addFloatingText("MULTIPLIER END", "#888888", 0.6);
-    }
-
-    public handleLineClear(rowsCleared: number, isTSpinDetected: boolean, monoClearCount: number = 0, monoColor?: string, alternatingClearCount: number = 0): ScoreResult {
-        this.comboCount += 1;
-        this.stats.combosAchieved = Math.max(this.stats.combosAchieved || 0, this.comboCount + 1);
+        // Multiplier Timer
+        if (this.scoreMultiplierActive) {
+            this.scoreMultiplierTimer -= deltaTime;
+            if (this.scoreMultiplierTimer <= 0) this._deactivateScoreMultiplier();
+            else this.stats.scoreMultiplierTimer = this.scoreMultiplierTimer;
+        }
         
-        const result = calculateScore(rowsCleared, this.stats.level, isTSpinDetected, this.isBackToBack, this.comboCount);
-
+        // Zone Timer
         if (this.stats.isZoneActive) {
-            this.stats.zoneLines += rowsCleared;
-            if (rowsCleared > 0) {
-                this.core.events.emit('VISUAL_EFFECT', { type: 'ZONE_CLEAR' });
-                this.core.events.emit('AUDIO', { event: 'ZONE_CLEAR' });
-            }
-            result.score = 0; 
-            result.text = rowsCleared > 0 ? `ZONED ${rowsCleared}` : ''; 
-        } else {
-            if (rowsCleared > 0 && this.stats.focusGauge < FOCUS_GAUGE_MAX) {
-                let gaugeGain = rowsCleared * FOCUS_GAUGE_PER_LINE;
-                if (this.comboCount > 0) gaugeGain += this.comboCount * 1.5; 
-                if (result.isBackToBack) gaugeGain += 5;
-
-                const oldGauge = this.stats.focusGauge;
-                this.stats.focusGauge = Math.min(FOCUS_GAUGE_MAX, this.stats.focusGauge + gaugeGain);
-
-                if (oldGauge < FOCUS_GAUGE_MAX && this.stats.focusGauge >= FOCUS_GAUGE_MAX) {
-                    this.core.addFloatingText("ZONE READY", "#ffd700", 1.2, 'powerup');
-                    this.core.events.emit('AUDIO', { event: 'UI_SELECT' });
-                    this.core.events.emit('VISUAL_EFFECT', { type: 'FLASH', payload: { color: '#ffd700', duration: 300 } });
-                }
-            }
+            this.stats.zoneTimer -= deltaTime;
+            if (this.stats.zoneTimer <= 0) this.deactivateZone();
         }
 
-        if (audioManager.isOnBeat() && !this.stats.isZoneActive) {
-            const rhythmBonus = 200 * (rowsCleared + 1);
-            result.score += rhythmBonus;
-            this.core.addFloatingText("RHYTHM!", "#a78bfa", 0.7, 'rhythm');
-            this.core.events.emit('VISUAL_EFFECT', { type: 'FLASH', payload: { color: '#a78bfa', duration: 150 } });
+        // Momentum / Overdrive Decay
+        if (this.stats.isOverdriveActive) {
+            this.stats.overdriveTimer -= deltaTime;
+            if (this.stats.overdriveTimer <= 0) this._endOverdrive();
+        } else if (this.stats.momentum > 0) {
+            this.stats.momentum = Math.max(0, this.stats.momentum - (MOMENTUM_DECAY_PER_SEC * deltaTime) / 1000);
         }
+    }
 
-        if (monoClearCount > 0 && monoColor && !this.stats.isZoneActive) {
-            if (this.stats.lastClearColor === monoColor) {
-                this.stats.colorStreak = (this.stats.colorStreak || 0) + monoClearCount;
+    private _updateModeSpecifics(): void {
+        // Stop timer updates if in Zone
+        if (this.stats.isZoneActive) return;
+
+        const elapsedSecs = this.core.getElapsedGameTime() / 1000;
+        const mode = this.core.mode;
+
+        if (mode === 'TIME_ATTACK' || mode === 'SPRINT' || mode === 'SURVIVAL') {
+            this.stats.time = elapsedSecs;
+        } else if (mode === 'BLITZ') {
+            this.stats.time = Math.max(0, (BLITZ_DURATION_MS / 1000) - elapsedSecs);
+            if (this.stats.time <= 0) this.core.triggerGameOver('VICTORY', { coins: LEVEL_PASS_COIN_REWARD, stars: 3 }); 
+        } else if (mode === 'COMBO_MASTER') {
+            const remaining = (COMBO_MASTER_INITIAL_TIME + this.comboMasterExtraTime) - elapsedSecs;
+            this.stats.time = Math.max(0, remaining);
+            if (this.stats.time <= 0) this.core.triggerGameOver('GAMEOVER');
+        } else if (mode === 'ADVENTURE') {
+            const config = this.core.adventureManager.config;
+            if (config?.constraints?.timeLimit) {
+                this.stats.time = Math.max(0, config.constraints.timeLimit - elapsedSecs);
             } else {
-                this.stats.colorStreak = monoClearCount;
-                this.stats.lastClearColor = monoColor;
+                this.stats.time = elapsedSecs;
             }
-            
-            if (!this.stats.colorClears) this.stats.colorClears = {};
-            this.stats.colorClears[monoColor] = (this.stats.colorClears[monoColor] || 0) + monoClearCount;
-
-            const streakMult = Math.min(10, this.stats.colorStreak || 1);
-            const bonus = SCORES.MONO_COLOR_BONUS * monoClearCount * streakMult;
-            
-            result.score += bonus;
-            result.text = `COLOR MATCH x${this.stats.colorStreak}`;
-            this.core.events.emit('VISUAL_EFFECT', { type: 'SHOCKWAVE', payload: { color: monoColor } });
-        } else if (!this.stats.isZoneActive) {
-            this.stats.colorStreak = 0;
-            this.stats.lastClearColor = undefined;
         }
+    }
 
-        if (alternatingClearCount > 0 && !this.stats.isZoneActive) {
-            result.score += SCORES.PATTERN_BONUS * alternatingClearCount;
-            result.text = `PATTERN CLEAR!`;
-            this.core.addFloatingText("GARBAGE REDUCED", "#4ade80", 0.6);
-            
-            if (this.core.boardManager.garbagePending > 0) {
-                const reduced = Math.min(this.core.boardManager.garbagePending, alternatingClearCount * 2);
-                this.core.boardManager.addGarbage(-reduced);
-            }
-            
-            this.core.events.emit('VISUAL_EFFECT', { type: 'FLASH', payload: { color: '#fcd34d', duration: 200 } });
+    // --- CLEAR HANDLING ---
+
+    public handleClearEffects(payload: any) {
+        const { linesCleared, isTSpin, isBackToBack, combo, text } = payload;
+        
+        this._syncClearStats(payload);
+        
+        if (linesCleared > 0) {
+            this._processMomentum(linesCleared, isTSpin, isBackToBack);
+            this._processGauge(linesCleared, isTSpin, isBackToBack);
         }
 
-        if (result.isBackToBack && rowsCleared > 0) {
-            if (this.isBackToBack) this.stats.currentB2BChain = (this.stats.currentB2BChain || 0) + 1;
-            else this.stats.currentB2BChain = 1;
-        } else if (!result.isBackToBack) {
-            this.stats.currentB2BChain = 0;
-        }
-        
-        this.stats.maxB2BChain = Math.max(this.stats.maxB2BChain || 0, this.stats.currentB2BChain || 0);
-        this.isBackToBack = result.isBackToBack;
-
-        if (rowsCleared === 4) this.stats.tetrisesAchieved = (this.stats.tetrisesAchieved || 0) + 1;
-        if (isTSpinDetected) this.stats.tspinsAchieved = (this.stats.tspinsAchieved || 0) + 1;
-        
-        if (rowsCleared >= 4) {
-             this.core.events.emit('VISUAL_EFFECT', { type: 'SHOCKWAVE', payload: { color: '#06b6d4' } });
-        }
-        
-        if (isTSpinDetected && rowsCleared > 0) {
-             const { x, y } = this.core.pieceManager.player.pos;
-             this.core.events.emit('VISUAL_EFFECT', { 
-                 type: 'TSPIN_CLEAR', 
-                 payload: { x: x + 1, y: y + 1, color: '#d946ef' } 
-             });
-        }
-
-        if (this.comboCount === 4) {
-            this.core.pieceManager.injectRewardPiece('D2'); 
-        } else if (this.comboCount === 6) {
-            this.core.pieceManager.injectRewardPiece('T3'); 
-        } else if (this.comboCount === 8) {
-            this.core.pieceManager.injectRewardPiece('M1'); 
-        }
-        
-        if (this.stats.currentB2BChain === 2 && result.isBackToBack) {
-            this.core.pieceManager.injectRewardPiece('P5'); 
-        }
-
-        this.core.events.emit('COMBO_CHANGE', { combo: this.comboCount, backToBack: this.isBackToBack });
-        
-        if (!this.stats.isZoneActive) {
-            this.applyScore(result.score);
-        }
-        
-        this._handleLevelProgression(rowsCleared);
-        
         if (this.comboCount >= FRENZY_COMBO_THRESHOLD && !this.stats.isZoneActive) {
             this._activateFrenzy();
         }
 
-        if (this.core.mode === 'COMBO_MASTER' && rowsCleared > 0) {
-            const bonus = COMBO_MASTER_TIME_BONUS_BASE + (this.comboCount * COMBO_MASTER_TIME_BONUS_MULTIPLIER);
-            this.comboMasterExtraTime += bonus; 
-            this.core.addFloatingText(`+${bonus.toFixed(1)}s`, '#4ade80');
-        }
-
-        this.checkAchievements(rowsCleared, isTSpinDetected);
-
-        return result;
+        this._processHypeText(linesCleared, isTSpin, isBackToBack, text);
+        this.checkAchievements(linesCleared, isTSpin);
+        
+        if (this.core.mode === 'BLITZ') this._checkBlitzSpeedUp();
+        
+        this.core.events.emit('STATS_CHANGE', this.stats);
     }
 
-    private checkAchievements(rowsCleared: number, isTSpin: boolean): void {
-        const { stats } = this;
-        const unlock = (id: string) => {
-            if (useProfileStore.getState().unlockAchievement(id)) {
-                this.core.events.emit('ACHIEVEMENT_UNLOCKED', id);
+    private _syncClearStats(payload: any): void {
+        this.comboCount = payload.combo - 1; // Pure logic sends N+1
+        this.isBackToBack = payload.isBackToBack;
+        
+        this.stats.combosAchieved = Math.max(this.stats.combosAchieved || 0, payload.combo);
+        if (payload.linesCleared === 4) this.stats.tetrisesAchieved = (this.stats.tetrisesAchieved || 0) + 1;
+        if (payload.isTSpin) this.stats.tspinsAchieved = (this.stats.tspinsAchieved || 0) + 1;
+    }
+
+    private _processMomentum(lines: number, isTSpin: boolean, isB2B: boolean): void {
+        let mGain = lines * MOMENTUM_GAINS.LINE;
+        if (lines >= 4) mGain += MOMENTUM_GAINS.TETRIS;
+        if (isTSpin) mGain += MOMENTUM_GAINS.TSPIN;
+        if (isB2B) mGain += MOMENTUM_GAINS.B2B;
+        if (this.comboCount > 0) mGain += MOMENTUM_GAINS.COMBO;
+        this.addMomentum(mGain);
+    }
+
+    private _processGauge(lines: number, isTSpin: boolean, isB2B: boolean): void {
+        if (this.stats.isZoneActive) {
+            this.stats.zoneLines += lines;
+        } else {
+            if (this.stats.focusGauge < FOCUS_GAUGE_MAX) {
+                let gaugeGain = lines * FOCUS_GAUGE_PER_LINE;
+                if (this.comboCount > 0) gaugeGain += this.comboCount * 1.5; 
+                if (isB2B) gaugeGain += 5;
+                this.stats.focusGauge = Math.min(FOCUS_GAUGE_MAX, this.stats.focusGauge + gaugeGain);
             }
-        };
-
-        if (stats.rows >= 1) unlock('FIRST_DROP');
-        if (rowsCleared === 4) unlock('TETRIS');
-        if (this.comboCount >= 5) unlock('COMBO_5');
-        if (stats.score >= 100000) unlock('SCORE_100K');
-        if (stats.score >= 500000) unlock('SCORE_500K');
-        if (stats.level >= 10) unlock('LEVEL_10');
-        if (stats.isZoneActive && stats.zoneLines >= 8) unlock('ZONE_CLEAR_8');
-        if (isTSpin && rowsCleared === 2) unlock('TSPIN_DOUBLE');
-        if (this.isBackToBack && rowsCleared === 4) unlock('B2B_TETRIS');
-        if (this.core.mode === 'BLITZ' && this.blitzSpeedThresholdIndex >= BLITZ_SPEED_THRESHOLDS.length) unlock('BLITZ_SPEED');
-        if (this.core.boardManager.isBoardEmpty()) unlock('ALL_CLEAR');
+        }
     }
+
+    private _processHypeText(lines: number, isTSpin: boolean, isB2B: boolean, baseText: string): void {
+        if (baseText) {
+            let hypeText = baseText;
+            if (lines === 4) hypeText = this._getHypeText('TETRIS');
+            else if (isTSpin) hypeText = this._getHypeText('TSPIN');
+            else if (lines === 3) hypeText = this._getHypeText('TRIPLE');
+            else if (lines === 2) hypeText = this._getHypeText('DOUBLE');
+            else if (lines === 1) hypeText = this._getHypeText('SINGLE');
+            
+            if (this.comboCount > 5) hypeText = this._getHypeText('COMBO');
+            if (isB2B && lines > 0) hypeText = `B2B ${hypeText}`;
+
+            this.core.addFloatingText(hypeText, "#ffffff", lines > 2 ? 1.0 : 0.6);
+        }
+    }
+
+    // --- ZONE MECHANICS ---
 
     public tryActivateZone(): void {
         if (!this.stats.isZoneActive && this.stats.focusGauge >= FOCUS_GAUGE_MAX) {
@@ -319,32 +239,28 @@ export class ScoreManager {
         this.stats.zoneTimer = ZONE_DURATION_MS;
         this.stats.zoneLines = 0;
         this.core.events.emit('VISUAL_EFFECT', { type: 'ZONE_START' });
-        this.core.addFloatingText("HYPER FOCUS", "#ffffff", 1.0, 'zone');
+        this.core.addFloatingText("MAIN CHARACTER MODE", "#ffffff", 1.0, 'zone');
         this.core.events.emit('AUDIO', { event: 'ZONE_START' });
+        this.core.boosterManager.activateTimeFreeze(ZONE_DURATION_MS);
     }
 
     private deactivateZone(): void {
         if (!this.stats.isZoneActive) return;
-        
         this.stats.isZoneActive = false;
         
-        const clearedLines = this.core.boardManager.endZone();
-        
-        const multiplier = 1 + Math.floor(clearedLines / 4);
+        const clearedLines = this.stats.zoneLines;
+        const multiplier = 2 + Math.floor(clearedLines / 4);
         const bonus = clearedLines * SCORES.ZONE_CLEAR_BONUS * (this.stats.level + 1) * multiplier;
         
         if (bonus > 0) {
             this.applyScore(bonus);
-            
             let text = "ZONE CLEAR";
             if (clearedLines >= 8) text = "OCTORIS!";
             if (clearedLines >= 12) text = "DODECATRIS!";
-            if (clearedLines >= 16) text = "DECAHEX!";
             
             this.core.addFloatingText(`${text} +${bonus}`, "#ffd700", 1.5, 'zone');
-            this.core.events.emit('VISUAL_EFFECT', { type: 'PARTICLE', payload: { isExplosion: true, x: 5, y: 10, amount: 100 + (clearedLines * 10), color: 'gold' } });
+            this.core.events.emit('VISUAL_EFFECT', { type: 'PARTICLE', payload: { isExplosion: true, x: 5, y: 10, amount: 100, color: 'gold' } });
             this.core.events.emit('VISUAL_EFFECT', { type: 'SHOCKWAVE', payload: { color: 'gold' } });
-            this.checkAchievements(0, false); 
         } else {
             this.core.addFloatingText("ZONE END", "#888888", 0.8);
         }
@@ -354,40 +270,48 @@ export class ScoreManager {
         this.core.events.emit('VISUAL_EFFECT', { type: 'ZONE_END' });
         this.core.events.emit('AUDIO', { event: 'ZONE_END' });
         
+        this.core.boosterManager.timeFreezeActive = false;
+        this.core.boosterManager.timeFreezeTimer = 0;
         this.core.boardManager.processGarbage();
     }
 
-    public resetCombo(): void {
-        this.comboCount = -1;
-        this.core.events.emit('COMBO_CHANGE', { combo: this.comboCount, backToBack: this.isBackToBack });
+    // --- OVERDRIVE MECHANICS ---
+
+    private addMomentum(amount: number): void {
+        if (this.stats.isOverdriveActive || this.stats.isZoneActive) return;
+        this.stats.momentum = Math.min(MOMENTUM_MAX, this.stats.momentum + amount);
+        if (this.stats.momentum >= MOMENTUM_MAX) this._startOverdrive();
     }
+
+    private _startOverdrive(): void {
+        this.stats.isOverdriveActive = true;
+        this.stats.overdriveTimer = OVERDRIVE_DURATION_MS;
+        this.core.addFloatingText("OVERDRIVE!!!", "#f97316", 1.2, 'frenzy');
+        this.core.events.emit('VISUAL_EFFECT', { type: 'FLASH', payload: { color: '#f97316', duration: 500 } });
+        this.core.events.emit('VISUAL_EFFECT', { type: 'SHOCKWAVE', payload: { size: 500, color: '#f97316' } });
+        this.core.events.emit('AUDIO', { event: 'OVERDRIVE_START' });
+        this.core.pieceManager.dropTime *= 1.2; 
+    }
+
+    private _endOverdrive(): void {
+        this.stats.isOverdriveActive = false;
+        this.stats.momentum = 0;
+        this.core.addFloatingText("SYSTEM COOLED", "#888888", 0.7);
+        this.core.events.emit('AUDIO', { event: 'OVERDRIVE_END' });
+        this.core.updateSpeed();
+    }
+
+    // --- HELPERS ---
 
     public applyScore(amount: number): void {
         if (this.core.mode !== 'ZEN' && this.core.mode !== 'PUZZLE') {
             const diffMult = DIFFICULTY_SETTINGS[this.core.difficulty]?.scoreMult || 1.0;
-            this.stats.score += amount * this.frenzyMultiplier * this.powerupMultiplier * diffMult;
+            const overdriveMult = this.stats.isOverdriveActive ? OVERDRIVE_SCORE_MULTIPLIER : 1;
+            this.stats.score += amount * this.frenzyMultiplier * this.powerupMultiplier * diffMult * overdriveMult;
         }
         this.core.adventureManager.applyBossDamage(amount);
-
-        if (this.core.mode === 'BLITZ') {
-            this._checkBlitzSpeedUp();
-        }
-        
-        this.checkAchievements(0, false);
-        
+        if (this.core.mode === 'BLITZ') this._checkBlitzSpeedUp();
         this.core.events.emit('STATS_CHANGE', this.stats);
-    }
-
-    public applySoftDrop(): void {
-        if(this.core.mode !== 'ZEN' && this.core.mode !== 'PUZZLE') {
-            this.applyScore(SCORES.SOFT_DROP);
-        }
-    }
-
-    public applyHardDrop(droppedLines: number): void {
-        if(this.core.mode !== 'ZEN' && this.core.mode !== 'PUZZLE') {
-            this.applyScore(droppedLines * SCORES.HARD_DROP);
-        }
     }
 
     private _activateFrenzy(): void {
@@ -397,7 +321,6 @@ export class ScoreManager {
             this.core.events.emit('VISUAL_EFFECT', { type: 'FRENZY_START' });
             this.core.addFloatingText('FRENZY!', '#ffd700', 0.9, 'frenzy');
             this.core.events.emit('AUDIO', { event: 'FRENZY_START' });
-            this.checkAchievements(0, false); 
         }
         this.frenzyTimer = Math.max(this.frenzyTimer, FRENZY_DURATION_MS);
         this.stats.isFrenzyActive = true;
@@ -427,24 +350,98 @@ export class ScoreManager {
                 this.core.events.emit('AUDIO', { event: 'BLITZ_SPEEDUP' });
                 this.blitzLastSpeedUpScore = currentScore;
                 this.blitzSpeedThresholdIndex++;
-                this.checkAchievements(0, false);
             }
         }
     }
 
-    private _handleLevelProgression(rowsCleared: number): void {
-        this.stats.rows += rowsCleared;
-        
-        if (this.core.mode === 'MARATHON' || this.core.mode === 'SURVIVAL' || this.core.mode === 'COMBO_MASTER') {
-            const newLevel: number = Math.floor(this.stats.rows / 10);
-            if (newLevel > this.stats.level) {
-                this.core.handleLevelUp(newLevel);
-                this.checkAchievements(0, false); 
+    private _deactivateScoreMultiplier(): void {
+        this.scoreMultiplierActive = false;
+        this.powerupMultiplier = 1;
+        this.stats.scoreMultiplierActive = false;
+        this.core.addFloatingText("MULTIPLIER END", "#888888", 0.6);
+    }
+
+    private _getHypeText(type: keyof typeof HYPE_PHRASES): string {
+        const phrases = HYPE_PHRASES[type];
+        return phrases[Math.floor(Math.random() * phrases.length)];
+    }
+
+    public calculateLevelRewards(gameState: 'VICTORY' | 'GAMEOVER'): LevelRewards {
+        const mode = this.core.mode;
+        const isVictory = gameState === 'VICTORY';
+        if (replayManager.isReplaying) return { coins: 0, stars: 0 };
+
+        let earnedCoins = 0;
+        let stars = 0;
+        let boosterRewards = undefined;
+
+        if (mode === 'ADVENTURE') {
+            const config = this.core.adventureManager.config;
+            if (isVictory && config) {
+                stars = 1;
+                if (config.objective.type === 'SCORE') {
+                    if (this.stats.score >= config.objective.target * 1.5) stars++;
+                    if (this.stats.score >= config.objective.target * 2.0) stars++;
+                } else {
+                    if ((this.stats.tetrisesAchieved || 0) > 0) stars++;
+                    else if ((this.stats.tspinsAchieved || 0) > 0) stars++;
+                    
+                    if (config.constraints?.timeLimit) {
+                        const timeUsed = config.constraints.timeLimit - this.stats.time;
+                        if (timeUsed < config.constraints.timeLimit * 0.6) stars++; 
+                    } else if (config.constraints?.movesLimit) {
+                        if ((this.stats.movesTaken || 0) < config.constraints.movesLimit * 0.7) stars++;
+                    } else {
+                        if ((this.stats.maxB2BChain || 0) >= 2) stars++;
+                    }
+                }
+                stars = Math.min(3, stars);
+                earnedCoins = LEVEL_PASS_COIN_REWARD + (stars * STAR_COIN_BONUS) + (config.rewards?.coins || 0);
+                boosterRewards = config.rewards?.boosters || [];
             }
-        } else if (this.core.mode === 'SPRINT') {
-            if (this.stats.rows >= 40) {
-                this.core.triggerGameOver('VICTORY', { coins: LEVEL_PASS_COIN_REWARD, stars: 3 });
+        } else {
+            if (mode === 'BLITZ') earnedCoins = Math.floor(this.stats.score / 500); 
+            else if (mode !== 'ZEN' && mode !== 'PUZZLE') earnedCoins = Math.floor(this.stats.score / 100);
+            if (isVictory) {
+                earnedCoins += LEVEL_PASS_COIN_REWARD;
+                stars = 3;
             }
         }
+        return { coins: earnedCoins, stars, boosterRewards };
+    }
+
+    private checkAchievements(rowsCleared: number, isTSpin: boolean): void {
+        const { stats } = this;
+        const unlock = (id: string) => {
+            if (useProfileStore.getState().unlockAchievement(id)) {
+                this.core.events.emit('ACHIEVEMENT_UNLOCKED', id);
+            }
+        };
+
+        if (stats.rows >= 1) unlock('FIRST_DROP');
+        if (rowsCleared === 4) unlock('TETRIS');
+        if (this.comboCount >= 5) unlock('COMBO_5');
+        if (stats.score >= 100000) unlock('SCORE_100K');
+        if (stats.score >= 500000) unlock('SCORE_500K');
+        if (stats.level >= 10) unlock('LEVEL_10');
+        if (stats.isZoneActive && stats.zoneLines >= 8) unlock('ZONE_CLEAR_8');
+        if (isTSpin && rowsCleared === 2) unlock('TSPIN_DOUBLE');
+        if (this.isBackToBack && rowsCleared === 4) unlock('B2B_TETRIS');
+        if (this.core.mode === 'BLITZ' && this.blitzSpeedThresholdIndex >= BLITZ_SPEED_THRESHOLDS.length) unlock('BLITZ_SPEED');
+        if (this.core.boardManager.isBoardEmpty()) unlock('ALL_CLEAR');
+    }
+    
+    // Stub for legacy call compatibility
+    public handleLineClear(rowsCleared: number, isTSpin: boolean) {
+        this.handleClearEffects({
+            linesCleared: rowsCleared,
+            rows: [],
+            isTSpin,
+            isBackToBack: this.isBackToBack,
+            combo: this.comboCount + 1,
+            text: '',
+            scoreDelta: 0
+        });
+        return { score: 0, text: '', isBackToBack: this.isBackToBack, soundLevel: 0, visualShake: null };
     }
 }

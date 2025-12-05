@@ -1,6 +1,6 @@
 
 import { useState, useEffect } from 'react';
-import { STAGE_WIDTH, STAGE_HEIGHT } from '../constants';
+import { useGameSettingsStore } from '../stores/gameSettingsStore';
 
 export interface LayoutMetrics {
     cellSize: number;
@@ -12,74 +12,74 @@ export interface LayoutMetrics {
 }
 
 export const useResponsiveLayout = () => {
+    const gridDensity = useGameSettingsStore(state => state.gridDensity);
+    
+    const TARGET_COLS = gridDensity === 'DENSE' ? 20 : 10;
+    // Target 21 rows visible to ensure standard 20 + 1 buffer line is comfortable
+    const TARGET_ROWS = gridDensity === 'DENSE' ? 50 : 21; 
+
     const [layout, setLayout] = useState<LayoutMetrics>({
-        cellSize: 24,
-        cols: STAGE_WIDTH,
-        rows: STAGE_HEIGHT,
+        cellSize: 30,
+        cols: TARGET_COLS,
+        rows: TARGET_ROWS,
         width: 300,
-        height: 600,
-        isMobile: false
+        height: 690,
+        isMobile: true
     });
 
     useEffect(() => {
         const handleResize = () => {
-            const vw = Math.max(1, window.innerWidth); // Guard against 0
-            const vh = Math.max(1, window.innerHeight); // Guard against 0
+            const vw = window.innerWidth;
+            const vh = window.innerHeight;
             const isMobile = vw < 1024;
 
-            if (!isMobile) { 
-                // Desktop Layout (Standard Fixed)
-                const DESKTOP_VERTICAL_PADDING = 60; 
-                const DESKTOP_HORIZONTAL_RESERVE = 400; 
-                
-                const availableHeight = vh - DESKTOP_VERTICAL_PADDING;
-                const availableWidth = vw - DESKTOP_HORIZONTAL_RESERVE;
-                
-                const sizeByHeight = Math.floor(Math.max(0, availableHeight) / STAGE_HEIGHT);
-                const sizeByWidth = Math.floor(Math.max(0, availableWidth) / STAGE_WIDTH);
-                
-                const cell = Math.floor(Math.min(sizeByHeight, sizeByWidth, 32)); // Cap size for desktop and floor it
-                
-                // Safety clamp
-                const safeCell = Math.max(10, cell);
+            let cell = 0;
 
-                setLayout({
-                    cellSize: safeCell,
-                    cols: STAGE_WIDTH,
-                    rows: STAGE_HEIGHT,
-                    width: STAGE_WIDTH * safeCell,
-                    height: STAGE_HEIGHT * safeCell,
-                    isMobile: false
-                });
-            } else { 
-                // Mobile "Full Screen" Logic
-                // 1. Determine Density: How many columns fit?
-                const TARGET_CELL_SIZE = 22; // Small blocks for "High Res" feel
+            if (isMobile && gridDensity === 'COMFORT') {
+                // INFINITY LAYOUT STRATEGY (Refined):
                 
-                // Calculate columns to fill width exactly
-                let cols = Math.floor(vw / TARGET_CELL_SIZE);
-                // Ensure even number of columns for symmetry if possible, and min width
-                cols = Math.max(10, cols);
+                // 1. Width Priority: Fill screen width minus slight padding
+                const safeWidth = vw - 8;
+                const widthBasedCell = Math.floor(safeWidth / TARGET_COLS);
                 
-                // Recalculate exact cell size to fill width (floored to integer to prevent sub-pixel blur)
-                // Critical Fix: Ensure cell is at least 1 to prevent division by zero
-                const cell = Math.max(1, Math.floor(vw / cols));
+                // 2. Height Priority: 
+                // Reserve top space for Score HUD (approx 80px visual clearance)
+                // Reserve bottom space for Controls (approx 120px)
+                // The actual GameScreen uses overlays, but we need to ensure the grid itself
+                // fits within a reasonable area so the "spawn" row isn't covered by the score.
                 
-                // Calculate rows to fill available height
-                const rows = Math.ceil(vh / cell);
+                const HEADER_CLEARANCE = 90; 
+                const FOOTER_CLEARANCE = 100;
+                const safeHeight = vh - HEADER_CLEARANCE - FOOTER_CLEARANCE;
                 
-                // Safety cap on rows to prevent infinite/massive arrays
-                const safeRows = Math.min(rows, 100); 
-
-                setLayout({
-                    cellSize: cell,
-                    cols: cols,
-                    rows: safeRows,
-                    width: cols * cell, // Use precise integer width
-                    height: safeRows * cell, 
-                    isMobile: true
-                });
+                const heightBasedCell = Math.floor(safeHeight / TARGET_ROWS);
+                
+                // 3. Balance: Use the smaller cell size to ensure it fits, 
+                // but favor width if the height restriction isn't critical (overlay mode)
+                // We'll lean towards filling width unless height is very constrained.
+                
+                cell = Math.min(widthBasedCell, heightBasedCell);
+                
+                // Clamp minimum size for playability
+                cell = Math.max(cell, 24); 
+            } else {
+                // Desktop Logic
+                const maxDesktopWidth = 800; 
+                const availableWidth = Math.min(vw, maxDesktopWidth);
+                cell = Math.floor(availableWidth / TARGET_COLS);
+                
+                const maxCellHeight = Math.floor((vh - 80) / TARGET_ROWS);
+                cell = Math.min(cell, maxCellHeight);
             }
+            
+            setLayout({
+                cellSize: cell,
+                cols: TARGET_COLS,
+                rows: TARGET_ROWS,
+                width: TARGET_COLS * cell,
+                height: TARGET_ROWS * cell,
+                isMobile
+            });
         };
         
         const resizeObserver = new ResizeObserver(() => requestAnimationFrame(handleResize));
@@ -88,7 +88,8 @@ export const useResponsiveLayout = () => {
         handleResize(); 
         
         return () => resizeObserver.disconnect();
-    }, []);
+    }, [gridDensity]);
 
     return layout;
 };
+    

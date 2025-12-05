@@ -12,6 +12,8 @@ import { ScoreResult } from '../types';
  * @param {boolean} isTSpin True if a T-Spin was performed.
  * @param {boolean} isBackToBack True if the previous difficult clear was B2B.
  * @param {number} comboCount The current combo chain count (0 for first clear in chain).
+ * @param {number} colorStreak Current streak of same-color clears (optional).
+ * @param {number} monoClearCount Number of lines in this clear that were single-color (optional).
  * @returns {ScoreResult} An object containing the calculated score, text, B2B status, sound level, and visual shake.
  */
 export const calculateScore = (
@@ -19,7 +21,9 @@ export const calculateScore = (
   level: number,
   isTSpin: boolean,
   isBackToBack: boolean,
-  comboCount: number
+  comboCount: number,
+  colorStreak: number = 0,
+  monoClearCount: number = 0
 ): ScoreResult => {
   let score = 0;
   let text = '';
@@ -79,6 +83,16 @@ export const calculateScore = (
   if (rowsCleared > 0 && comboCount > 0) {
     score += SCORES.COMBO_FACTOR * comboCount * (level + 1);
     text += ` +${comboCount} COMBO`;
+  }
+
+  // 4. Color Match Bonus (Mono-color lines)
+  if (monoClearCount > 0 && colorStreak > 0) {
+      const streakMult = Math.min(10, colorStreak);
+      const colorBonus = SCORES.MONO_COLOR_BONUS * monoClearCount * streakMult;
+      score += colorBonus;
+      // Append text if not already too long, or prioritize it
+      if (!text) text = `COLOR MATCH x${colorStreak}`;
+      else text += ` + COLOR x${colorStreak}`;
   }
 
   return {

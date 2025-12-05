@@ -19,6 +19,9 @@ const mockStats: GameStats = {
   bombsDefused: 1,
   tetrisesAchieved: 2,
   combosAchieved: 5,
+  currentB2BChain: 0,
+  maxB2BChain: 0,
+  b2bMultiplier: 1,
   isFrenzyActive: false,
   frenzyTimer: 0,
   slowTimeActive: false,
@@ -32,6 +35,9 @@ const mockStats: GameStats = {
   isZoneActive: false,
   zoneTimer: 0,
   zoneLines: 0,
+  momentum: 0,
+  isOverdriveActive: false,
+  overdriveTimer: 0,
 };
 
 describe('StatsPanel', () => {

@@ -3,7 +3,7 @@ import { WorkerRequest, WorkerResponse, WorkerInitPayload, Board, TetrominoType 
 
 // Pure logic function for AI scoring, safe for export/testing
 export const workerLogic = () => {
-    let CONSTANTS: WorkerInitPayload | null = null;
+    let CONSTANTS: any = null; // Use any to allow bracket access without TS complaining inside stringified function
 
     const _WEIGHTS = {
       landingHeight: -10.0,
@@ -21,7 +21,6 @@ export const workerLogic = () => {
         return rotatedGrid.reverse();
     };
 
-    // ... checkCollision, isTSpin, cloneBoard, lockPiece, evaluateBoard helper functions remain identical to previous ...
     const checkCollision = (player: any, stage: any, moveOffset: any, flippedGravity: boolean) => {
         const { x: moveX, y: moveY } = moveOffset;
         const { shape } = player.tetromino;
@@ -65,6 +64,10 @@ export const workerLogic = () => {
         if (!CONSTANTS) return false;
         const { x, y } = player.pos;
         
+        // Use bracket notation for constants to survive minification
+        const width = CONSTANTS['STAGE_WIDTH'];
+        const height = CONSTANTS['STAGE_HEIGHT'];
+        
         const cornerCheckPositions = [
             { x: x, y: y },         
             { x: x + 2, y: y },     
@@ -75,15 +78,15 @@ export const workerLogic = () => {
         let occupiedCorners = 0;
 
         for (const c of cornerCheckPositions) {
-            if (c.x < 0 || c.x >= CONSTANTS.STAGE_WIDTH) {
+            if (c.x < 0 || c.x >= width) {
                 occupiedCorners++;
                 continue;
             }
             if (flippedGravity) {
                 if (c.y < 0) { occupiedCorners++; continue; }
-                if (c.y >= CONSTANTS.STAGE_HEIGHT) continue;
+                if (c.y >= height) continue;
             } else {
-                if (c.y >= CONSTANTS.STAGE_HEIGHT) { occupiedCorners++; continue; }
+                if (c.y >= height) { occupiedCorners++; continue; }
                 if (c.y < 0) continue;
             }
             if (stage[c.y][c.x][1] !== 'clear') {
@@ -99,6 +102,9 @@ export const workerLogic = () => {
 
     const lockPiece = (board: any, shape: any, x: number, y: number, flippedGravity: boolean) => {
       if (!CONSTANTS) return { board, droppedY: y };
+      const height = CONSTANTS['STAGE_HEIGHT'];
+      const width = CONSTANTS['STAGE_WIDTH'];
+      
       let dy = y;
       const moveIncrement = flippedGravity ? -1 : 1;
       
@@ -117,7 +123,7 @@ export const workerLogic = () => {
               if(shape[r][c] !== 0) {
                   const ny = dy + r;
                   const nx = x + c;
-                  if(ny >= 0 && ny < CONSTANTS.STAGE_HEIGHT && nx >= 0 && nx < CONSTANTS.STAGE_WIDTH) {
+                  if(ny >= 0 && ny < height && nx >= 0 && nx < width) {
                      board[ny][nx] = ['G', 'merged']; 
                   }
               }
@@ -128,11 +134,15 @@ export const workerLogic = () => {
 
     const evaluateBoard = (board: any, droppedY: number, shapeHeight: number, flippedGravity: boolean, isTSpinMove: boolean) => {
       if (!CONSTANTS) return -Infinity;
+      
+      const height = CONSTANTS['STAGE_HEIGHT'];
+      const width = CONSTANTS['STAGE_WIDTH'];
+
       let landingHeight;
       if (flippedGravity) {
           landingHeight = droppedY + (shapeHeight / 2); 
       } else {
-          landingHeight = CONSTANTS.STAGE_HEIGHT - droppedY - (shapeHeight / 2);
+          landingHeight = height - droppedY - (shapeHeight / 2);
       }
       
       let rowsCleared = 0;
@@ -141,33 +151,33 @@ export const workerLogic = () => {
       let holes = 0;
       let wellSums = 0;
 
-      for(let y=0; y<CONSTANTS.STAGE_HEIGHT; y++) {
+      for(let y=0; y<height; y++) {
         if(board[y].every((cell: any) => cell[1] !== 'clear')) rowsCleared++;
       }
 
-      for(let y=0; y<CONSTANTS.STAGE_HEIGHT; y++) {
-        for(let x=0; x<CONSTANTS.STAGE_WIDTH-1; x++) {
+      for(let y=0; y<height; y++) {
+        for(let x=0; x<width-1; x++) {
           if( (board[y][x][1] !== 'clear') !== (board[y][x+1][1] !== 'clear') ) rowTransitions++;
         }
         if(board[y][0][1] === 'clear') rowTransitions++;
-        if(board[y][CONSTANTS.STAGE_WIDTH-1][1] === 'clear') rowTransitions++;
+        if(board[y][width-1][1] === 'clear') rowTransitions++;
       }
 
-      for(let x=0; x<CONSTANTS.STAGE_WIDTH; x++) {
+      for(let x=0; x<width; x++) {
         let colHasBlock = false;
-        const yStart = flippedGravity ? CONSTANTS.STAGE_HEIGHT - 1 : 0;
-        const yEnd = flippedGravity ? -1 : CONSTANTS.STAGE_HEIGHT;
+        const yStart = flippedGravity ? height - 1 : 0;
+        const yEnd = flippedGravity ? -1 : height;
         const yIncrement = flippedGravity ? -1 : 1;
 
         for(let y=yStart; y !== yEnd; y += yIncrement) {
           const isFilled = board[y][x][1] !== 'clear';
           
-          if(y >= 0 && y < CONSTANTS.STAGE_HEIGHT - 1) { 
+          if(y >= 0 && y < height - 1) { 
             const nextY = y + (flippedGravity ? -1 : 1);
-            if(nextY >= 0 && nextY < CONSTANTS.STAGE_HEIGHT) {
+            if(nextY >= 0 && nextY < height) {
               if(isFilled !== (board[nextY][x][1] !== 'clear')) colTransitions++;
             }
-          } else if (y === CONSTANTS.STAGE_HEIGHT -1 && !flippedGravity){ 
+          } else if (y === height -1 && !flippedGravity){ 
               if(isFilled) colTransitions++;
           } else if (y === 0 && flippedGravity){ 
               if(isFilled) colTransitions++;
@@ -179,7 +189,7 @@ export const workerLogic = () => {
               holes++; 
           }
 
-          if(x>0 && x<CONSTANTS.STAGE_WIDTH-1) {
+          if(x>0 && x<width-1) {
             if(!isFilled && board[y][x-1][1] !== 'clear' && board[y][x+1][1] !== 'clear') wellSums++;
           }
         }
@@ -213,7 +223,12 @@ export const workerLogic = () => {
       try {
         const { stage, tetrominoType, flippedGravity, mode, playerMove, id } = e.data; 
         
-        if (!tetrominoType || !CONSTANTS.TETROMINOS[tetrominoType]) {
+        // Bracket access for safety
+        const tetrominos = CONSTANTS['TETROMINOS'];
+        const stageWidth = CONSTANTS['STAGE_WIDTH'];
+        const stageHeight = CONSTANTS['STAGE_HEIGHT'];
+
+        if (!tetrominoType || !tetrominos[tetrominoType]) {
           const response: WorkerResponse = { result: null, id };
           self.postMessage(response); 
           return;
@@ -221,19 +236,19 @@ export const workerLogic = () => {
 
         let bestScore = -Infinity;
         let bestMove = null;
-        const baseShape = CONSTANTS.TETROMINOS[tetrominoType].shape;
+        const baseShape = tetrominos[tetrominoType].shape;
 
         // Iterate all possible moves
         for(let r=0; r<4; r++) { 
           let shape = baseShape;
           for(let i=0; i<r; i++) shape = rotateMatrix(shape, 1);
 
-          for(let x=-2; x<CONSTANTS.STAGE_WIDTH; x++) { 
+          for(let x=-2; x<stageWidth; x++) { 
             let validX = true;
             for(let row=0; row<shape.length; row++) {
               for(let col=0; col<shape[row].length; col++) {
                   if(shape[row][col] !== 0) {
-                      if(x+col < 0 || x+col >= CONSTANTS.STAGE_WIDTH) {
+                      if(x+col < 0 || x+col >= stageWidth) {
                           validX = false;
                           break;
                       }
@@ -243,7 +258,7 @@ export const workerLogic = () => {
             }
             if(!validX) continue;
 
-            const startY = flippedGravity ? CONSTANTS.STAGE_HEIGHT - shape.length : 0;
+            const startY = flippedGravity ? stageHeight - shape.length : 0;
             const playerMock = { pos: { x, y: startY }, tetromino: { shape } };
 
             if (checkCollision(playerMock, stage, {x:0, y:0}, flippedGravity || false)) {
@@ -275,6 +290,7 @@ export const workerLogic = () => {
         }
 
       } catch(err) {
+        // console.error("Worker Error", err); // safely ignored in prod
         self.postMessage({ result: null, id: e.data?.id || 0 });
       }
     };

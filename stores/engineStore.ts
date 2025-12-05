@@ -59,7 +59,8 @@ const INITIAL_STATS: GameStats = {
     wildcardAvailable: false, bombBoosterReady: false, lineClearerActive: false,
     flippedGravityActive: false, flippedGravityTimer: 0,
     focusGauge: 0, isZoneActive: false, zoneTimer: 0, zoneLines: 0,
-    maxB2BChain: 0, currentB2BChain: 0
+    maxB2BChain: 0, currentB2BChain: 0, b2bMultiplier: 1,
+    momentum: 0, isOverdriveActive: false, overdriveTimer: 0
 };
 
 export const useEngineStore = create<EngineState>((set) => ({

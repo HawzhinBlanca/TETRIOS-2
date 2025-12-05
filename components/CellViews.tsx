@@ -1,6 +1,8 @@
 
 import React, { useMemo } from 'react';
-import { GhostStyle } from '../types';
+import { GhostStyle, BlockSkin, TetrominoType } from '../types';
+import { ghostTextureFactory } from '../utils/GhostTextureFactory';
+import { EMOJI_MAP } from '../constants';
 
 export const GhostView: React.FC<{
     rgb: string;
@@ -9,62 +11,54 @@ export const GhostView: React.FC<{
     thickness?: number;
     opacity: number;
     glow: number;
-}> = React.memo(({ rgb, warning, style, thickness, opacity, glow }) => {
+}> = React.memo(({ rgb, warning, style, opacity, glow }) => {
+    // Determine effective color (Red override for warning)
     const displayRgb = warning ? '255, 69, 0' : rgb;
-    const outlineWidth = thickness !== undefined ? `${thickness}px` : '2px';
-    const currentOpacity = warning ? 1 : opacity;
-    const glowMult = warning ? 1.5 : 1;
+    
+    // Fetch cached textures
+    const bodyTexture = useMemo(() => ghostTextureFactory.getBody(displayRgb, style), [displayRgb, style]);
+    const glowTexture = useMemo(() => ghostTextureFactory.getGlow(displayRgb), [displayRgb]);
 
-    // Allow 0 blur if glow is 0
-    const minBlur = glow === 0 ? 0 : Math.max(2, 4 * glow * glowMult);
-    const maxBlur = glow === 0 ? 0 : Math.max(8, 16 * glow * glowMult);
-
-    const baseStyle: React.CSSProperties = {
-        '--cell-rgb': displayRgb,
-        '--ghost-blur-min': `${minBlur}px`,
-        '--ghost-blur-max': `${maxBlur}px`,
+    // Base container style
+    const containerStyle: React.CSSProperties = {
         width: '100%',
         height: '100%',
         position: 'relative',
-        borderRadius: '2px',
-        transition: 'all 100ms ease-out',
-        animation: warning 
-            ? 'ghost-warning 0.4s infinite ease-in-out alternate' 
-            : `ghost-pulse-dynamic 2s infinite ease-in-out`,
-        opacity: currentOpacity,
-    } as React.CSSProperties;
+        opacity: warning ? 1 : opacity,
+        transition: 'opacity 0.2s',
+    };
 
-    const specificStyle = useMemo(() => {
-        switch (style) {
-            case 'dashed':
-                return {
-                    background: `rgba(${displayRgb}, 0.1)`,
-                    border: `${outlineWidth} dashed rgba(${displayRgb}, ${warning ? 1 : 0.8})`,
-                    boxShadow: warning ? `0 0 15px rgba(${displayRgb}, 0.6)` : 'none',
-                };
-            case 'solid':
-                return {
-                    background: `rgba(${displayRgb}, ${warning ? 0.5 : 0.3})`,
-                    border: `${outlineWidth} solid rgba(${displayRgb}, ${warning ? 1 : 0.6})`,
-                    backdropFilter: 'blur(2px)',
-                    boxShadow: warning ? `0 0 20px rgba(${displayRgb}, 0.5)` : 'none',
-                };
-            case 'neon':
-            default:
-                // Static fallback if animation not supported
-                const blur = glow === 0 ? 0 : 8 * glow * glowMult;
-                const spread = glow === 0 ? 0 : 4 * glow * glowMult;
-                const shadow = blur > 0 ? `0 0 ${blur}px rgba(${displayRgb}, 0.8), inset 0 0 ${spread}px rgba(${displayRgb}, 0.4)` : 'none';
-                
-                return {
-                    background: `rgba(${displayRgb}, 0.1)`,
-                    border: `${outlineWidth} solid rgba(${displayRgb}, 0.8)`,
-                    boxShadow: shadow,
-                };
-        }
-    }, [style, displayRgb, outlineWidth, warning, glow, glowMult]);
+    // Body Layer (Static Cached Image)
+    const bodyStyle: React.CSSProperties = {
+        position: 'absolute',
+        inset: 0,
+        backgroundImage: `url(${bodyTexture})`,
+        backgroundSize: '100% 100%',
+        backgroundRepeat: 'no-repeat',
+        filter: warning ? 'brightness(1.5)' : 'none',
+        animation: warning ? 'pulse-red 0.5s infinite alternate' : 'none'
+    };
 
-    return <div style={{ ...baseStyle, ...specificStyle }} />;
+    // Glow Layer (Animated Opacity)
+    // Only render if glow intensity > 0
+    const glowStyle: React.CSSProperties = {
+        position: 'absolute',
+        inset: '-20%', // Expand slightly for glow spill
+        backgroundImage: `url(${glowTexture})`,
+        backgroundSize: '100% 100%',
+        backgroundRepeat: 'no-repeat',
+        opacity: glow,
+        animation: warning ? 'none' : 'pulse 2s infinite ease-in-out', // Efficient opacity animation
+        mixBlendMode: 'screen',
+        pointerEvents: 'none'
+    };
+
+    return (
+        <div style={containerStyle}>
+            {glow > 0 && <div style={glowStyle} />}
+            <div style={bodyStyle} />
+        </div>
+    );
 });
 
 export const ActiveView: React.FC<{
@@ -72,8 +66,11 @@ export const ActiveView: React.FC<{
     color: string;
     rotating: boolean;
     locked: boolean;
+    glowIntensity?: number;
+    skin?: BlockSkin;
+    type?: TetrominoType | 0 | null;
     children?: React.ReactNode;
-}> = React.memo(({ rgb, color, rotating, locked, children }) => {
+}> = React.memo(({ rgb, color, rotating, locked, glowIntensity = 1, skin = 'NEON', type, children }) => {
     const style: React.CSSProperties = useMemo(() => {
         if (locked) {
             return {
@@ -87,22 +84,86 @@ export const ActiveView: React.FC<{
                 borderRadius: '1px'
             };
         }
-        return {
-            '--cell-rgb': rgb,
-            background: `rgba(${rgb}, 0.6)`,
-            boxShadow: `inset 0 0 8px rgba(255,255,255,0.4), 0 0 10px ${color}, 0 0 20px ${color}`,
-            border: '1px solid rgba(255,255,255,0.5)',
-            animation: rotating ? 'pop-rotate 0.2s ease-out' : 'neon-glow 2s infinite ease-in-out',
-            zIndex: rotating ? 10 : 1,
+        
+        const base: React.CSSProperties = {
             width: '100%',
             height: '100%',
+            position: 'relative',
+            zIndex: rotating ? 10 : 1,
+            transition: 'all 75ms ease-out',
             borderRadius: '1px'
-        } as React.CSSProperties;
-    }, [rgb, color, rotating, locked]);
+        };
+
+        switch (skin) {
+            case 'RETRO':
+                return {
+                    ...base,
+                    backgroundColor: `rgba(${rgb}, 1)`,
+                    border: '2px solid rgba(0,0,0,0.3)',
+                    boxShadow: `inset 0 0 0 20% rgba(255,255,255,0.4)`
+                };
+            case 'MINIMAL':
+                return {
+                    ...base,
+                    backgroundColor: color,
+                    borderRadius: '0px'
+                };
+            case 'GELATIN':
+                return {
+                    ...base,
+                    backgroundColor: color,
+                    borderRadius: '30%',
+                    boxShadow: 'inset 2px 2px 5px rgba(255,255,255,0.4), inset -2px -2px 5px rgba(0,0,0,0.2)'
+                };
+            case 'CYBER':
+                return {
+                    ...base,
+                    backgroundColor: 'rgba(0,0,0,0.6)',
+                    border: `1px solid ${color}`,
+                    boxShadow: `0 0 5px ${color}`,
+                    backgroundImage: `radial-gradient(circle, ${color} 20%, transparent 20%)`,
+                    backgroundSize: '100% 100%',
+                    backgroundPosition: 'center'
+                };
+            case 'EMOJI':
+                return {
+                    ...base,
+                    backgroundColor: `rgba(${rgb}, 0.3)`,
+                    border: `1px solid ${color}`,
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    fontSize: '100%'
+                };
+            case 'NEON':
+            default:
+                const glow1 = 10 * glowIntensity;
+                const glow2 = 20 * glowIntensity;
+                const shadow = glowIntensity > 0 
+                    ? `inset 0 0 8px rgba(255,255,255,0.4), 0 0 ${glow1}px ${color}, 0 0 ${glow2}px ${color}`
+                    : `inset 0 0 8px rgba(255,255,255,0.4)`;
+
+                return {
+                    ...base,
+                    '--cell-rgb': rgb,
+                    background: `rgba(${rgb}, 0.6)`,
+                    boxShadow: shadow,
+                    border: '1px solid rgba(255,255,255,0.5)',
+                    animation: rotating ? 'pop-rotate 0.2s ease-out' : 'neon-glow 2s infinite ease-in-out',
+                } as React.CSSProperties;
+        }
+    }, [rgb, color, rotating, locked, glowIntensity, skin]);
 
     return (
-        <div className="w-full h-full relative transition-all duration-75 flex items-center justify-center" style={style}>
-            <div className="absolute inset-1 bg-white opacity-10 rounded-[1px] pointer-events-none"></div>
+        <div style={style}>
+            {skin === 'NEON' && !locked && (
+                <div className="absolute inset-1 bg-white opacity-10 rounded-[1px] pointer-events-none"></div>
+            )}
+            
+            {skin === 'EMOJI' && !locked && type && (
+                <span style={{ fontSize: '70%', lineHeight: 1 }}>{EMOJI_MAP[type as string] || ''}</span>
+            )}
+            
             {children}
         </div>
     );

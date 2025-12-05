@@ -8,10 +8,6 @@
     <meta name="theme-color" content="#06B6D4" />
     <meta name="description" content="High-fidelity Tetris clone with neon aesthetics and robust mechanics.">
     
-    <!-- Asset Optimization: Preconnect -->
-    <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    
     <script src="https://cdn.tailwindcss.com"></script>
     <link href="https://fonts.googleapis.com/css2?family=Rajdhani:wght@400;500;600;700;800&display=swap" rel="stylesheet">
     <script type="importmap">
@@ -25,13 +21,12 @@
     "zustand": "https://esm.sh/zustand@4.5.2?deps=react@18.2.0",
     "zustand/middleware": "https://esm.sh/zustand@4.5.2/middleware?deps=react@18.2.0",
     "pixi.js": "https://esm.sh/pixi.js@7.3.2",
-    "types": "https://aistudiocdn.com/types@^0.1.1",
+    "react/": "https://aistudiocdn.com/react@^19.2.1/",
+    "react-dom/": "https://aistudiocdn.com/react-dom@^19.2.1/",
     "@testing-library/jest-dom": "https://aistudiocdn.com/@testing-library/jest-dom@^6.9.1",
+    "zustand/": "https://aistudiocdn.com/zustand@^5.0.9/",
     "@testing-library/react": "https://aistudiocdn.com/@testing-library/react@^16.3.0",
-    "@testing-library/react-hooks": "https://aistudiocdn.com/@testing-library/react-hooks@^8.0.1",
-    "react-dom/": "https://aistudiocdn.com/react-dom@^19.2.0/",
-    "react/": "https://aistudiocdn.com/react@^19.2.0/",
-    "zustand/": "https://aistudiocdn.com/zustand@^5.0.8/"
+    "@testing-library/react-hooks": "https://aistudiocdn.com/@testing-library/react-hooks@^8.0.1"
   }
 }
 </script>
@@ -144,6 +139,21 @@
         90% { transform: translate(-1px, -1px) rotate(0deg); }
       }
 
+      @keyframes glitch {
+        0% { transform: translate(0); text-shadow: -2px 0 #ff00c1, 2px 0 #3498db; }
+        25% { transform: translate(2px, 2px); text-shadow: -2px -2px #ff00c1, 2px 2px #3498db; }
+        50% { transform: translate(-2px, -2px); text-shadow: -2px 2px #ff00c1, 2px -2px #3498db; }
+        75% { transform: translate(2px, -2px); text-shadow: 2px -2px #ff00c1, -2px 2px #3498db; }
+        100% { transform: translate(0); text-shadow: -2px 0 #ff00c1, 2px 0 #3498db; }
+      }
+
+      @keyframes deep-fry {
+        0%, 100% { filter: contrast(1) saturate(1) brightness(1); }
+        25% { filter: contrast(1.5) saturate(2) brightness(1.2) hue-rotate(90deg); transform: scale(1.02); }
+        50% { filter: contrast(2) saturate(3) brightness(0.8) hue-rotate(180deg) invert(0.1); transform: scale(1.05) translate(2px, 2px); }
+        75% { filter: contrast(1.5) saturate(2) brightness(1.2) hue-rotate(270deg); transform: scale(1.02); }
+      }
+
       @keyframes scan {
         0% { top: -10%; opacity: 0; }
         50% { opacity: 1; }
@@ -152,6 +162,8 @@
 
       .shake-soft { animation: shake-soft 0.2s cubic-bezier(.36,.07,.19,.97) both; }
       .shake-hard { animation: shake-hard 0.3s cubic-bezier(.36,.07,.19,.97) both; }
+      .chromatic-aberration { animation: glitch 0.2s cubic-bezier(.25, .46, .45, .94) both infinite; }
+      .deep-fry { animation: deep-fry 0.3s steps(5) both; }
 
       .glow-text { text-shadow: 0 0 10px currentColor; }
       .text-shadow-neon { text-shadow: 0 0 5px currentColor, 0 0 10px currentColor; }

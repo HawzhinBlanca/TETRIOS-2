@@ -5,6 +5,7 @@ interface ModalState {
   isSettingsOpen: boolean;
   isHelpOpen: boolean;
   isProfileOpen: boolean;
+  isLeaderboardOpen: boolean;
   activeTutorialTip: string | null;
 
   openSettings: () => void;
@@ -18,6 +19,9 @@ interface ModalState {
   openProfile: () => void;
   closeProfile: () => void;
 
+  openLeaderboard: () => void;
+  closeLeaderboard: () => void;
+
   setTutorialTip: (text: string) => void;
   dismissTutorialTip: () => void;
 }
@@ -26,6 +30,7 @@ export const useModalStore = create<ModalState>((set) => ({
   isSettingsOpen: false,
   isHelpOpen: false,
   isProfileOpen: false,
+  isLeaderboardOpen: false,
   activeTutorialTip: null,
 
   openSettings: () => set({ isSettingsOpen: true }),
@@ -38,6 +43,9 @@ export const useModalStore = create<ModalState>((set) => ({
 
   openProfile: () => set({ isProfileOpen: true }),
   closeProfile: () => set({ isProfileOpen: false }),
+
+  openLeaderboard: () => set({ isLeaderboardOpen: true }),
+  closeLeaderboard: () => set({ isLeaderboardOpen: false }),
 
   setTutorialTip: (text) => set({ activeTutorialTip: text }),
   dismissTutorialTip: () => set({ activeTutorialTip: null }),

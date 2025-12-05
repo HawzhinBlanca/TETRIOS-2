@@ -13,6 +13,14 @@ export class FXManager {
     }
 
     public addFloatingText(text: string, color: string, scale: number = 0.5, variant: FloatingTextVariant = 'default'): void {
+        // Noise Filter: Suppress common/low-impact text to clean up the UI
+        const isSpam = text.includes('SINGLE') || text.includes('DOUBLE') || text.includes('READY');
+        const isImportant = text.includes('T-SPIN') || text.includes('COMBO') || text.includes('TETRIS') || text.includes('ZONE');
+        
+        if (isSpam && !isImportant) {
+            return;
+        }
+
         const id = Date.now() + Math.random();
         // Use player position from core for default placement
         const x = this.core.pieceManager.player.pos.x;

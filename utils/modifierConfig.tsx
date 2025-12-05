@@ -1,6 +1,7 @@
 
+
 import React from 'react';
-import { Bomb, Diamond, Zap, HelpCircle, Skull, Lock, Unlock, Box, Mountain, Clock, Snowflake, ChevronDown } from 'lucide-react';
+import { Bomb, Diamond, Zap, HelpCircle, Skull, Lock, Unlock, Box, Mountain, Clock, Snowflake, ChevronDown, Flame } from 'lucide-react';
 import { MODIFIER_COLORS } from '../constants';
 import { CellModifier, CellModifierType } from '../types';
 
@@ -134,5 +135,21 @@ export const MODIFIER_CONFIG: Record<CellModifierType, ModifierVisualConfig> = {
         iconClass: "text-white drop-shadow-md animate-bounce",
         animation: "none",
         getClass: (_, isClearing) => isClearing ? "brightness-150 scale-125 shadow-[0_0_40px_rgba(249,115,22,1)] z-20" : ""
+    },
+    CHAIN_BLOCK: {
+        icon: Zap,
+        borderColor: MODIFIER_COLORS.CHAIN_BLOCK,
+        baseClass: "bg-yellow-500/80 border-2 border-yellow-300 shadow-[0_0_15px_gold]",
+        iconClass: "text-white drop-shadow-lg animate-[pulse_0.5s_infinite]",
+        animation: "ghost-pulse 0.5s infinite ease-in-out",
+        getClass: (_, isClearing) => isClearing ? "brightness-150 scale-125 shadow-[0_0_50px_gold] z-20" : ""
+    },
+    FUSE_BLOCK: {
+        icon: Flame,
+        borderColor: MODIFIER_COLORS.FUSE_BLOCK,
+        baseClass: "bg-orange-500/80 border-2 border-orange-400 shadow-[0_0_20px_rgba(249,115,22,0.8)]",
+        iconClass: "text-white drop-shadow-lg animate-[pulse_0.3s_infinite]",
+        animation: "ghost-pulse 0.3s infinite ease-in-out",
+        getClass: (_, isClearing) => isClearing ? "brightness-200 scale-150 shadow-[0_0_60px_rgba(249,115,22,1)] z-30" : ""
     }
 };

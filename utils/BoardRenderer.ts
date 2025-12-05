@@ -1,41 +1,54 @@
 
 import * as PIXI from 'pixi.js';
 import { GameCore } from './GameCore';
-import { BoardRenderConfig, TetrominoType } from '../types';
 import { SpriteManager } from './SpriteManager';
-import { STAGE_WIDTH, STAGE_HEIGHT, COLORS } from '../constants';
-import { getPieceColor } from './themeUtils';
+import { STAGE_WIDTH, STAGE_HEIGHT } from '../constants';
+import { BlockSkin, ColorblindMode, TetrominoType } from '../types';
 
-export interface RenderConfig extends BoardRenderConfig {
-    // Extended config if needed
+export interface RenderConfig {
+    cellSize: number;
+    ghostStyle: 'neon' | 'dashed' | 'solid';
+    ghostOpacity: number;
+    ghostOutlineThickness: number;
+    ghostGlowIntensity: number;
+    blockGlowIntensity: number;
+    ghostShadow?: string;
+    lockWarningEnabled: boolean;
+    showAi: boolean;
+    aiHint?: any;
+    pieceIsGrounded: boolean;
+    wildcardPieceAvailable: boolean;
+    gimmicks?: any;
+    flippedGravity: boolean;
+    bombSelectionRows?: number[];
+    lineClearerSelectedRow?: number | null;
+    bombBoosterTarget?: any;
+    colorblindMode: ColorblindMode;
+    isZoneActive: boolean;
+    zoneLines: number;
+    missedOpportunity: any;
+    blockSkin: BlockSkin;
 }
 
 export class BoardRenderer {
     private app: PIXI.Application;
     private container: PIXI.Container;
-    private gridGraphics: PIXI.Graphics;
-    private ghostGraphics: PIXI.Graphics;
-    private activePieceContainer: PIXI.Container;
     private boardContainer: PIXI.Container;
+    private activePieceContainer: PIXI.Container;
     private effectsContainer: PIXI.Container;
-    
     private spriteManager: SpriteManager;
-    public config: RenderConfig;
-    private isDestroyed: boolean = false;
+    private config: RenderConfig;
     
-    private particles: { 
-        x: number; y: number; vx: number; vy: number; life: number; 
-        color: string; alpha: number; scale: number; type: string 
-    }[] = [];
+    private cellSprites: PIXI.Sprite[][] = [];
+    private lastRenderedRevision: number = -1;
+    private lastGridDims: { w: number, h: number } = { w: 0, h: 0 };
     
-    private beams: { x: number; startY: number; endY: number; life: number; color: string }[] = [];
-    private shockwaves: { x: number; y: number; life: number; size: number }[] = [];
-    private clearingRows: { y: number; life: number }[] = [];
+    private activePiecePool: PIXI.Sprite[] = [];
+    private readonly POOL_SIZE = 16;
+    private poolIndex: number = 0;
 
     constructor(canvas: HTMLCanvasElement, config: RenderConfig) {
         this.config = config;
-        this.isDestroyed = false;
-        
         this.app = new PIXI.Application({
             view: canvas,
             width: 300,
@@ -43,284 +56,173 @@ export class BoardRenderer {
             backgroundAlpha: 0,
             antialias: true,
             resolution: window.devicePixelRatio || 1,
-            autoDensity: true,
         });
-
+        
         this.spriteManager = new SpriteManager();
-
         this.container = new PIXI.Container();
+        this.boardContainer = new PIXI.Container();
+        this.activePieceContainer = new PIXI.Container();
+        this.effectsContainer = new PIXI.Container();
+        
+        this.container.addChild(this.boardContainer);
+        this.container.addChild(this.activePieceContainer);
+        this.container.addChild(this.effectsContainer); 
         this.app.stage.addChild(this.container);
 
-        this.gridGraphics = new PIXI.Graphics();
-        this.container.addChild(this.gridGraphics);
-
-        this.boardContainer = new PIXI.Container();
-        this.container.addChild(this.boardContainer);
-
-        this.ghostGraphics = new PIXI.Graphics();
-        this.container.addChild(this.ghostGraphics);
-
-        this.activePieceContainer = new PIXI.Container();
-        this.container.addChild(this.activePieceContainer);
-
-        this.effectsContainer = new PIXI.Container();
-        this.container.addChild(this.effectsContainer);
+        // Initialize Pool
+        for(let i=0; i<this.POOL_SIZE; i++) {
+            const s = new PIXI.Sprite();
+            s.visible = false;
+            this.activePieceContainer.addChild(s);
+            this.activePiecePool.push(s);
+        }
     }
 
-    public updateConfig(newConfig: RenderConfig) {
-        if (this.isDestroyed) return;
-        this.config = { ...this.config, ...newConfig };
+    public updateConfig(config: RenderConfig) {
+        this.config = config;
     }
 
-    public setSize(width: number, height: number, resolution: number) {
-        if (this.isDestroyed || !this.app.renderer) return;
+    public setSize(width: number, height: number, dpr: number) {
         this.app.renderer.resize(width, height);
-        this.app.renderer.resolution = resolution;
     }
 
     public destroy() {
-        if (this.isDestroyed) return;
-        this.isDestroyed = true;
-        
-        // Clean up sprites
-        this.container.destroy({ children: true });
-        
-        // Destroy app but keep canvas (React handles the DOM element)
-        this.app.destroy(false, { children: true });
-        
-        // Clear references
-        this.spriteManager.clearCache();
+        this.app.destroy(true, { children: true, texture: true, baseTexture: true });
+        this.spriteManager.destroy();
+    }
+
+    private ensureSpriteGrid(width: number, height: number, cellSize: number) {
+        if (this.lastGridDims.w === width && this.lastGridDims.h === height) return;
+
+        // Clear existing sprites
+        this.boardContainer.removeChildren();
+        this.cellSprites = [];
+
+        for (let y = 0; y < height; y++) {
+            const row: PIXI.Sprite[] = [];
+            for (let x = 0; x < width; x++) {
+                const sprite = new PIXI.Sprite();
+                sprite.x = x * cellSize;
+                sprite.y = y * cellSize;
+                sprite.width = cellSize;
+                sprite.height = cellSize;
+                sprite.visible = false;
+                this.boardContainer.addChild(sprite);
+                row.push(sprite);
+            }
+            this.cellSprites.push(row);
+        }
+        this.lastGridDims = { w: width, h: height };
+        this.lastRenderedRevision = -1; // Force redraw
+    }
+
+    private configureSprite(x: number, y: number, texture: PIXI.Texture, alpha: number = 1.0, tint: number = 0xffffff) {
+        if (this.poolIndex >= this.POOL_SIZE) return;
+        const sprite = this.activePiecePool[this.poolIndex++];
+        sprite.texture = texture;
+        sprite.x = x * this.config.cellSize;
+        sprite.y = y * this.config.cellSize;
+        sprite.width = this.config.cellSize;
+        sprite.height = this.config.cellSize;
+        sprite.alpha = alpha;
+        sprite.tint = tint;
+        sprite.visible = true;
     }
 
     public render(core: GameCore) {
-        if (this.isDestroyed || !this.app.renderer) return;
-
-        this.gridGraphics.clear();
-        this.ghostGraphics.clear();
-        this.activePieceContainer.removeChildren();
-        this.boardContainer.removeChildren();
+        const state = core.state;
+        if (!state) return;
         
-        const { cellSize } = this.config;
+        this.updateEffects();
+        
+        const board = state.board;
+        const player = state.player;
+        const { cellSize, blockSkin, colorblindMode, isZoneActive } = this.config;
 
-        // Draw Grid Background
-        this.gridGraphics.lineStyle(1, 0xffffff, 0.05);
-        for (let x = 0; x <= core.grid.width; x++) {
-            this.gridGraphics.moveTo(x * cellSize, 0);
-            this.gridGraphics.lineTo(x * cellSize, core.grid.height * cellSize);
-        }
-        for (let y = 0; y <= core.grid.height; y++) {
-            this.gridGraphics.moveTo(0, y * cellSize);
-            this.gridGraphics.lineTo(core.grid.width * cellSize, y * cellSize);
-        }
+        const height = board.length || STAGE_HEIGHT;
+        const width = board[0]?.length || STAGE_WIDTH;
 
-        // Draw Board
-        const stage = core.boardManager.stage;
-        const width = core.grid.width;
-        const height = core.grid.height;
+        this.ensureSpriteGrid(width, height, cellSize);
 
-        for (let y = 0; y < height; y++) {
-            for (let x = 0; x < width; x++) {
-                const cell = stage[y][x];
-                if (cell[1] !== 'clear') {
-                    const type = cell[0] as TetrominoType | 'G';
-                    const colorOverride = cell[3];
-                    const texture = this.spriteManager.getBlockTexture(
-                        type, 
-                        this.config.blockSkin, 
-                        cellSize, 
-                        this.config.colorblindMode, 
-                        colorOverride
-                    );
+        if (state.boardRevision !== this.lastRenderedRevision || this.lastRenderedRevision === -1) {
+            for (let y = 0; y < height; y++) {
+                for (let x = 0; x < width; x++) {
+                    const cell = board[y][x];
+                    const sprite = this.cellSprites[y][x];
                     
-                    const sprite = new PIXI.Sprite(texture);
-                    sprite.x = x * cellSize;
-                    sprite.y = y * cellSize;
-                    sprite.width = cellSize;
-                    sprite.height = cellSize;
-                    
-                    if (cell[2]) {
-                        sprite.tint = 0xdddddd;
+                    if (!sprite) continue; 
+
+                    if (cell[1] !== 'clear') {
+                        const texture = this.spriteManager.getBlockTexture(cell[0] as any, blockSkin, cellSize, colorblindMode);
+                        sprite.texture = texture;
+                        sprite.visible = true;
+                        
+                        sprite.x = x * cellSize;
+                        sprite.y = y * cellSize;
+                        sprite.width = cellSize;
+                        sprite.height = cellSize;
+                        
+                        if (isZoneActive && cell[1] === 'zoned') {
+                            sprite.tint = 0xaaaaaa;
+                        } else {
+                            sprite.tint = 0xffffff;
+                        }
+                    } else {
+                        sprite.visible = false;
                     }
+                }
+            }
+            this.lastRenderedRevision = state.boardRevision;
+        }
+
+        // Active Piece Rendering
+        this.activePiecePool.forEach(s => s.visible = false);
+        this.poolIndex = 0;
+
+        const { pos, tetromino } = player;
+        const ghostY = player.ghostY !== undefined ? player.ghostY : pos.y;
+        
+        const shape = tetromino.shape;
+        const texture = this.spriteManager.getBlockTexture(tetromino.type, blockSkin, cellSize, colorblindMode);
+
+        for(let y = 0; y < shape.length; y++) {
+            for(let x = 0; x < shape[y].length; x++) {
+                if (shape[y][x] !== 0) {
                     
-                    this.boardContainer.addChild(sprite);
+                    // 1. Render Ghost
+                    if (ghostY !== pos.y) {
+                        const ghostAlpha = this.config.ghostOpacity * (this.config.ghostStyle === 'dashed' ? 0.5 : 1.0);
+                        this.configureSprite(pos.x + x, ghostY + y, texture, ghostAlpha, 0xffffff);
+                    }
+
+                    // 2. Render Active Piece
+                    let tint = 0xffffff;
+                    if (this.config.lockWarningEnabled && this.config.pieceIsGrounded) {
+                        tint = (Date.now() % 200) < 100 ? 0xffffff : 0xffcccc;
+                    }
+                    this.configureSprite(pos.x + x, pos.y + y, texture, 1.0, tint);
                 }
             }
         }
-
-        // Draw Active Piece
-        const { player } = core.pieceManager;
-        if (player && player.tetromino) {
-            const { shape, type } = player.tetromino;
-            const texture = this.spriteManager.getBlockTexture(type, this.config.blockSkin, cellSize, this.config.colorblindMode, player.colorOverride);
-            const pieceColor = player.colorOverride || getPieceColor(type, this.config.colorblindMode);
-
-            shape.forEach((row, dy) => {
-                row.forEach((value, dx) => {
-                    if (value !== 0) {
-                        const px = (player.pos.x + dx) * cellSize;
-                        const py = (player.pos.y + dy) * cellSize;
-                        
-                        const sprite = new PIXI.Sprite(texture);
-                        sprite.x = px;
-                        sprite.y = py;
-                        sprite.width = cellSize;
-                        sprite.height = cellSize;
-                        this.activePieceContainer.addChild(sprite);
-                    }
-                });
-            });
-
-            // Draw Ghost
-            if (player.ghostY !== undefined) {
-                const hexColor = PIXI.utils.string2hex(pieceColor);
-                shape.forEach((row, dy) => {
-                    row.forEach((value, dx) => {
-                        if (value !== 0) {
-                            const gx = player.pos.x + dx;
-                            const gy = player.ghostY! + dy;
-                            this.drawGhostBlock(gx, gy, cellSize, hexColor);
-                        }
-                    });
-                });
-            }
-        }
-
-        // Draw Effects
-        this.updateEffects(cellSize);
     }
 
-    private drawGhostBlock(x: number, y: number, size: number, color: number) {
-        const g = this.ghostGraphics;
-        const { ghostStyle, ghostOpacity, ghostOutlineThickness, ghostGlowIntensity } = this.config;
-        const alpha = ghostOpacity;
-        const glow = ghostGlowIntensity !== undefined ? ghostGlowIntensity : 1;
-        
-        if (alpha <= 0) return;
-
-        const thickness = ghostOutlineThickness || 2;
-
-        if (ghostStyle === 'dashed') {
-            g.lineStyle(thickness, color, alpha * 0.8);
-            g.beginFill(color, alpha * 0.1 * glow);
-            g.drawRect(x * size, y * size, size, size);
-            g.endFill();
-        } 
-        else if (ghostStyle === 'solid') {
-            g.lineStyle(thickness, color, Math.min(1, alpha + 0.2));
-            g.beginFill(color, Math.min(1, alpha * 0.4 * glow));
-            g.drawRect(x * size, y * size, size, size);
-            g.endFill();
-        } 
-        else { 
-            // Neon / Default
-            // Standard outline
-            const baseAlpha = Math.min(1, (alpha + 0.3) * (glow < 1 ? glow : 1));
-            g.lineStyle(thickness, color, baseAlpha);
-            g.beginFill(color, alpha * 0.1);
-            g.drawRect(x * size, y * size, size, size);
-            g.endFill();
-
-            // Glow Bloom effect (only if intensity > 1 for performance)
-            if (glow > 1) {
-                const bloomAlpha = alpha * 0.15 * (glow - 1);
-                const bloomThickness = thickness + 4;
-                g.lineStyle(bloomThickness, color, bloomAlpha);
-                g.drawRect(x * size, y * size, size, size);
-            }
-        }
-    }
-
-    private updateEffects(cellSize: number) {
-        this.effectsContainer.removeChildren();
-
-        // Update & Draw Particles
-        for (let i = this.particles.length - 1; i >= 0; i--) {
-            const p = this.particles[i];
-            p.life -= 0.02;
-            p.x += p.vx;
-            p.y += p.vy;
-            p.vy += 0.1; // Gravity
-            
-            if (p.life <= 0) {
-                this.particles.splice(i, 1);
-                continue;
-            }
-
-            const pSprite = new PIXI.Sprite(this.spriteManager.getParticleTexture(p.type === 'burst' ? 'circle' : 'rect'));
-            pSprite.x = p.x;
-            pSprite.y = p.y;
-            pSprite.tint = PIXI.utils.string2hex(p.color);
-            pSprite.alpha = p.alpha * p.life;
-            pSprite.scale.set(p.scale * p.life);
-            this.effectsContainer.addChild(pSprite);
-        }
-
-        // Draw Beams
-        const beamG = new PIXI.Graphics();
-        this.effectsContainer.addChild(beamG);
-        for (let i = this.beams.length - 1; i >= 0; i--) {
-            const b = this.beams[i];
-            b.life -= 0.05;
-            if (b.life <= 0) {
-                this.beams.splice(i, 1);
-                continue;
-            }
-            const width = cellSize;
-            const x = b.x * cellSize;
-            const y1 = b.startY * cellSize;
-            const y2 = b.endY * cellSize;
-            const h = Math.abs(y2 - y1) || cellSize;
-            const color = PIXI.utils.string2hex(b.color);
-            
-            beamG.beginFill(color, b.life * 0.5);
-            beamG.drawRect(x, Math.min(y1, y2), width, h);
-            beamG.endFill();
-        }
-
-        // Draw Shockwaves
-        const shockG = new PIXI.Graphics();
-        this.effectsContainer.addChild(shockG);
-        for (let i = this.shockwaves.length - 1; i >= 0; i--) {
-            const s = this.shockwaves[i];
-            s.life -= 0.03;
-            s.size += 5;
-            if (s.life <= 0) {
-                this.shockwaves.splice(i, 1);
-                continue;
-            }
-            shockG.lineStyle(2 * s.life, 0xffffff, s.life);
-            shockG.drawCircle(s.x, s.y, s.size);
-        }
+    private updateEffects() {
+        // Placeholder for particle updates if implemented directly in Pixi
     }
 
     public spawnParticle(x: number, y: number, color: string, amount: number, type: string) {
-        if (this.isDestroyed) return;
-        for (let i = 0; i < amount; i++) {
-            this.particles.push({
-                x, y,
-                vx: (Math.random() - 0.5) * 10,
-                vy: (Math.random() - 0.5) * 10,
-                life: 1.0,
-                color,
-                alpha: 1,
-                scale: 0.5 + Math.random() * 0.5,
-                type
-            });
-        }
+        // Implementation for spawning particles (visual only)
     }
 
-    public addBeam(x: number, startY: number, endY: number, color: string) {
-        if (this.isDestroyed) return;
-        this.beams.push({ x, startY, endY, color, life: 1.0 });
+    public spawnShockwave(x: number, y: number, color?: string) {
+        // Visual effect
     }
 
-    public spawnShockwave(x: number, y: number) {
-        if (this.isDestroyed) return;
-        this.shockwaves.push({ x, y, life: 1.0, size: 10 });
+    public addBeam(x: number, y1: number, y2: number, color: string) {
+        // Visual effect
     }
 
-    public addClearingRows(rows: number[]) {
-        if (this.isDestroyed) return;
-        rows.forEach(y => this.clearingRows.push({ y, life: 1.0 }));
+    public addClearingRows(rows: number[], color?: string, isOnBeat?: boolean) {
+        // Visual effect
     }
 }

@@ -16,15 +16,15 @@ type ActionListener = (action: KeyAction) => void;
 export class InputManager {
     private config: InputConfig;
     private heldKeys: Set<string> = new Set();
-    private keyTimestamps: Map<string, number> = new Map(); // Tracks when key was pressed
+    private keyTimestamps: Map<string, number> = new Map();
     private keyActionMap: Map<string, KeyAction> = new Map();
     private actionListeners: Set<ActionListener> = new Set();
     private actionQueue: KeyAction[] = [];
 
     // Sub-Frame State
     private activeHorizDir: 'moveLeft' | 'moveRight' | null = null;
-    private horizTimeHeld: number = 0; // Accurate ms held
-    private lastMoveCount: number = 0; // Integers moved so far
+    private horizTimeHeld: number = 0; 
+    private lastMoveCount: number = 0; 
 
     private isSoftDropping: boolean = false;
     private softDropTimeHeld: number = 0;
@@ -33,7 +33,7 @@ export class InputManager {
     // Gamepad State
     private gamepadIndex: number | null = null;
     private lastGamepadState: Set<string> = new Set();
-    private axisState: Map<string, boolean> = new Map(); // Track persistent axis state for hysteresis
+    private axisState: Map<string, boolean> = new Map();
 
     private isDestroyed: boolean = false;
 
@@ -49,12 +49,22 @@ export class InputManager {
                 console.log("[Input] Gamepad connected:", e.gamepad.id);
                 this.gamepadIndex = e.gamepad.index;
             });
+            window.addEventListener("gamepaddisconnected", (e) => {
+                if (this.gamepadIndex === e.gamepad.index) {
+                    this.gamepadIndex = null;
+                }
+            });
         }
     }
 
     public updateConfig(newConfig: Partial<InputConfig>): void {
-        this.config = { ...this.config, ...newConfig };
+        if (newConfig.das !== undefined) this.config.das = newConfig.das;
+        if (newConfig.arr !== undefined) this.config.arr = newConfig.arr;
+        if (newConfig.flippedGravity !== undefined) this.config.flippedGravity = newConfig.flippedGravity;
+        if (newConfig.stageWidth !== undefined) this.config.stageWidth = newConfig.stageWidth;
+
         if (newConfig.keyMap) {
+            this.config.keyMap = newConfig.keyMap;
             this.rebuildKeyMap();
         }
     }
@@ -81,7 +91,7 @@ export class InputManager {
     private boundBlur = () => this.handleBlur();
 
     private handleKeyDown(e: KeyboardEvent): void {
-        if (e.repeat) return; // Ignore OS repeat, we handle it manually
+        if (e.repeat) return; 
         const key = e.key;
         const action = this.getActionFromKey(key);
         
@@ -95,8 +105,6 @@ export class InputManager {
             
             const effectiveAction = this.getEffectiveAction(action);
             
-            // Instant action triggers (Rotate, Hard Drop, Hold)
-            // Movements are handled in update loop for DAS/ARR
             if (['rotateCW', 'rotateCCW', 'hardDrop', 'hold', 'zone', 'rewind'].includes(effectiveAction)) {
                 this.emitAction(effectiveAction);
             }
@@ -148,9 +156,10 @@ export class InputManager {
     }
 
     private pollGamepad(): void {
-        // Auto-detect gamepad if not already set
-        if (this.gamepadIndex === null) {
-            const gamepads = navigator.getGamepads();
+        const gamepads = navigator.getGamepads();
+        
+        // Auto-detect or refresh invalid index
+        if (this.gamepadIndex === null || !gamepads[this.gamepadIndex]) {
             for (let i = 0; i < gamepads.length; i++) {
                 if (gamepads[i]) {
                     this.gamepadIndex = i;
@@ -161,22 +170,21 @@ export class InputManager {
 
         if (this.gamepadIndex === null) return;
         
-        const gamepad = navigator.getGamepads()[this.gamepadIndex];
+        const gamepad = gamepads[this.gamepadIndex];
         if (!gamepad) return;
 
         const currentKeys = new Set<string>();
 
-        // Buttons (Digital)
+        // Buttons
         gamepad.buttons.forEach((btn, i) => {
             if (btn.pressed) currentKeys.add(`GP_BTN_${i}`);
         });
 
-        // Axes (Analog with Hysteresis)
+        // Axes
         const PRESS_THRESH = 0.5;
         const RELEASE_THRESH = 0.3;
 
         gamepad.axes.forEach((val, i) => {
-            // Negative Axis
             const keyNeg = `GP_AXIS_${i}-`;
             const wasNeg = this.axisState.get(keyNeg) || false;
             const isNeg = val < -PRESS_THRESH || (wasNeg && val < -RELEASE_THRESH);
@@ -188,7 +196,6 @@ export class InputManager {
                 this.axisState.set(keyNeg, false);
             }
 
-            // Positive Axis
             const keyPos = `GP_AXIS_${i}+`;
             const wasPos = this.axisState.get(keyPos) || false;
             const isPos = val > PRESS_THRESH || (wasPos && val > RELEASE_THRESH);
@@ -201,7 +208,6 @@ export class InputManager {
             }
         });
 
-        // Detect Key Downs (Just Pressed)
         for (const key of currentKeys) {
             if (!this.lastGamepadState.has(key)) {
                 this.heldKeys.add(key);
@@ -217,7 +223,6 @@ export class InputManager {
             }
         }
 
-        // Detect Key Ups (Released)
         for (const key of this.lastGamepadState) {
             if (!currentKeys.has(key)) {
                 this.heldKeys.delete(key);

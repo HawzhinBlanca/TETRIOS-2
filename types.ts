@@ -1,5 +1,6 @@
 
-export type TetrominoType = 'I' | 'J' | 'L' | 'O' | 'S' | 'T' | 'Z' | 'G' | 'WILDCARD_SHAPE' | 'M1' | 'D2' | 'T3' | 'P5' | 'D2_H' | 'D2_V' | 'T3_L' | 'T3_I' | 'P5_P' | 'P5_X' | 'P5_F';
+
+export type TetrominoType = 'I' | 'J' | 'L' | 'O' | 'S' | 'T' | 'Z' | 'G' | 'WILDCARD_SHAPE' | 'M1' | 'D2' | 'T3' | 'P5' | 'D2_H' | 'D2_V' | 'T3_L' | 'T3_I' | 'P5_P' | 'P5_X' | 'P5_F' | 'U';
 
 export interface Tetromino {
   type: TetrominoType;
@@ -11,7 +12,7 @@ export type TetrominoShape = (TetrominoType | 0)[][];
 
 export type CellState = 'clear' | 'merged' | 'zoned';
 
-export type CellModifierType = 'GEM' | 'BOMB' | 'ICE' | 'CRACKED_ICE' | 'WILDCARD_BLOCK' | 'LASER_BLOCK' | 'NUKE_BLOCK' | 'SOFT_BLOCK' | 'BEDROCK' | 'SLOW_BLOCK' | 'MULTIPLIER_BLOCK' | 'FREEZE_BLOCK' | 'DRILL_BLOCK';
+export type CellModifierType = 'GEM' | 'BOMB' | 'ICE' | 'CRACKED_ICE' | 'WILDCARD_BLOCK' | 'LASER_BLOCK' | 'NUKE_BLOCK' | 'SOFT_BLOCK' | 'BEDROCK' | 'SLOW_BLOCK' | 'MULTIPLIER_BLOCK' | 'FREEZE_BLOCK' | 'DRILL_BLOCK' | 'CHAIN_BLOCK' | 'FUSE_BLOCK';
 
 export interface CellModifier {
     type: CellModifierType;
@@ -40,13 +41,15 @@ export interface Player {
 
 export type GameState = 'MENU' | 'COUNTDOWN' | 'PLAYING' | 'PAUSED' | 'GAMEOVER' | 'VICTORY' | 'MAP' | 'STORY' | 'BOOSTER_SELECTION' | 'WILDCARD_SELECTION' | 'BOMB_SELECTION' | 'LINE_SELECTION' | 'REWINDING' | 'REPLAYING';
 
-export type GameMode = 'MARATHON' | 'TIME_ATTACK' | 'SPRINT' | 'ZEN' | 'MASTER' | 'PUZZLE' | 'BATTLE' | 'ADVENTURE' | 'BLITZ' | 'SURVIVAL' | 'COMBO_MASTER' | 'DAILY';
+export type GameMode = 'MARATHON' | 'TIME_ATTACK' | 'SPRINT' | 'ZEN' | 'MASTER' | 'PUZZLE' | 'BATTLE' | 'ADVENTURE' | 'BLITZ' | 'SURVIVAL' | 'COMBO_MASTER' | 'DAILY' | 'RAINBOW';
 
 export type Difficulty = 'EASY' | 'MEDIUM' | 'HARD';
 
 export type ColorblindMode = 'NORMAL' | 'PROTANOPIA' | 'DEUTERANOPIA' | 'TRITANOPIA';
 
-export type BlockSkin = 'NEON' | 'RETRO' | 'MINIMAL' | 'GELATIN' | 'CYBER';
+export type BlockSkin = 'NEON' | 'RETRO' | 'MINIMAL' | 'GELATIN' | 'CYBER' | 'EMOJI';
+
+export type GridDensity = 'DENSE' | 'COMFORT';
 
 export interface GameSnapshot {
     board: Board;
@@ -90,6 +93,7 @@ export interface GameStats {
   combosAchieved?: number;
   currentB2BChain?: number;
   maxB2BChain?: number;
+  b2bMultiplier: number; // NEW: Dynamic B2B Multiplier
   bossHp?: number;
   isFrenzyActive?: boolean;
   frenzyTimer?: number;
@@ -114,6 +118,15 @@ export interface GameStats {
   abilities?: AbilityState[]; // Track ability cooldowns
   scoreMultiplierActive?: boolean;
   scoreMultiplierTimer?: number;
+  perfectDropStreak?: number; // NEW: Track perfect drop chain
+  momentum: number; // 0-100
+  isOverdriveActive: boolean;
+  overdriveTimer: number;
+  
+  // Smart Hold Stats
+  holdCharge?: number; // 0-3
+  holdDecay?: number; // 0-1 (Normalized)
+  isFinisherReady?: boolean; // Victory imminent
 }
 
 export interface MoveScore {
@@ -156,7 +169,7 @@ export interface WorkerResponse {
     bestMove?: MoveScore;
 }
 
-export type FloatingTextVariant = 'default' | 'gem' | 'bomb' | 'frenzy' | 'powerup' | 'zone' | 'coach' | 'achievement' | 'fault' | 'rhythm';
+export type FloatingTextVariant = 'default' | 'gem' | 'bomb' | 'frenzy' | 'powerup' | 'zone' | 'coach' | 'achievement' | 'fault' | 'rhythm' | 'trick';
 
 export interface FloatingText {
   id: number;
@@ -182,6 +195,7 @@ export interface BoardRenderConfig {
     ghostOpacity: number;
     ghostOutlineThickness: number;
     ghostGlowIntensity: number;
+    blockGlowIntensity: number;
     ghostShadow?: string;
     lockWarningEnabled: boolean;
     showAi: boolean;
@@ -198,6 +212,7 @@ export interface BoardRenderConfig {
     zoneLines: number;
     missedOpportunity: MoveScore | null;
     blockSkin: BlockSkin;
+    isFinisherReady?: boolean; // NEW
 }
 
 export type VisualEffectType = 
@@ -216,7 +231,10 @@ export type VisualEffectType =
     | 'ZONE_END'
     | 'ZONE_CLEAR'
     | 'SHOCKWAVE'
-    | 'TSPIN_CLEAR';
+    | 'TSPIN_CLEAR'
+    | 'ABERRATION'
+    | 'TETRIS_CLEAR'
+    | 'CHAIN_REACTION';
 
 export interface VisualEffectPayload {
     type: VisualEffectType;
@@ -243,7 +261,11 @@ export type AudioEvent =
     | 'ACHIEVEMENT_UNLOCK'
     | 'FINESSE_FAULT'
     | 'RHYTHM_CLEAR'
-    | 'ABILITY_READY' | 'ABILITY_ACTIVATE';
+    | 'ABILITY_READY' | 'ABILITY_ACTIVATE'
+    | 'PERFECT_DROP' | 'TRICK'
+    | 'HEARTBEAT' | 'CHAIN_REACTION'
+    | 'OVERDRIVE_START' | 'OVERDRIVE_END' | 'FUSE_DETONATE'
+    | 'FINISHER_READY'; // NEW
 
 export interface LevelRewards {
     coins: number;
@@ -344,7 +366,7 @@ export interface StoryNode { id: string; speaker: string; text: string; side?: '
 export interface ScoreResult { score: number; text: string; isBackToBack: boolean; soundLevel: number; visualShake: 'hard' | 'soft' | null; }
 
 // --- ABILITIES ---
-export type AbilityType = 'COLOR_SWAP' | 'COLUMN_NUKE' | 'PIECE_SCULPT';
+export type AbilityType = 'COLOR_SWAP' | 'COLUMN_NUKE' | 'PIECE_SCULPT' | 'YEET';
 
 export interface AbilityConfig {
     id: AbilityType;
@@ -364,4 +386,33 @@ export interface AbilityState {
 
 export interface PuzzleDefinition {
     layout: string[];
+}
+
+export interface GameSaveData {
+    version: number;
+    timestamp: number;
+    mode: GameMode;
+    difficulty: Difficulty;
+    stats: GameStats;
+    board: Board;
+    player: Player;
+    nextQueue: TetrominoType[];
+    heldPiece: TetrominoType | null;
+    canHold: boolean;
+    rngState: number;
+    activeBoosters: BoosterType[];
+    comboCount: number;
+    isBackToBack: boolean;
+    adventureLevelId?: string;
+    flippedGravity: boolean;
+}
+
+export interface HighScoreEntry {
+    name: string;
+    score: number;
+    date: number;
+    difficulty: Difficulty;
+    level: number;
+    lines: number;
+    time?: number;
 }

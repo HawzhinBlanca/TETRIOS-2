@@ -27,7 +27,7 @@ export class GameStateManager {
     private get stateConfig(): StateConfig {
         return {
             MENU: {
-                allowedTransitions: ['MAP', 'PLAYING', 'COUNTDOWN', 'STORY'], // PLAYING via resetGame
+                allowedTransitions: ['MAP', 'PLAYING', 'COUNTDOWN', 'STORY', 'PAUSED'], // PAUSED added for resuming
                 onEnter: () => {
                     audioManager.playUiBack();
                 }
@@ -68,6 +68,7 @@ export class GameStateManager {
                 onEnter: () => {
                     this.core.pauseGameLoop();
                     audioManager.stopMusic();
+                    this.core.saveGame(); // Auto-save on Pause
                 },
                 onExit: () => {
                     audioManager.playUiClick();
@@ -90,6 +91,7 @@ export class GameStateManager {
                 onEnter: () => {
                     this.core.pauseGameLoop();
                     audioManager.playGameOver();
+                    this.core.clearSavedGame(); // Clear save on death
                 }
             },
             VICTORY: {
@@ -97,6 +99,7 @@ export class GameStateManager {
                 onEnter: () => {
                     this.core.pauseGameLoop();
                     audioManager.playClear(4); // Victory sound
+                    this.core.clearSavedGame(); // Clear save on win
                 }
             }
         };

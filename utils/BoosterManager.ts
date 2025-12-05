@@ -1,6 +1,6 @@
 
 import type { GameCore } from './GameCore';
-import { BoosterType } from '../types';
+import { BoosterType, GameStats } from '../types';
 import { SLOW_TIME_BOOSTER_DURATION_MS, FLIPPED_GRAVITY_BOOSTER_DURATION_MS, MODIFIER_COLORS, SCORES, STAGE_HEIGHT, STAGE_WIDTH } from '../constants';
 
 export class BoosterManager {
@@ -44,6 +44,30 @@ export class BoosterManager {
         this.flippedGravityTimer = 0;
 
         this._initEffects();
+    }
+
+    public restoreState(savedStats: GameStats): void {
+        // Restore Timers
+        if (savedStats.slowTimeActive && savedStats.slowTimeTimer && savedStats.slowTimeTimer > 0) {
+            this.slowTimeActive = true;
+            this.slowTimeTimer = savedStats.slowTimeTimer;
+        }
+        if (savedStats.timeFreezeActive && savedStats.timeFreezeTimer && savedStats.timeFreezeTimer > 0) {
+            this.timeFreezeActive = true;
+            this.timeFreezeTimer = savedStats.timeFreezeTimer;
+        }
+        if (savedStats.flippedGravityActive && savedStats.flippedGravityTimer && savedStats.flippedGravityTimer > 0) {
+            this.flippedGravityActive = true;
+            this.flippedGravityTimer = savedStats.flippedGravityTimer;
+        }
+
+        // Restore Flags
+        this.wildcardAvailable = !!savedStats.wildcardAvailable;
+        this.bombBoosterReady = !!savedStats.bombBoosterReady;
+        this.lineClearerActive = !!savedStats.lineClearerActive;
+
+        // Sync UI
+        this._syncUI();
     }
 
     private _initEffects(): void {
@@ -161,7 +185,7 @@ export class BoosterManager {
         this.core.events.emit('VISUAL_EFFECT', {type: 'SHAKE', payload: 'soft'});
         this.core.events.emit('VISUAL_EFFECT', {type: 'FLASH', payload: { color: MODIFIER_COLORS.LASER_BLOCK, duration: 200 }});
         this.core.addFloatingText('LINE CLEARED!', MODIFIER_COLORS.LASER_BLOCK, 0.7, 'powerup');
-        this.core.applyScore({ score: SCORES.BOOSTER_LINE_CLEARER_BONUS });
+        this.core.applyScore(SCORES.BOOSTER_LINE_CLEARER_BONUS);
         this.core.events.emit('AUDIO', { event: 'LASER_CLEAR' });
         this.core.boardManager.sweepRows(tempStage, false, [selectedRow]);
 
@@ -209,7 +233,7 @@ export class BoosterManager {
         this.core.events.emit('VISUAL_EFFECT', { type: 'SHAKE', payload: 'hard' });
         this.core.events.emit('VISUAL_EFFECT', { type: 'FLASH', payload: { color: MODIFIER_COLORS.BOMB, duration: 300 } });
         this.core.addFloatingText('BOMB CLEAR!', MODIFIER_COLORS.BOMB, 0.7, 'powerup');
-        this.core.applyScore({ score: SCORES.BOOSTER_BOMB_CLEAR_BONUS });
+        this.core.applyScore(SCORES.BOOSTER_BOMB_CLEAR_BONUS);
         this.core.events.emit('AUDIO', { event: 'NUKE_CLEAR' });
 
         this.core.boardManager.sweepRows(tempStage, false, rowsToClear);

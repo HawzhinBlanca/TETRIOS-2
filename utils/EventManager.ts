@@ -1,14 +1,16 @@
 
+import { GameState, TetrominoType } from '../types';
+
 export type EventMap = {
-    STATE_CHANGE: { newState: string; previousState: string };
+    STATE_CHANGE: { newState: GameState; previousState: GameState };
     STATS_CHANGE: any;
-    QUEUE_CHANGE: any[];
-    HOLD_CHANGE: { piece: any; canHold: boolean };
+    QUEUE_CHANGE: TetrominoType[];
+    HOLD_CHANGE: { piece: TetrominoType; canHold: boolean };
     GROUNDED_CHANGE: boolean;
     AI_TRIGGER: void;
-    AUDIO: { event: string; val?: number; type?: any };
+    AUDIO: { event: string; val?: number; type?: TetrominoType; extra?: any }; 
     VISUAL_EFFECT: any;
-    GAME_OVER: { state: string; levelId?: string; rewards?: any };
+    GAME_OVER: { state: 'GAMEOVER' | 'VICTORY'; levelId?: string; rewards?: any };
     ACHIEVEMENT_UNLOCKED: string;
     FAST_SCORE: { score: number; time: number };
     FAST_GAUGE: { value: number };
@@ -26,6 +28,7 @@ export type EventMap = {
     BLITZ_SPEED_UP: number;
     WILDCARD_SELECTION_START: void;
     STRESS_CHANGE: number;
+    LEVEL_UP: number;
 };
 
 type EventHandler<T = any> = (payload: T) => void;

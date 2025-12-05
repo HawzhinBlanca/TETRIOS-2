@@ -1,4 +1,5 @@
 
+
 import type { GameCore } from './GameCore';
 import { AbilityType, AbilityState } from '../types';
 import { ABILITIES, STAGE_WIDTH, STAGE_HEIGHT } from '../constants';
@@ -135,6 +136,23 @@ export class AbilityManager {
                 this.core.addFloatingText("SCULPT", "#fbbf24", 0.8, 'powerup');
                 this.core.pieceManager.rotationState = 0; 
                 this.core.events.emit('AI_TRIGGER'); 
+                return true;
+            }
+
+            case 'YEET': {
+                // YEET ABILITY: Discard current piece and spawn next immediately
+                const { x, y } = player.pos;
+                
+                // Visuals: Explosion where piece was
+                this.core.events.emit('VISUAL_EFFECT', { 
+                    type: 'PARTICLE', 
+                    payload: { isBurst: true, x: x + 1, y: y + 1, color: '#ff4d4d', amount: 50 } 
+                });
+                this.core.events.emit('VISUAL_EFFECT', { type: 'SHAKE', payload: 'hard' });
+                this.core.addFloatingText("YEET!", "#ff4d4d", 1.2, 'powerup');
+                
+                // Spawn next
+                this.core.pieceManager.spawnPiece();
                 return true;
             }
         }
