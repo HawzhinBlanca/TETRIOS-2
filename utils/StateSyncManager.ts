@@ -2,7 +2,7 @@
 import type { GameCore } from './GameCore';
 import { engineStore } from '../stores/engineStore';
 import { audioManager } from './audioManager';
-import { MoveScore } from '../types';
+import { MoveScore, TetrominoType } from '../types';
 
 interface SyncedStateSnapshot {
     score: number;
@@ -23,6 +23,9 @@ interface SyncedStateSnapshot {
     isRewinding: boolean;
     scoreMultiplierActive: boolean;
     timeFreezeActive: boolean;
+    nextQueue: TetrominoType[];
+    heldPiece: TetrominoType | null;
+    canHold: boolean;
 }
 
 /**
@@ -58,6 +61,9 @@ export class StateSyncManager {
             isRewinding: false,
             scoreMultiplierActive: false,
             timeFreezeActive: false,
+            nextQueue: [],
+            heldPiece: null,
+            canHold: false,
         };
     }
 
@@ -72,7 +78,7 @@ export class StateSyncManager {
      * Decides when to push updates to the global store.
      */
     public sync(): void {
-        const { scoreManager, boardManager, pieceManager, boosterManager } = this.core;
+        const { scoreManager, boardManager, pieceManager, boosterManager, state } = this.core;
         const currentStats = scoreManager.stats;
         
         // Calculate derived metrics via core accessor
@@ -90,13 +96,36 @@ export class StateSyncManager {
             isFrenzy: currentStats.isFrenzyActive || false
         });
 
-        // Throttling Logic for React Updates
+        // OPTIMIZATION: Early exit before object allocation
         const timeDiff = Math.abs(currentStats.time - this.lastState.time);
         const isFastMode = this.core.mode === 'BLITZ' || this.core.mode === 'SPRINT' || this.core.mode === 'TIME_ATTACK';
-        
-        // Update more frequently in fast modes to show accurate timer
         const timeThreshold = isFastMode ? 0.1 : 0.5;
 
+        // Check strict equality on primitives to avoid heavy snapshot construction if nothing critical changed
+        const immediateUpdateNeeded = 
+            currentStats.score !== this.lastState.score ||
+            currentStats.rows !== this.lastState.rows ||
+            currentStats.level !== this.lastState.level ||
+            state.queue !== this.lastState.nextQueue ||
+            state.hold.piece !== this.lastState.heldPiece ||
+            state.hold.canHold !== this.lastState.canHold ||
+            scoreManager.comboCount !== this.lastState.comboCount ||
+            boardManager.garbagePending !== this.lastState.garbagePending ||
+            pieceManager.pieceIsGrounded !== this.lastState.pieceIsGrounded ||
+            this.core.flippedGravity !== this.lastState.flippedGravity ||
+            currentStats.isZoneActive !== this.lastState.isZoneActive ||
+            this.core.isRewinding !== this.lastState.isRewinding ||
+            currentStats.scoreMultiplierActive !== this.lastState.scoreMultiplierActive ||
+            boosterManager.timeFreezeActive !== this.lastState.timeFreezeActive ||
+            this.core.state.flags.isGameOver || // Always sync immediately on Game Over
+            Math.abs(dangerLevel - this.lastState.dangerLevel) > 0.1 ||
+            Math.abs(currentStats.focusGauge - this.lastState.focusGauge) > 10;
+
+        if (!immediateUpdateNeeded && timeDiff < timeThreshold) {
+            return;
+        }
+
+        // Construct full snapshot only if update is needed
         const currentState: SyncedStateSnapshot = {
             score: currentStats.score,
             rows: currentStats.rows,
@@ -115,52 +144,33 @@ export class StateSyncManager {
             missedOpportunity: this.core.missedOpportunity,
             isRewinding: this.core.isRewinding,
             scoreMultiplierActive: currentStats.scoreMultiplierActive || false,
-            timeFreezeActive: boosterManager.timeFreezeActive
+            timeFreezeActive: boosterManager.timeFreezeActive,
+            nextQueue: state.queue,
+            heldPiece: state.hold.piece,
+            canHold: state.hold.canHold,
         };
 
-        if (this.shouldUpdate(currentState, timeDiff, timeThreshold)) {
-            // Batch Update Store
-            engineStore.setState({
-                stats: { 
-                    ...currentStats, 
-                    isRewinding: currentState.isRewinding,
-                    timeFreezeActive: currentState.timeFreezeActive
-                },
-                garbagePending: currentState.garbagePending,
-                comboCount: currentState.comboCount,
-                isBackToBack: scoreManager.isBackToBack,
-                pieceIsGrounded: currentState.pieceIsGrounded,
-                flippedGravity: currentState.flippedGravity,
-                dangerLevel: currentState.dangerLevel,
-                focusGauge: currentState.focusGauge,
-                zoneActive: currentState.isZoneActive,
-                missedOpportunity: currentState.missedOpportunity
-            });
+        // Batch Update Store
+        engineStore.setState({
+            stats: { 
+                ...currentStats, 
+                isRewinding: currentState.isRewinding,
+                timeFreezeActive: currentState.timeFreezeActive
+            },
+            garbagePending: currentState.garbagePending,
+            comboCount: currentState.comboCount,
+            isBackToBack: scoreManager.isBackToBack,
+            pieceIsGrounded: currentState.pieceIsGrounded,
+            flippedGravity: currentState.flippedGravity,
+            dangerLevel: currentState.dangerLevel,
+            focusGauge: currentState.focusGauge,
+            zoneActive: currentState.isZoneActive,
+            missedOpportunity: currentState.missedOpportunity,
+            nextQueue: currentState.nextQueue,
+            heldPiece: currentState.heldPiece,
+            canHold: currentState.canHold
+        });
 
-            this.lastState = currentState;
-        }
-    }
-
-    private shouldUpdate(current: SyncedStateSnapshot, timeDiff: number, timeThreshold: number): boolean {
-        // Check for any significant state change that requires a React re-render
-        return (
-            current.score !== this.lastState.score ||
-            current.rows !== this.lastState.rows ||
-            current.level !== this.lastState.level ||
-            timeDiff > timeThreshold ||
-            current.comboCount !== this.lastState.comboCount ||
-            current.garbagePending !== this.lastState.garbagePending ||
-            current.pieceIsGrounded !== this.lastState.pieceIsGrounded ||
-            current.flippedGravity !== this.lastState.flippedGravity ||
-            Math.abs(current.dangerLevel - this.lastState.dangerLevel) > 0.1 ||
-            current.wildcardPieceActive !== this.lastState.wildcardPieceActive ||
-            current.isSelectingBombRows !== this.lastState.isSelectingBombRows ||
-            current.isSelectingLine !== this.lastState.isSelectingLine ||
-            Math.abs(current.focusGauge - this.lastState.focusGauge) > 10 ||
-            current.isZoneActive !== this.lastState.isZoneActive ||
-            current.isRewinding !== this.lastState.isRewinding ||
-            current.scoreMultiplierActive !== this.lastState.scoreMultiplierActive ||
-            current.timeFreezeActive !== this.lastState.timeFreezeActive
-        );
+        this.lastState = currentState;
     }
 }

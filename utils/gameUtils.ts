@@ -72,6 +72,11 @@ export class SeededRNG {
     public set state(val: number) { this._seed = val; }
 }
 
+export const getDailySeed = (): string => {
+    const now = new Date();
+    return `${now.getFullYear()}-${now.getMonth() + 1}-${now.getDate()}-TETRIOS-DAILY`;
+};
+
 export const createPuzzleStage = (puzzle: PuzzleDefinition): Board => {
     const stage = createStage();
     const layout = [...puzzle.layout].reverse();

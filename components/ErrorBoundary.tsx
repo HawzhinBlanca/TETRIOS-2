@@ -1,3 +1,4 @@
+
 import React, { ReactNode, ErrorInfo } from 'react';
 import { safeStorage } from '../utils/safeStorage';
 import { telemetry } from '../utils/TelemetryManager';
@@ -51,7 +52,7 @@ class ErrorBoundary extends React.Component<ErrorBoundaryProps, ErrorBoundarySta
           telemetry.log('WARN', 'Performing Safe Recovery');
           safeStorage.removeItem('tetrios-game-settings-store');
           safeStorage.removeItem('tetrios-ui-store');
-          safeStorage.removeItem('tetrios-effect-store'); // Also clear effects
+          safeStorage.removeItem('tetrios-effect-store'); 
           // Explicitly NOT clearing 'tetrios-adventure-store' or 'tetrios-profile-store'
           window.location.reload();
       }

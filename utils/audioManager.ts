@@ -15,7 +15,7 @@ const safeParam = (param: AudioParam, value: number, time: number, method: 'set'
                 param.exponentialRampToValueAtTime(safeVal, time);
             }
         } catch (e) {
-            // Silently fail scheduling errors (common during rapid tab switching)
+            // Silently fail scheduling errors
         }
     }
 };
@@ -38,10 +38,60 @@ abstract class SynthVoice {
         safeParam(this.output.gain, val, this.ctx.currentTime, 'set');
     }
 
+    protected createEnvelope(param: AudioParam, time: number, velocity: number, attack: number, decay: number, sustain: number = 0.001) {
+        safeParam(param, 0, time, 'set');
+        safeParam(param, velocity, time + attack, 'linear');
+        safeParam(param, sustain, time + attack + decay, 'exponential');
+    }
+
+    protected scheduleCleanup(nodes: AudioNode[], delay: number) {
+        setTimeout(() => {
+            nodes.forEach(node => {
+                try { node.disconnect(); } catch(e) {}
+            });
+        }, delay * 1000);
+    }
+
     abstract trigger(freq: number, time: number, velocity: number): void;
 }
 
 // --- SPECIFIC INSTRUMENTS ---
+
+class StandardSynth extends SynthVoice {
+    constructor(ctx: AudioContext, destination: AudioNode, private type: OscillatorType, private filterFreq: number = 2000) {
+        super(ctx, destination);
+    }
+
+    trigger(freq: number, time: number, velocity: number) {
+        const t = time;
+        const osc = this.ctx.createOscillator();
+        osc.type = this.type;
+        osc.frequency.value = freq;
+
+        const filter = this.ctx.createBiquadFilter();
+        filter.type = 'lowpass';
+        filter.Q.value = 2;
+
+        const amp = this.ctx.createGain();
+
+        osc.connect(filter);
+        filter.connect(amp);
+        amp.connect(this.output);
+
+        // Envelope
+        const peakGain = this.type === 'triangle' ? 0.3 * velocity : 0.1 * velocity;
+        this.createEnvelope(amp.gain, t, peakGain, 0.01, 0.3);
+        
+        // Filter Envelope
+        safeParam(filter.frequency, this.filterFreq, t, 'set');
+        safeParam(filter.frequency, 100, t + 0.2, 'exponential');
+
+        osc.start(t);
+        osc.stop(t + 0.4);
+        
+        this.scheduleCleanup([osc, filter, amp], 0.45);
+    }
+}
 
 class BassSynth extends SynthVoice {
     trigger(freq: number, time: number, velocity: number) {
@@ -63,24 +113,20 @@ class BassSynth extends SynthVoice {
         // Settings
         osc1.type = 'sine';
         osc1.frequency.value = freq;
-        
         osc2.type = 'sine';
-        osc2.frequency.value = freq * 0.5; // Sub-octave modulation
+        osc2.frequency.value = freq * 0.5; // Sub-octave
 
         filter.type = 'lowpass';
         filter.Q.value = 5;
 
         // Envelopes
-        // 1. Amplitude
-        safeParam(amp.gain, 0, t, 'set');
-        safeParam(amp.gain, velocity, t + 0.02, 'linear');
-        safeParam(amp.gain, 0.001, t + 0.4, 'exponential');
-
-        // 2. FM Amount (The "Growl")
+        this.createEnvelope(amp.gain, t, velocity, 0.02, 0.4);
+        
+        // FM Amount
         safeParam(modGain.gain, freq * 2, t, 'set');
         safeParam(modGain.gain, 0, t + 0.3, 'exponential');
 
-        // 3. Filter Pluck
+        // Filter Pluck
         safeParam(filter.frequency, 800, t, 'set');
         safeParam(filter.frequency, 100, t + 0.4, 'exponential');
 
@@ -89,16 +135,14 @@ class BassSynth extends SynthVoice {
         osc1.stop(t + 0.5);
         osc2.stop(t + 0.5);
         
-        // Garbage collection helper
-        setTimeout(() => { osc1.disconnect(); osc2.disconnect(); }, 600);
+        this.scheduleCleanup([osc1, osc2, modGain, filter, amp], 0.6);
     }
 }
 
 class PadSynth extends SynthVoice {
     trigger(freq: number, time: number, velocity: number) {
-        // Unison Sawtooth Pad (SuperSaw-ish)
         const t = time;
-        const duration = 4.0; // Long chord wash
+        const duration = 4.0; 
 
         const createVoice = (detune: number) => {
             const osc = this.ctx.createOscillator();
@@ -111,77 +155,18 @@ class PadSynth extends SynthVoice {
             vGain.connect(this.output);
             
             safeParam(vGain.gain, 0, t, 'set');
-            safeParam(vGain.gain, 0.08 * velocity, t + 1.5, 'linear'); // Slow attack
-            safeParam(vGain.gain, 0, t + duration, 'linear'); // Slow release
+            safeParam(vGain.gain, 0.08 * velocity, t + 1.5, 'linear');
+            safeParam(vGain.gain, 0, t + duration, 'linear');
 
             osc.start(t);
             osc.stop(t + duration + 0.5);
-            
             return { osc, vGain };
         };
 
-        const v1 = createVoice(0);
-        const v2 = createVoice(-12);
-        const v3 = createVoice(12);
+        const voices = [createVoice(0), createVoice(-12), createVoice(12)];
+        const cleanupNodes = voices.flatMap(v => [v.osc, v.vGain]);
         
-        // Cleanup
-        setTimeout(() => { 
-            v1.osc.disconnect(); v2.osc.disconnect(); v3.osc.disconnect(); 
-        }, (duration + 1) * 1000);
-    }
-}
-
-class ArpSynth extends SynthVoice {
-    trigger(freq: number, time: number, velocity: number) {
-        const t = time;
-        const osc = this.ctx.createOscillator();
-        osc.type = 'square';
-        osc.frequency.value = freq;
-
-        const filter = this.ctx.createBiquadFilter();
-        filter.type = 'lowpass';
-        filter.Q.value = 2;
-
-        const amp = this.ctx.createGain();
-
-        osc.connect(filter);
-        filter.connect(amp);
-        amp.connect(this.output);
-
-        // Envelope: Short and plucky
-        safeParam(amp.gain, 0, t, 'set');
-        safeParam(amp.gain, 0.1 * velocity, t + 0.01, 'linear');
-        safeParam(amp.gain, 0.001, t + 0.2, 'exponential');
-
-        safeParam(filter.frequency, 3000, t, 'set');
-        safeParam(filter.frequency, 500, t + 0.15, 'exponential');
-
-        osc.start(t);
-        osc.stop(t + 0.25);
-        
-        setTimeout(() => { osc.disconnect(); }, 300);
-    }
-}
-
-class PluckSynth extends SynthVoice {
-    trigger(freq: number, time: number, velocity: number) {
-        const t = time;
-        const osc = this.ctx.createOscillator();
-        osc.type = 'triangle';
-        osc.frequency.value = freq;
-
-        const amp = this.ctx.createGain();
-        osc.connect(amp);
-        amp.connect(this.output);
-
-        safeParam(amp.gain, 0, t, 'set');
-        safeParam(amp.gain, 0.3 * velocity, t + 0.01, 'linear');
-        safeParam(amp.gain, 0.001, t + 0.3, 'exponential');
-
-        osc.start(t);
-        osc.stop(t + 0.35);
-        
-        setTimeout(() => { osc.disconnect(); }, 400);
+        this.scheduleCleanup(cleanupNodes, duration + 1);
     }
 }
 
@@ -198,7 +183,7 @@ class DrumSynth {
     }
 
     private createNoiseBuffer() {
-        const bufferSize = this.ctx.sampleRate * 2; // 2 seconds
+        const bufferSize = this.ctx.sampleRate * 2; 
         const buffer = this.ctx.createBuffer(1, bufferSize, this.ctx.sampleRate);
         const data = buffer.getChannelData(0);
         for (let i = 0; i < bufferSize; i++) {
@@ -215,17 +200,15 @@ class DrumSynth {
         osc.connect(amp);
         amp.connect(this.output);
 
-        // Pitch Drop (The "Thud")
         osc.frequency.setValueAtTime(150, t);
         osc.frequency.exponentialRampToValueAtTime(0.01, t + 0.5);
 
-        // Amplitude Envelope
         safeParam(amp.gain, velocity, t, 'set');
         safeParam(amp.gain, 0.001, t + 0.5, 'exponential');
 
         osc.start(t);
         osc.stop(t + 0.55);
-        setTimeout(() => osc.disconnect(), 600);
+        setTimeout(() => { osc.disconnect(); amp.disconnect(); }, 600);
     }
 
     public playHiHat(time: number, velocity: number) {
@@ -250,7 +233,7 @@ class DrumSynth {
 
         source.start(t);
         source.stop(t + 0.1);
-        setTimeout(() => source.disconnect(), 200);
+        setTimeout(() => { source.disconnect(); filter.disconnect(); amp.disconnect(); }, 200);
     }
 }
 
@@ -265,6 +248,10 @@ export class AudioManager {
     public sfxGain: GainNode | null = null;
     public compressor: DynamicsCompressorNode | null = null;
     
+    // Analysis
+    public analyser: AnalyserNode | null = null;
+    private analyserBuffer: Uint8Array | null = null;
+    
     // Effects
     private reverb: ConvolverNode | null = null;
     private lowPassFilter: BiquadFilterNode | null = null;
@@ -272,8 +259,8 @@ export class AudioManager {
     // Instruments
     private bass: BassSynth | null = null;
     private pad: PadSynth | null = null;
-    private arp: ArpSynth | null = null;
-    private pluck: PluckSynth | null = null;
+    private arp: StandardSynth | null = null;
+    private pluck: StandardSynth | null = null;
     private drums: DrumSynth | null = null;
 
     // State
@@ -321,19 +308,24 @@ export class AudioManager {
             this.compressor.threshold.value = -20;
             this.compressor.ratio.value = 8;
             this.compressor.connect(this.ctx.destination);
+            
+            // Analyser
+            this.analyser = this.ctx.createAnalyser();
+            this.analyser.fftSize = 256; 
+            this.analyserBuffer = new Uint8Array(this.analyser.frequencyBinCount);
+            this.analyser.connect(this.compressor);
 
             this.masterGain = this.ctx.createGain();
             this.masterGain.gain.value = 0.6;
-            this.masterGain.connect(this.compressor);
+            this.masterGain.connect(this.analyser);
 
             // 2. Sub-Buses
             this.musicGain = this.ctx.createGain();
             this.musicGain.gain.value = 0.5;
             
-            // Dynamic Filter for Music (Muffling effect on pause/danger)
             this.lowPassFilter = this.ctx.createBiquadFilter();
             this.lowPassFilter.type = 'lowpass';
-            this.lowPassFilter.frequency.value = 20000; // Open
+            this.lowPassFilter.frequency.value = 20000;
             this.lowPassFilter.Q.value = 1;
             
             this.musicGain.connect(this.lowPassFilter);
@@ -350,35 +342,32 @@ export class AudioManager {
             revGain.gain.value = 0.3;
             this.reverb.connect(revGain);
             revGain.connect(this.masterGain);
-            this.musicGain.connect(this.reverb); // Send music to reverb
+            this.musicGain.connect(this.reverb);
 
             // 4. Instantiate Instruments
             this.bass = new BassSynth(this.ctx, this.musicGain);
             this.pad = new PadSynth(this.ctx, this.musicGain);
-            this.arp = new ArpSynth(this.ctx, this.musicGain);
-            this.pluck = new PluckSynth(this.ctx, this.musicGain); // Send interactive plucks to music bus
-            this.drums = new DrumSynth(this.ctx, this.sfxGain); // Drums often sit better in SFX or their own bus, but SFX works for punch
+            this.arp = new StandardSynth(this.ctx, this.musicGain, 'square', 3000);
+            this.pluck = new StandardSynth(this.ctx, this.musicGain, 'triangle', 20000); 
+            this.drums = new DrumSynth(this.ctx, this.sfxGain);
 
             this.initialized = true;
             telemetry.log('INFO', 'Audio System Initialized', { sampleRate: this.ctx.sampleRate, state: this.ctx.state });
 
-            // Global Resume Handler
+            // Global resume handler for mobile
             const resume = () => { 
                 if(this.ctx?.state === 'suspended') {
                     this.ctx.resume().then(() => {
-                        telemetry.log('INFO', 'Audio Context Resumed via User Interaction');
+                        console.log("Audio Context Resumed");
                     });
                 }
             };
-            ['click','touchstart','keydown'].forEach(e => window.addEventListener(e, resume, {once:true}));
+            ['click','touchstart','keydown', 'pointerdown'].forEach(e => window.addEventListener(e, resume, {once:true}));
 
         } catch(e) {
             telemetry.log('ERROR', 'Audio Init Failed', { error: String(e) });
-            telemetry.incrementCounter('audio_init_failure');
         }
     }
-
-    // --- SEQUENCER ---
 
     public startMusic() {
         if (!this.initialized || !this.ctx) this.init();
@@ -412,14 +401,13 @@ export class AudioManager {
 
     private advanceStep() {
         const secondsPerBeat = 60.0 / this.tempo;
-        this.nextNoteTime += 0.25 * secondsPerBeat; // 16th notes
+        this.nextNoteTime += 0.25 * secondsPerBeat;
         
         this.current16th++;
         if (this.current16th === 16) {
             this.current16th = 0;
             this.currentMeasure++;
             if (this.currentMeasure % 4 === 0) {
-                // Progress chord every 4 measures
                 this.chordIndex = (this.chordIndex + 1) % CHORD_PROGRESSIONS[0].length;
             }
         }
@@ -432,40 +420,31 @@ export class AudioManager {
         const currentChordDegrees = progression[this.chordIndex % progression.length];
         const root = 36; // C2
 
-        // 1. Kick (4-on-the-floor)
         if (step % 4 === 0) {
             this.drums.playKick(time, 0.8);
         }
 
-        // 2. Bass (Groove)
-        // Play on 1, and offbeats if danger is high
         if (step === 0 || (this.intensity > 0.5 && step === 10)) {
-            const note = root + currentChordDegrees[0] - 12; // Octave down
+            const note = root + currentChordDegrees[0] - 12; 
             this.bass.trigger(mtof(note), time, 0.7);
         }
 
-        // 3. Pads (On 1)
         if (step === 0 && this.currentMeasure % 2 === 0) {
             const note = root + currentChordDegrees[0];
             this.pad.trigger(mtof(note), time, 0.4);
         }
 
-        // 4. HiHats
         if (this.intensity > 0.2) {
-            if (step % 2 === 0) { // 8ths
-                // Accent on the off-beat (2, 6, 10, 14)
+            if (step % 2 === 0) { 
                 const vel = (step % 4 === 2) ? 0.3 : 0.1;
                 this.drums.playHiHat(time, vel);
             }
-            // 16ths in high danger
             if (this.intensity > 0.8 && step % 2 !== 0) {
                 this.drums.playHiHat(time, 0.05);
             }
         }
 
-        // 5. Arp (Combo/Frenzy driven)
         if (this.combo > 2 || this.intensity > 0.4 || this.isFrenzy) {
-            // Play 8ths usually, 16ths if frenzy
             const is16th = this.isFrenzy || this.intensity > 0.9;
             if (is16th || step % 2 === 0) {
                 const degree = currentChordDegrees[Math.floor(Math.random() * currentChordDegrees.length)];
@@ -476,8 +455,6 @@ export class AudioManager {
         }
     }
 
-    // --- DYNAMIC MIXING ---
-
     public updateDynamicMix(stats: { dangerLevel: number, comboCount: number, isZoneActive: boolean, isFrenzy: boolean }) {
         if (!this.ctx || !this.lowPassFilter) return;
 
@@ -486,17 +463,13 @@ export class AudioManager {
         this.isZone = stats.isZoneActive;
         this.isFrenzy = stats.isFrenzy;
 
-        // 1. Dynamic LowPass Filter
-        // Muffles music when safe, opens up when dangerous or in Zone
         let targetFreq = 800 + (Math.pow(this.intensity, 2) * 10000);
-        if (this.isZone) targetFreq = 400; // Underwater effect for Zone
-        if (this.isFrenzy) targetFreq = 20000; // Wide open for Frenzy
+        if (this.isZone) targetFreq = 400; 
+        if (this.isFrenzy) targetFreq = 20000; 
 
         safeParam(this.lowPassFilter.frequency, targetFreq, this.ctx.currentTime + 1.0, 'linear');
 
-        // 2. Tempo modulation
         const targetTempo = 110 + (this.intensity * 30) + (this.isFrenzy ? 20 : 0);
-        // Smooth transition
         this.tempo = this.tempo * 0.95 + targetTempo * 0.05;
     }
 
@@ -508,7 +481,6 @@ export class AudioManager {
 
     // --- GAMEPLAY SFX API ---
 
-    // Helper to reduce boilerplate
     private createSimpleOscillator(type: OscillatorType, freqStart: number, freqEnd: number | null, volStart: number, duration: number, targetNode: AudioNode) {
         if (!this.ctx || !targetNode) return;
         const t = this.ctx.currentTime;
@@ -531,31 +503,25 @@ export class AudioManager {
         
         osc.start(t);
         osc.stop(t + duration);
+        setTimeout(() => { osc.disconnect(); g.disconnect(); }, duration * 1000 + 100);
     }
 
     public playMove(colIndex: number) {
         if (!this.ctx || !this.pluck) return;
-        
-        // Pentatonic Scale Mapping
         const scale = MUSICAL_SCALES.MINOR_PENTATONIC;
         const degree = scale[colIndex % scale.length];
-        const note = 60 + degree; // Middle C base
-        
+        const note = 60 + degree;
         this.pluck.trigger(mtof(note), this.ctx.currentTime, 0.4);
     }
 
     public playRotate(pan: number = 0) {
-        // Triangle wave, 800->100Hz, 0.05s
-        if (this.sfxGain) {
-            this.createSimpleOscillator('triangle', 800, 100, 0.1, 0.05, this.sfxGain);
-        }
+        if (this.sfxGain) this.createSimpleOscillator('triangle', 800, 100, 0.1, 0.05, this.sfxGain);
     }
 
     public playHardDrop(pan: number) {
         if (!this.ctx || !this.drums) return;
         this.drums.playKick(this.ctx.currentTime, 1.0);
         
-        // Sidechain Effect: Duck the music
         if (this.musicGain) {
             const t = this.ctx.currentTime;
             this.musicGain.gain.cancelScheduledValues(t);
@@ -566,45 +532,33 @@ export class AudioManager {
     }
 
     public playLock(pan: number, type?: any) {
-        // Square wave, 200Hz static, 0.1s
-        if (this.sfxGain) {
-            this.createSimpleOscillator('square', 200, null, 0.2, 0.1, this.sfxGain);
-        }
+        if (this.sfxGain) this.createSimpleOscillator('square', 200, null, 0.2, 0.1, this.sfxGain);
     }
 
     public playClear(count: number, combo: number = 0, isB2B: boolean = false) {
         if (!this.ctx || !this.pluck) return;
         const t = this.ctx.currentTime;
-        
-        // Play a chord based on lines cleared
-        const baseNote = 60 + (combo * 2); // Ascending pitch with combo
-        const notes = [0, 4, 7, 12]; // Major chord offsets
-        
+        const baseNote = 60 + (combo * 2);
+        const notes = [0, 4, 7, 12];
         const countToPlay = Math.min(count, 4);
         
         for (let i = 0; i < countToPlay; i++) {
             const note = baseNote + notes[i];
-            // Stagger notes for arpeggio effect
             this.pluck.trigger(mtof(note), t + (i * 0.05), 0.5);
         }
         
-        if (isB2B) {
-            // Extra high ping for B2B
-            this.pluck.trigger(mtof(baseNote + 24), t + 0.2, 0.4);
-        }
+        if (isB2B) this.pluck.trigger(mtof(baseNote + 24), t + 0.2, 0.4);
     }
 
     public playSoftLand(pan: number = 0) {} 
     public playTSpin() { this.playRotate(); } 
     public playGameOver() { this.stopMusic(); }
     
-    // --- UI Sounds ---
     public playUiHover() { this.playClickRaw(800, 0.05); }
     public playUiClick() { this.playClickRaw(1200, 0.1); }
     public playUiSelect() { this.playClickRaw(1500, 0.15); }
     public playUiBack() { this.playClickRaw(600, 0.1); }
     
-    // --- Event Stubs (Mapped from EventManager) ---
     public playFrenzyStart() {}
     public playFrenzyEnd() {}
     public playZoneStart() {}
@@ -628,18 +582,11 @@ export class AudioManager {
     public playFuseDetonate() { this.playHardDrop(0); }
     
     public playPerfectDrop(multiplier: number) {
-        // Zip up effect: 800->2000Hz, 0.1s
-        if (this.sfxGain) {
-            this.createSimpleOscillator('sine', 800, 2000, 0.3, 0.1, this.sfxGain);
-        }
+        if (this.sfxGain) this.createSimpleOscillator('sine', 800, 2000, 0.3, 0.1, this.sfxGain);
     }
 
-    // --- Helpers ---
-
     private playClickRaw(freq: number, vol: number) {
-        if (this.sfxGain) {
-            this.createSimpleOscillator('triangle', freq, null, vol * 0.5, 0.05, this.sfxGain);
-        }
+        if (this.sfxGain) this.createSimpleOscillator('triangle', freq, null, vol * 0.5, 0.05, this.sfxGain);
     }
 
     private createImpulseResponse(duration: number, decay: number) {
@@ -678,7 +625,15 @@ export class AudioManager {
     }
 
     getEnergy() { return 0.5; }
-    getFrequencyData() { return new Uint8Array(128); }
+    
+    getFrequencyData() {
+        if (this.analyser && this.analyserBuffer) {
+            this.analyser.getByteFrequencyData(this.analyserBuffer);
+            return this.analyserBuffer;
+        }
+        return null; 
+    }
+    
     getPulseFactor() { 
         if(!this.ctx) return 0;
         const beatLen = 60 / this.tempo;

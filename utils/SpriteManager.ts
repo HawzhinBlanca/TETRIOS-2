@@ -50,7 +50,7 @@ export class SpriteManager {
         this.drawCircleToAtlas(32);
 
         this.currentX = 0;
-        this.currentY = 36; // Move down after header items
+        this.currentY = 36;
         this.currentRowHeight = 0;
         
         this.atlasBaseTexture.update();
@@ -108,7 +108,6 @@ export class SpriteManager {
                 currentItems: this.textureCache.size 
             });
             telemetry.incrementCounter('renderer_atlas_flush');
-            
             this.cleanup(); 
             return this.getBlockTexture(type, skin, safeSize, colorblindMode, colorOverride);
         }
@@ -191,11 +190,25 @@ export class SpriteManager {
         return canvas;
     }
 
+    // Helper to fill a rectangle
+    private fillRect(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, fill: string) {
+        ctx.fillStyle = fill;
+        ctx.fillRect(x, y, w, h);
+    }
+
+    private drawBevels(ctx: CanvasRenderingContext2D, size: number, topColor: string, shadowColor: string) {
+        // Top and Left Highlights
+        this.fillRect(ctx, 0, 0, size, size * 0.15, topColor);
+        this.fillRect(ctx, 0, 0, size * 0.15, size, topColor);
+        // Bottom and Right Shadows
+        this.fillRect(ctx, 0, size * 0.85, size, size * 0.15, shadowColor);
+        this.fillRect(ctx, size * 0.85, 0, size * 0.15, size, shadowColor);
+    }
+
     private drawEmojiSkin(ctx: CanvasRenderingContext2D, size: number, color: string, type: TetrominoType | 'G') {
         const emoji = EMOJI_MAP[type as string] || '🟩';
-        ctx.fillStyle = color;
-        ctx.globalAlpha = 0.3;
-        ctx.fillRect(0, 0, size, size);
+        this.fillRect(ctx, 0, 0, size, size, color);
+        ctx.globalAlpha = 0.3; // Overlay effect from base
         ctx.globalAlpha = 1.0;
         ctx.font = `${size * 0.8}px serif`;
         ctx.textAlign = 'center';
@@ -207,17 +220,15 @@ export class SpriteManager {
     }
 
     private drawRetroSkin(ctx: CanvasRenderingContext2D, size: number, color: string) {
-        ctx.fillStyle = color;
-        ctx.fillRect(0, 0, size, size);
-        ctx.fillStyle = 'rgba(255,255,255,0.6)';
-        ctx.fillRect(0, 0, size, size * 0.15); 
-        ctx.fillRect(0, 0, size * 0.15, size); 
-        ctx.fillStyle = 'rgba(0,0,0,0.3)';
-        ctx.fillRect(0, size * 0.85, size, size * 0.15); 
-        ctx.fillRect(size * 0.85, 0, size * 0.15, size); 
-        ctx.fillStyle = 'rgba(0,0,0,0.1)';
+        this.fillRect(ctx, 0, 0, size, size, color);
+        
+        // Reused bevel logic for retro highlights/shadows
+        this.drawBevels(ctx, size, 'rgba(255,255,255,0.6)', 'rgba(0,0,0,0.3)');
+
+        // Inner Square
         const inner = size * 0.25;
-        ctx.fillRect(inner, inner, size * 0.5, size * 0.5);
+        this.fillRect(ctx, inner, inner, size * 0.5, size * 0.5, 'rgba(0,0,0,0.1)');
+        
         ctx.strokeStyle = '#000000';
         ctx.lineWidth = Math.max(1, size * 0.05);
         ctx.strokeRect(0, 0, size, size);
@@ -230,6 +241,7 @@ export class SpriteManager {
         if (ctx.roundRect) ctx.roundRect(1, 1, size - 2, size - 2, r);
         else ctx.rect(1, 1, size - 2, size - 2);
         ctx.fill();
+        
         const grad = ctx.createLinearGradient(0, 0, size, size);
         grad.addColorStop(0, 'rgba(255,255,255,0.7)');
         grad.addColorStop(0.5, 'rgba(255,255,255,0)');
@@ -238,30 +250,32 @@ export class SpriteManager {
         if (ctx.roundRect) ctx.roundRect(1, 1, size - 2, size - 2, r);
         else ctx.rect(1, 1, size - 2, size - 2);
         ctx.fill();
+        
+        // Shine
         ctx.fillStyle = 'rgba(255,255,255,0.8)';
         ctx.beginPath();
         ctx.ellipse(size * 0.25, size * 0.25, size * 0.15, size * 0.1, -0.7, 0, Math.PI * 2);
         ctx.fill();
+        
         ctx.strokeStyle = 'rgba(0,0,0,0.2)';
         ctx.lineWidth = 1;
         if (ctx.roundRect) ctx.stroke();
     }
 
     private drawMinimalSkin(ctx: CanvasRenderingContext2D, size: number, color: string) {
-        ctx.fillStyle = color;
-        ctx.fillRect(1, 1, size - 2, size - 2);
+        this.fillRect(ctx, 1, 1, size - 2, size - 2, color);
     }
 
     private drawCyberSkin(ctx: CanvasRenderingContext2D, size: number, color: string) {
-        ctx.fillStyle = 'rgba(0,0,0,0.5)';
-        ctx.fillRect(0, 0, size, size);
+        this.fillRect(ctx, 0, 0, size, size, 'rgba(0,0,0,0.5)');
         ctx.strokeStyle = color;
         ctx.lineWidth = Math.max(1, size * 0.08);
         ctx.strokeRect(1, 1, size - 2, size - 2);
-        ctx.fillStyle = color;
+        
         const center = size / 2;
         const dot = size * 0.2;
-        ctx.fillRect(center - dot, center - dot, dot * 2, dot * 2);
+        this.fillRect(ctx, center - dot, center - dot, dot * 2, dot * 2, color);
+        
         const len = size * 0.25;
         ctx.lineWidth = 1;
         ctx.beginPath();
@@ -271,18 +285,18 @@ export class SpriteManager {
     }
 
     private drawStandardSkin(ctx: CanvasRenderingContext2D, size: number, color: string, type: TetrominoType | 'G') {
-        ctx.fillStyle = color;
-        ctx.fillRect(0, 0, size, size);
-        ctx.fillStyle = `rgba(255,255,255,${VISUAL_THEME.BLOCK.BEVEL_TOP_ALPHA})`;
-        ctx.fillRect(0, 0, size, size * 0.15);
-        ctx.fillRect(0, 0, size * 0.15, size);
-        ctx.fillStyle = `rgba(0,0,0,${VISUAL_THEME.BLOCK.BEVEL_SHADOW_ALPHA})`;
-        ctx.fillRect(0, size * 0.85, size, size * 0.15);
-        ctx.fillRect(size * 0.85, 0, size * 0.15, size);
+        this.fillRect(ctx, 0, 0, size, size, color);
+        
+        this.drawBevels(
+            ctx, 
+            size, 
+            `rgba(255,255,255,${VISUAL_THEME.BLOCK.BEVEL_TOP_ALPHA})`, 
+            `rgba(0,0,0,${VISUAL_THEME.BLOCK.BEVEL_SHADOW_ALPHA})`
+        );
+        
         if (type !== 'G') {
             ctx.globalCompositeOperation = 'overlay';
-            ctx.fillStyle = `rgba(255,255,255,${VISUAL_THEME.BLOCK.INNER_GLOW_ALPHA})`;
-            ctx.fillRect(size * 0.2, size * 0.2, size * 0.6, size * 0.6);
+            this.fillRect(ctx, size * 0.2, size * 0.2, size * 0.6, size * 0.6, `rgba(255,255,255,${VISUAL_THEME.BLOCK.INNER_GLOW_ALPHA})`);
             ctx.globalCompositeOperation = 'source-over';
         }
         ctx.strokeStyle = 'rgba(255,255,255,0.4)';

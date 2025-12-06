@@ -27,8 +27,8 @@ const Preview: React.FC<Props> = React.memo(({ title, type, lastUpdate, variant 
 
   const isSmall = variant === 'small';
   
-  // Compact styling for overlay
-  const blockSize = isSmall ? 8 : 14; 
+  // Significantly increased block size for better visibility
+  const blockSize = isSmall ? 10 : 18; 
   const gap = '1px';
 
   // Styles for overlay "Glass HUD" look

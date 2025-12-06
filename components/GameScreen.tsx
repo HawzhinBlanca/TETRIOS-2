@@ -137,32 +137,42 @@ export const GameScreen: React.FC<GameScreenProps> = ({
                         onClick={handleMobileHold}
                         disabled={!canHold}
                         className={`
-                            w-14 h-14 bg-black/40 border border-white/10 rounded-2xl backdrop-blur-xl shadow-lg
-                            flex flex-col items-center justify-center relative overflow-hidden transition-all duration-200
-                            ${!canHold ? 'opacity-50 grayscale' : 'active:scale-95 active:bg-white/10'}
-                            ${holdFlash ? 'ring-2 ring-yellow-400/50 shadow-[0_0_15px_rgba(234,179,8,0.4)] !bg-yellow-500/10 scale-105' : ''}
+                            w-28 h-28 rounded-3xl backdrop-blur-xl shadow-2xl border-2
+                            flex flex-col items-center justify-center relative overflow-hidden transition-all duration-300
+                            ${!canHold 
+                                ? 'bg-red-950/20 border-red-500/30 grayscale-[0.3]' 
+                                : 'bg-black/40 border-white/10 hover:border-white/30 active:scale-95'
+                            }
+                            ${holdFlash ? 'animate-[pulse_0.3s_ease-in-out] ring-4 ring-yellow-400/60 shadow-[0_0_40px_rgba(234,179,8,0.5)] !bg-yellow-500/20 scale-105 !border-yellow-400' : ''}
                         `}
                     >
-                        <span className="absolute top-1 left-1.5 text-[7px] font-bold text-white/40 uppercase tracking-wider">Hold</span>
-                        <div className="flex-1 flex items-center justify-center p-1 mt-1">
+                        <span className={`absolute top-2 left-3 text-[10px] font-black uppercase tracking-widest ${!canHold ? 'text-red-400' : 'text-white/40'}`}>
+                            {!canHold ? 'LOCKED' : 'HOLD'}
+                        </span>
+                        
+                        <div className="flex-1 flex items-center justify-center p-2 w-full h-full">
                             {heldPiece ? (
-                                <Preview title="" type={heldPiece} variant="small" className="scale-[0.65] origin-center" isLocked={!canHold} />
+                                <Preview title="" type={heldPiece} variant="default" className="origin-center scale-110" isLocked={!canHold} />
                             ) : (
-                                <div className="w-1.5 h-1.5 rounded-full bg-white/5"></div>
+                                <div className="w-2 h-2 rounded-full bg-white/10 animate-pulse"></div>
                             )}
                         </div>
-                        {hasHoldPlus && <div className="absolute top-1.5 right-1.5 text-purple-400 animate-pulse"><RefreshCw size={10} /></div>}
+                        
+                        {/* Status Light */}
+                        <div className={`absolute bottom-0 left-0 right-0 h-1 transition-colors ${!canHold ? 'bg-red-500/50' : (holdFlash ? 'bg-yellow-400' : 'bg-transparent')}`}></div>
+
+                        {hasHoldPlus && <div className="absolute top-2 right-2 text-purple-400 animate-spin-slow"><RefreshCw size={14} /></div>}
                     </button>
                 </div>
 
                 {/* Next Widget */}
                 <div className="flex flex-col gap-2 pointer-events-auto items-end">
                     {/* Primary Next */}
-                    <div className="w-14 h-14 bg-black/40 border border-white/10 rounded-2xl backdrop-blur-xl shadow-lg flex flex-col relative overflow-hidden">
-                        <span className="absolute top-1 right-1.5 text-[7px] font-bold text-white/40 uppercase tracking-wider">Next</span>
-                        <div className="flex-1 flex items-center justify-center p-1 mt-1">
+                    <div className="w-28 h-28 bg-black/40 border border-white/10 rounded-3xl backdrop-blur-xl shadow-2xl flex flex-col relative overflow-hidden">
+                        <span className="absolute top-2 right-3 text-[10px] font-black text-white/40 uppercase tracking-widest">Next</span>
+                        <div className="flex-1 flex items-center justify-center p-2 w-full h-full">
                             {nextQueue.length > 0 ? (
-                                <Preview title="" type={nextQueue[0]} variant="small" className="scale-[0.65] origin-center" />
+                                <Preview title="" type={nextQueue[0]} variant="default" className="origin-center scale-110" />
                             ) : (
                                 <div className="animate-pulse w-2 h-2 bg-white/10 rounded-full"></div>
                             )}
@@ -171,9 +181,9 @@ export const GameScreen: React.FC<GameScreenProps> = ({
                     
                     {/* Secondary Queue (Mini) */}
                     <div className="flex flex-col gap-1.5 opacity-80 mr-1">
-                        {nextQueue.slice(1, 4).map((type, i) => (
-                            <div key={i} className="w-9 h-7 bg-black/30 border border-white/5 rounded-md flex items-center justify-center backdrop-blur-md">
-                                <Preview title="" type={type} variant="small" className="scale-[0.35]" />
+                        {nextQueue.slice(1, 3).map((type, i) => (
+                            <div key={i} className="w-12 h-9 bg-black/30 border border-white/5 rounded-md flex items-center justify-center backdrop-blur-md">
+                                <Preview title="" type={type} variant="small" className="scale-[0.65]" />
                             </div>
                         ))}
                     </div>
@@ -222,4 +232,3 @@ export const GameScreen: React.FC<GameScreenProps> = ({
         </div>
     );
 };
-    

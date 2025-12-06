@@ -89,7 +89,7 @@ export const useGameSettingsStore = create<GameSettingsState>()(
       blockGlowIntensity: 1, 
       gameSpeed: 1.0,
       lockWarning: true,
-      showAi: true,
+      showAi: false, // Default OFF as requested
       das: 133,
       arr: 10,
       cameraShake: true,
@@ -147,7 +147,7 @@ export const useGameSettingsStore = create<GameSettingsState>()(
     }),
     {
       name: 'tetrios-game-settings-store', 
-      version: 14,
+      version: 15,
       storage: createJSONStorage(() => safeStorage),
       partialize: (state) => ({
         ghostStyle: state.ghostStyle,
@@ -195,6 +195,9 @@ export const useGameSettingsStore = create<GameSettingsState>()(
         }
         if (currentVersion < 14) {
             persistedState.touchControlMode = 'HYBRID';
+        }
+        if (currentVersion < 15) {
+            persistedState.showAi = false;
         }
         return persistedState as GameSettingsState;
       },

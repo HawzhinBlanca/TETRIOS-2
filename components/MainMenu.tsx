@@ -22,9 +22,9 @@ const MainMenu = React.forwardRef<HTMLDivElement, MainMenuProps>(({ onStart, onC
     const [selectedDifficulty, setSelectedDifficulty] = useState<Difficulty>('MEDIUM');
     
     const { stats: profileStats } = useProfileStore();
-    const { openSettings, openProfile, openLeaderboard, openHelp } = useModalStore();
+    const { openSettings, openProfile, openLeaderboard } = useModalStore();
     const { isMuted, toggleMute } = useUiStore();
-    const { playUiSelect, playUiClick, playUiHover } = useUiSound();
+    const { playUiSelect, playUiClick } = useUiSound();
 
     const handleStart = () => {
         playUiSelect();
@@ -51,9 +51,15 @@ const MainMenu = React.forwardRef<HTMLDivElement, MainMenuProps>(({ onStart, onC
     const diffConfig = DIFFICULTY_SETTINGS[selectedDifficulty];
     const ActiveIcon = getIcon(activeModeConfig.icon);
 
+    const FOOTER_ACTIONS = [
+        { icon: 'Settings', onClick: openSettings },
+        { icon: 'User', onClick: openProfile },
+        { icon: 'Trophy', onClick: openLeaderboard },
+        { icon: isMuted ? 'VolumeX' : 'Volume2', onClick: toggleMute }
+    ];
+
     return (
         <div ref={ref} className="fixed inset-0 z-50 flex items-center justify-center bg-[#030712] overflow-hidden" role="dialog" aria-modal="true" aria-label="Main Menu">
-            {/* Background Atmosphere */}
             <div className="absolute inset-0 bg-[url('https://www.transparenttextures.com/patterns/cubes.png')] opacity-5 pointer-events-none"></div>
             <div className="absolute inset-0 bg-gradient-to-b from-cyan-900/10 to-purple-900/10 pointer-events-none"></div>
 
@@ -102,17 +108,15 @@ const MainMenu = React.forwardRef<HTMLDivElement, MainMenuProps>(({ onStart, onC
 
                     {/* Footer Nav */}
                     <div className="grid grid-cols-4 gap-2 bg-black/20 p-2 rounded-xl border border-white/5 backdrop-blur-md">
-                        <Button variant="ghost" size="icon" onClick={openSettings} icon={getIcon('Settings')} className="w-full h-10 rounded-lg hover:bg-white/10" />
-                        <Button variant="ghost" size="icon" onClick={openProfile} icon={getIcon('User')} className="w-full h-10 rounded-lg hover:bg-white/10" />
-                        <Button variant="ghost" size="icon" onClick={openLeaderboard} icon={getIcon('Trophy')} className="w-full h-10 rounded-lg hover:bg-white/10" />
-                        <Button variant="ghost" size="icon" onClick={toggleMute} icon={getIcon(isMuted ? 'VolumeX' : 'Volume2')} className="w-full h-10 rounded-lg hover:bg-white/10" />
+                        {FOOTER_ACTIONS.map((action, i) => (
+                            <Button key={i} variant="ghost" size="icon" onClick={action.onClick} icon={getIcon(action.icon)} className="w-full h-10 rounded-lg hover:bg-white/10" />
+                        ))}
                     </div>
                 </div>
 
                 {/* --- Right Column: Active Content --- */}
                 <div className="flex-1 flex flex-col gap-4 order-1 lg:order-2 min-h-min">
                     
-                    {/* Header / Mobile Title */}
                     <div className="lg:hidden flex items-center justify-between mb-2">
                         <div>
                             <h1 className="text-4xl font-black italic tracking-tighter text-white">TETRIOS</h1>
@@ -124,11 +128,9 @@ const MainMenu = React.forwardRef<HTMLDivElement, MainMenuProps>(({ onStart, onC
                     </div>
 
                     <GlassPanel variant="darker" className="flex-1 p-6 md:p-10 flex flex-col justify-between relative overflow-hidden border-white/10 !bg-black/60">
-                        {/* Background Deco */}
                         <ActiveIcon className={`absolute -right-10 -bottom-10 opacity-5 text-white transform rotate-[-15deg] transition-all duration-500`} size={400} />
                         
                         <div className="relative z-10 space-y-6">
-                            {/* Mode Info */}
                             <div>
                                 <div className="flex items-center gap-3 mb-2">
                                     <div className={`px-3 py-1 rounded border ${activeModeConfig.color.replace('text-', 'border-').replace('400', '500/30')} bg-opacity-10 bg-black backdrop-blur-sm text-xs font-bold uppercase tracking-widest`}>
@@ -143,7 +145,6 @@ const MainMenu = React.forwardRef<HTMLDivElement, MainMenuProps>(({ onStart, onC
                                 </p>
                             </div>
 
-                            {/* Resume Button */}
                             {savedGameExists && (
                                 <div className="flex items-center gap-4 p-4 bg-emerald-900/20 border border-emerald-500/30 rounded-xl animate-in slide-in-from-left-4">
                                     <div className="p-2 bg-emerald-500/20 rounded-lg text-emerald-400">
@@ -159,9 +160,7 @@ const MainMenu = React.forwardRef<HTMLDivElement, MainMenuProps>(({ onStart, onC
                                 </div>
                             )}
 
-                            {/* Config Grid */}
                             <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-4 border-t border-white/5">
-                                {/* Difficulty */}
                                 {selectedMode !== 'DAILY' && (
                                     <div className="space-y-2">
                                         <label className="text-[10px] uppercase font-bold text-gray-500 tracking-widest">Difficulty Class</label>
@@ -184,7 +183,6 @@ const MainMenu = React.forwardRef<HTMLDivElement, MainMenuProps>(({ onStart, onC
                                     </div>
                                 )}
 
-                                {/* Level Selector */}
                                 {selectedMode !== 'ADVENTURE' && selectedMode !== 'DAILY' && (
                                     <div className="space-y-2">
                                         <label className="text-[10px] uppercase font-bold text-gray-500 tracking-widest">Entry Level</label>
@@ -198,7 +196,6 @@ const MainMenu = React.forwardRef<HTMLDivElement, MainMenuProps>(({ onStart, onC
                             </div>
                         </div>
 
-                        {/* High Score & Start Action */}
                         <div className="relative z-10 mt-8 pt-6 border-t border-white/10 flex flex-col md:flex-row items-center justify-between gap-6">
                             <div className="flex flex-col items-center md:items-start">
                                 <span className="text-[10px] font-bold uppercase tracking-widest text-gray-500 mb-1">Personal Best</span>
@@ -224,4 +221,3 @@ const MainMenu = React.forwardRef<HTMLDivElement, MainMenuProps>(({ onStart, onC
 });
 
 export default MainMenu;
-    

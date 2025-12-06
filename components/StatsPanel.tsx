@@ -193,8 +193,8 @@ const StatsPanel: React.FC<Props> = React.memo(({
                   {/* Perfect Drop Indicator */}
                   {perfectDropStreak !== undefined && perfectDropStreak > 1 && (
                       <div className="absolute -bottom-2 right-0 flex items-center gap-1 animate-pulse">
-                          <span className="text-[9px] font-black uppercase text-yellow-400 tracking-widest bg-yellow-900/30 px-1.5 py-0.5 rounded border border-yellow-500/30">
-                              Perfect Chain x{perfectDropStreak}
+                          <span className="text-[9px] font-black uppercase text-yellow-400 tracking-widest bg-yellow-900/30 px-1.5 py-0.5 rounded border border-yellow-500/30 shadow-[0_0_10px_gold]">
+                              Rhythm Chain x{perfectDropStreak}
                           </span>
                       </div>
                   )}

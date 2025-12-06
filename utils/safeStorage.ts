@@ -24,7 +24,7 @@ interface StorageEnvelope {
 class DebouncedStorage {
   private memory: Map<string, string>;
   private pendingWrites: Map<string, ReturnType<typeof setTimeout>>;
-  private readonly DEBOUNCE_MS = 1000;
+  private readonly DEBOUNCE_MS = 200; // Reduced to 200ms to minimize data loss on rapid close
   private errorListeners: Set<ErrorCallback> = new Set();
 
   constructor() {
@@ -84,11 +84,17 @@ class DebouncedStorage {
           const raw = this.getItem(key);
           if (!raw) return null;
           
-          const envelope: StorageEnvelope = JSON.parse(raw);
+          let envelope: StorageEnvelope;
+          try {
+              envelope = JSON.parse(raw);
+          } catch {
+              // Legacy fallback: if not envelope, try parsing as raw T
+              return JSON.parse(raw) as T;
+          }
           
           // Legacy support (if no envelope structure yet)
-          if (!envelope.hash || !envelope.data) {
-              return JSON.parse(raw) as T;
+          if (!envelope || typeof envelope !== 'object' || !envelope.hash) {
+              return envelope as unknown as T;
           }
 
           // Verify Checksum
@@ -112,6 +118,8 @@ class DebouncedStorage {
               originalError: e
           });
 
+          // Don't auto-delete on parse error immediately, return null to let app decide,
+          // but memory is already tainted so removeItem is safer to prevent loops.
           this.removeItem(key);
           return null;
       }
@@ -119,13 +127,24 @@ class DebouncedStorage {
 
   setItem(key: string, value: string): void {
       let dataToHash = value;
+      let rawData = value;
+
       try {
-          if (typeof value !== 'string') dataToHash = JSON.stringify(value);
-      } catch (e) {}
+          // If value is a stringified JSON object, we want to store it in the envelope as an object
+          // so JSON.stringify(envelope) is valid.
+          // However, Zustand persist middleware sends a string.
+          // We need to parse it to put it into 'data' so we can hash the structure.
+          const parsed = JSON.parse(value);
+          dataToHash = JSON.stringify(parsed);
+          rawData = parsed;
+      } catch (e) {
+          // It's a simple string
+          dataToHash = value;
+      }
 
       const hash = this.generateChecksum(dataToHash);
       const envelope: StorageEnvelope = {
-          data: JSON.parse(dataToHash), 
+          data: rawData, 
           hash: hash
       };
       
@@ -147,23 +166,26 @@ class DebouncedStorage {
       this.pendingWrites.set(key, timeoutId);
   }
 
+  // Legacy accessor for raw string (mostly used by Zustand middleware internally)
+  // We need to unwrap the envelope for Zustand to read it correctly
   getItemAndUnwrap(key: string): string | null {
       const raw = this.memory.get(key);
       if (!raw) return null;
       
       try {
           const envelope: StorageEnvelope = JSON.parse(raw);
-          if (envelope.hash && envelope.data) {
+          if (envelope && envelope.hash && envelope.data !== undefined) {
               const computed = this.generateChecksum(JSON.stringify(envelope.data));
               if (computed !== envelope.hash) {
                   telemetry.log('WARN', `Hash mismatch for ${key}`, { computed, stored: envelope.hash });
                   return null;
               }
+              // Zustand expects the stringified state
               return JSON.stringify(envelope.data);
           }
           return raw;
       } catch(e) {
-          return null;
+          return raw;
       }
   }
 
@@ -214,7 +236,7 @@ class DebouncedStorage {
       }
   }
 
-  private flushAll() {
+  public flushAll() {
       this.pendingWrites.forEach((timeoutId, key) => {
           clearTimeout(timeoutId);
           const val = this.memory.get(key);
@@ -238,5 +260,6 @@ export const safeStorage = {
     },
     getJson: <T>(key: string) => rawStorage.getJson<T>(key),
     subscribeToErrors: (cb: ErrorCallback) => rawStorage.subscribeToErrors(cb),
-    clear: () => rawStorage.clear()
+    clear: () => rawStorage.clear(),
+    flush: () => rawStorage.flushAll()
 };

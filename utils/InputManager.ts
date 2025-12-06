@@ -37,23 +37,36 @@ export class InputManager {
 
     private isDestroyed: boolean = false;
 
+    // Listener References
+    private boundKeyDown: (e: KeyboardEvent) => void;
+    private boundKeyUp: (e: KeyboardEvent) => void;
+    private boundBlur: () => void;
+    private boundGamepadConnect: (e: GamepadEvent) => void;
+    private boundGamepadDisconnect: (e: GamepadEvent) => void;
+
     constructor(config: InputConfig) {
         this.config = config;
         this.rebuildKeyMap();
+
+        this.boundKeyDown = (e) => this.handleKeyDown(e);
+        this.boundKeyUp = (e) => this.handleKeyUp(e);
+        this.boundBlur = () => this.handleBlur();
+        this.boundGamepadConnect = (e) => {
+            console.log("[Input] Gamepad connected:", e.gamepad.id);
+            this.gamepadIndex = e.gamepad.index;
+        };
+        this.boundGamepadDisconnect = (e) => {
+            if (this.gamepadIndex === e.gamepad.index) {
+                this.gamepadIndex = null;
+            }
+        };
 
         if (typeof window !== 'undefined') {
             window.addEventListener('keydown', this.boundKeyDown);
             window.addEventListener('keyup', this.boundKeyUp);
             window.addEventListener('blur', this.boundBlur);
-            window.addEventListener("gamepadconnected", (e) => {
-                console.log("[Input] Gamepad connected:", e.gamepad.id);
-                this.gamepadIndex = e.gamepad.index;
-            });
-            window.addEventListener("gamepaddisconnected", (e) => {
-                if (this.gamepadIndex === e.gamepad.index) {
-                    this.gamepadIndex = null;
-                }
-            });
+            window.addEventListener("gamepadconnected", this.boundGamepadConnect);
+            window.addEventListener("gamepaddisconnected", this.boundGamepadDisconnect);
         }
     }
 
@@ -86,16 +99,25 @@ export class InputManager {
         this.actionListeners.forEach(listener => listener(action));
     }
 
-    private boundKeyDown = (e: KeyboardEvent) => this.handleKeyDown(e);
-    private boundKeyUp = (e: KeyboardEvent) => this.handleKeyUp(e);
-    private boundBlur = () => this.handleBlur();
+    private shouldIgnoreEvent(e: KeyboardEvent): boolean {
+        // Prevent game inputs if user is typing in a form field
+        const target = e.target as HTMLElement;
+        const tagName = target.tagName.toUpperCase();
+        if (tagName === 'INPUT' || tagName === 'TEXTAREA' || target.isContentEditable) {
+            return true;
+        }
+        return false;
+    }
 
     private handleKeyDown(e: KeyboardEvent): void {
         if (e.repeat) return; 
+        if (this.shouldIgnoreEvent(e)) return;
+
         const key = e.key;
         const action = this.getActionFromKey(key);
         
         if (action) {
+            // Only prevent default if it's a game key to allow browser shortcuts like F12
             if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', ' ', 'Backspace'].includes(key)) {
                 e.preventDefault();
             }
@@ -357,6 +379,8 @@ export class InputManager {
             window.removeEventListener('keydown', this.boundKeyDown);
             window.removeEventListener('keyup', this.boundKeyUp);
             window.removeEventListener('blur', this.boundBlur);
+            window.removeEventListener("gamepadconnected", this.boundGamepadConnect);
+            window.removeEventListener("gamepaddisconnected", this.boundGamepadDisconnect);
         }
     }
 }

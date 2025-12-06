@@ -10,19 +10,34 @@ import { BoosterManager } from './BoosterManager';
 import { FXManager } from './FXManager';
 import { StateSyncManager } from './StateSyncManager';
 import { AbilityManager } from './AbilityManager';
-import { SeededRNG } from './gameUtils';
+import { SeededRNG, getDailySeed } from './gameUtils';
 import { GameMode, Difficulty, AdventureLevelConfig, BoosterType, MoveScore, KeyMap, KeyAction, TetrominoType } from '../types';
 import { safeStorage } from './safeStorage';
 import { STAGE_WIDTH, STAGE_HEIGHT } from '../constants';
 import { createInitialState, gameTick, movePiece, rotatePiece, hardDrop, softDrop, spawnPiece, holdPiece } from '../logic/tetris';
 import { GameState as InternalGameState } from '../types/internal';
 import { telemetry } from './TelemetryManager';
+import { audioManager } from './audioManager';
 
 interface GameCoreConfig {
     keyMap: KeyMap;
     das: number;
     arr: number;
     initialGrid?: { width: number; height: number };
+    // Dependency Injection Overrides (For Testing and Modularity)
+    managers?: {
+        event?: EventManager;
+        state?: GameStateManager;
+        score?: ScoreManager;
+        board?: BoardManager;
+        piece?: PieceManager;
+        input?: InputManager;
+        adventure?: AdventureManager;
+        booster?: BoosterManager;
+        fx?: FXManager;
+        sync?: StateSyncManager;
+        ability?: AbilityManager;
+    };
 }
 
 export class GameCore {
@@ -57,31 +72,35 @@ export class GameCore {
 
     constructor(config: GameCoreConfig) {
         this.grid = config.initialGrid || { width: STAGE_WIDTH, height: STAGE_HEIGHT };
-        this.events = new EventManager();
+        this.events = config.managers?.event || new EventManager();
         this.rng = new SeededRNG(Date.now().toString());
         
         // Initial Dummy State
         this.state = createInitialState(this.rng, undefined, this.grid);
 
-        // Managers
-        this.stateManager = new GameStateManager(this);
-        this.scoreManager = new ScoreManager(this);
-        this.boardManager = new BoardManager(this);
-        this.pieceManager = new PieceManager(this);
-        this.inputManager = new InputManager({
+        // Managers (Use injected or default)
+        this.stateManager = config.managers?.state || new GameStateManager(this);
+        this.scoreManager = config.managers?.score || new ScoreManager(this);
+        this.boardManager = config.managers?.board || new BoardManager(this);
+        this.pieceManager = config.managers?.piece || new PieceManager(this);
+        
+        this.inputManager = config.managers?.input || new InputManager({
             keyMap: config.keyMap,
             das: config.das,
             arr: config.arr,
             flippedGravity: false,
             stageWidth: this.grid.width
         });
+        
+        // Only bind if we created it (or allow rebinding)
+        // Ensure injected input manager also triggers core actions
         this.inputManager.addActionListener(this.handleAction.bind(this));
         
-        this.adventureManager = new AdventureManager(this);
-        this.boosterManager = new BoosterManager(this);
-        this.fxManager = new FXManager(this);
-        this.stateSyncManager = new StateSyncManager(this);
-        this.abilityManager = new AbilityManager(this);
+        this.adventureManager = config.managers?.adventure || new AdventureManager(this);
+        this.boosterManager = config.managers?.booster || new BoosterManager(this);
+        this.fxManager = config.managers?.fx || new FXManager(this);
+        this.stateSyncManager = config.managers?.sync || new StateSyncManager(this);
+        this.abilityManager = config.managers?.ability || new AbilityManager(this);
 
         telemetry.log('INFO', 'GameCore Initialized', { 
             grid: this.grid, 
@@ -106,7 +125,13 @@ export class GameCore {
     ) {
         this.mode = mode;
         this.difficulty = difficulty;
-        this.rng = new SeededRNG(Date.now().toString());
+        
+        // VIRAL HOOK: Daily Mode uses a fixed, global seed.
+        if (mode === 'DAILY') {
+            this.rng = new SeededRNG(getDailySeed());
+        } else {
+            this.rng = new SeededRNG(Date.now().toString());
+        }
         
         telemetry.log('INFO', 'Game Session Started', {
             mode,
@@ -209,6 +234,20 @@ export class GameCore {
             case 'rotateCCW': res = rotatePiece(this.state, -1, this.flippedGravity); break;
             case 'softDrop': res = softDrop(this.state, this.flippedGravity); break;
             case 'hardDrop': 
+                // RHYTHM MECHANIC: Check for Perfect Drop
+                const pulse = audioManager.getPulseFactor();
+                const isPerfect = pulse > 0.8;
+                
+                if (isPerfect) {
+                    this.events.emit('VISUAL_EFFECT', { type: 'SHOCKWAVE', payload: { color: 'gold', size: 300 } });
+                    this.events.emit('AUDIO', { event: 'PERFECT_DROP', val: 1 });
+                    this.addFloatingText("PERFECT DROP", "#fbbf24", 1.0, 'rhythm');
+                    this.scoreManager.stats.perfectDropStreak = (this.scoreManager.stats.perfectDropStreak || 0) + 1;
+                    this.scoreManager.applyScore(50 * this.scoreManager.stats.perfectDropStreak);
+                } else {
+                    this.scoreManager.stats.perfectDropStreak = 0;
+                }
+
                 res = hardDrop(this.state, this.flippedGravity, this.rng); 
                 this.saveHistory(); 
                 break;

@@ -223,7 +223,7 @@ export const workerLogic = () => {
       try {
         const { stage, tetrominoType, flippedGravity, mode, playerMove, id } = e.data; 
         
-        // Bracket access for safety
+        // Bracket access for safety against property renaming during minification
         const tetrominos = CONSTANTS['TETROMINOS'];
         const stageWidth = CONSTANTS['STAGE_WIDTH'];
         const stageHeight = CONSTANTS['STAGE_HEIGHT'];
@@ -275,6 +275,7 @@ export const workerLogic = () => {
 
             if(score > bestScore) {
               bestScore = score;
+              // Pass back rotation index 'r' so renderer can show correct ghost
               bestMove = { x, r, score, y: droppedY, type: tetrominoType };
             }
           }
@@ -305,7 +306,7 @@ export const createAiWorker = (): Worker | null => {
       const worker = new Worker(url);
       return worker;
   } catch (e) {
-      console.warn("[Reliability] Failed to create AI Worker. AI features disabled.", e);
+      console.warn("[Reliability] Failed to create AI Worker. Likely strict CSP blocking Blobs. AI features disabled.", e);
       return null;
   }
 };

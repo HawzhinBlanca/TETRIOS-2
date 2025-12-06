@@ -49,7 +49,8 @@ const Settings: React.FC<SettingsProps> = ({ controls, setKeyBinding, resetContr
         vibrationEnabled, setVibrationEnabled,
         trueRandom, setTrueRandom,
         gridDensity, setGridDensity,
-        swipeSensitivity, setSwipeSensitivity
+        swipeSensitivity, setSwipeSensitivity,
+        showAi, toggleShowAi
     } = useGameSettingsStore();
 
     // UI Settings
@@ -188,18 +189,36 @@ const Settings: React.FC<SettingsProps> = ({ controls, setKeyBinding, resetContr
                             <Slider label="ARR (Auto Repeat Rate)" value={arr} min={0} max={50} step={1} onChange={setArr} unit="ms" />
                             <Slider label="Game Speed (Multiplier)" value={gameSpeed} min={0.5} max={3} step={0.1} onChange={setGameSpeed} unit="x" />
                             
-                            <Button 
-                                variant={trueRandom ? 'neon' : 'secondary'} 
-                                onClick={() => setTrueRandom(!trueRandom)}
-                                className="w-full justify-between group mt-4"
-                                pressed={trueRandom}
-                                icon={getIcon('Dice5')}
-                            >
-                                <span>No Cap Mode (True Random)</span>
-                                <span className={`text-[10px] uppercase font-bold px-2 py-0.5 rounded ${trueRandom ? 'bg-cyan-500/20 text-cyan-300' : 'bg-black/20 text-gray-500'}`}>
-                                    {trueRandom ? 'ON' : 'OFF'}
-                                </span>
-                            </Button>
+                            <div className="grid grid-cols-1 gap-2 mt-4">
+                                <Button 
+                                    variant={trueRandom ? 'neon' : 'secondary'} 
+                                    onClick={() => setTrueRandom(!trueRandom)}
+                                    className="w-full justify-between group"
+                                    pressed={trueRandom}
+                                    icon={getIcon('Dice5')}
+                                >
+                                    <span>No Cap Mode (True Random)</span>
+                                    <span className={`text-[10px] uppercase font-bold px-2 py-0.5 rounded ${trueRandom ? 'bg-cyan-500/20 text-cyan-300' : 'bg-black/20 text-gray-500'}`}>
+                                        {trueRandom ? 'ON' : 'OFF'}
+                                    </span>
+                                </Button>
+
+                                <Button 
+                                    variant={showAi ? 'neon' : 'secondary'} 
+                                    onClick={toggleShowAi}
+                                    className="w-full justify-between group"
+                                    pressed={showAi}
+                                    icon={getIcon('Brain')}
+                                >
+                                    <span className="flex flex-col items-start">
+                                        <span>AI Coach (Gold Ghost)</span>
+                                        <span className="text-[9px] text-gray-500 font-normal normal-case">Shows optimal move with gold outline</span>
+                                    </span>
+                                    <span className={`text-[10px] uppercase font-bold px-2 py-0.5 rounded ${showAi ? 'bg-yellow-500/20 text-yellow-300' : 'bg-black/20 text-gray-500'}`}>
+                                        {showAi ? 'ON' : 'OFF'}
+                                    </span>
+                                </Button>
+                            </div>
                         </div>
                     </div>
                 )}

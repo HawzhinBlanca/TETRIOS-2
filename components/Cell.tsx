@@ -40,23 +40,14 @@ const Cell: React.FC<Props> = ({
   ghostGlowIntensity: propGhostGlow,
   children
 }) => {
-  const { 
-      colorblindMode, 
-      blockGlowIntensity, 
-      blockSkin,
-      storeGhostStyle,
-      storeGhostOpacity,
-      storeGhostThickness,
-      storeGhostGlow
-  } = useGameSettingsStore(state => ({
-      colorblindMode: state.colorblindMode,
-      blockGlowIntensity: state.blockGlowIntensity,
-      blockSkin: state.blockSkin,
-      storeGhostStyle: state.ghostStyle,
-      storeGhostOpacity: state.ghostOpacity,
-      storeGhostThickness: state.ghostOutlineThickness,
-      storeGhostGlow: state.ghostGlowIntensity
-  }));
+  // OPTIMIZATION: Individual selectors prevent re-renders when unrelated settings change
+  const colorblindMode = useGameSettingsStore(state => state.colorblindMode);
+  const blockGlowIntensity = useGameSettingsStore(state => state.blockGlowIntensity);
+  const blockSkin = useGameSettingsStore(state => state.blockSkin);
+  const storeGhostStyle = useGameSettingsStore(state => state.ghostStyle);
+  const storeGhostOpacity = useGameSettingsStore(state => state.ghostOpacity);
+  const storeGhostThickness = useGameSettingsStore(state => state.ghostOutlineThickness);
+  const storeGhostGlow = useGameSettingsStore(state => state.ghostGlowIntensity);
   
   // Use props if provided, else fall back to store settings
   const ghostStyle = propGhostStyle ?? storeGhostStyle;
